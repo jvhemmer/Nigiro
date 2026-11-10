@@ -1,0 +1,83 @@
+"""Portable project archives with original CSV bytes and a versioned recipe."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import platform
+import tempfile
+from dataclasses import asdict
+from pathlib import Path
+from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
+
+import numpy
+import scipy
+
+from .project import Correction, FigureColor, LinearFit, Project, Source
+
+
+OPERATION_TYPES = {
+    "correct_cell": Correction,
+    "linear_fit": LinearFit,
+    "figure_color": FigureColor,
+}
+OPERATION_NAMES = {cls: name for name, cls in OPERATION_TYPES.items()}
+
+
+def save_project(path: Path, project: Project) -> None:
+    project.validate()
+    source = project.source
+    manifest = {
+        "format_version": 1,
+        "source": {
+            "name": source.name,
+            "encoding": source.encoding,
+            "delimiter": source.delimiter,
+            "sha256": hashlib.sha256(source.content).hexdigest(),
+        },
+        "operations": [
+            {"kind": OPERATION_NAMES[type(op)], **asdict(op)}
+            for op in project.operations
+        ],
+        "saved_with": {
+            "python": platform.python_version(),
+            "numpy": numpy.__version__,
+            "scipy": scipy.__version__,
+        },
+    }
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
+        temporary_path = Path(temporary.name)
+    try:
+        with ZipFile(temporary_path, "w", compression=ZIP_DEFLATED) as archive:
+            archive.writestr("manifest.json", json.dumps(manifest, indent=2))
+            archive.writestr("source.csv", source.content)
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def load_project(path: Path) -> Project:
+    try:
+        with ZipFile(path) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+            content = archive.read("source.csv")
+        version = manifest["format_version"]
+        if type(version) is not int or version != 1:
+            raise ValueError("Unsupported Nigiro project format.")
+        metadata = manifest["source"]
+        if hashlib.sha256(content).hexdigest() != metadata["sha256"]:
+            raise ValueError("The embedded source does not match its checksum.")
+        source = Source(metadata["name"], content, metadata["encoding"], metadata["delimiter"])
+        if not isinstance(source.name, str):
+            raise ValueError("Invalid source file name.")
+        operations = []
+        for record in manifest["operations"]:
+            fields = dict(record)
+            cls = OPERATION_TYPES[fields.pop("kind")]
+            operations.append(cls(**fields))
+        project = Project(source, tuple(operations))
+        project.validate()
+        return project
+    except (BadZipFile, LookupError, RuntimeError, TypeError) as exc:
+        raise ValueError("The Nigiro project archive is invalid.") from exc
