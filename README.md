@@ -4,16 +4,12 @@ Nigiro is a free, open-source desktop app for scientific plotting and reproducib
 
 ## Run
 
-Use Python 3.10 or newer. From this directory, create and activate a virtual environment, then install the app.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run these commands from this directory. uv manages the Python 3.10+ project environment and installs dependencies from `uv.lock`.
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-python -m nigiro
+uv sync --locked
+uv run --locked python -m nigiro
 ```
-
-On Windows PowerShell, activate the environment with `.venv\Scripts\Activate.ps1`.
 
 ## Try it
 
@@ -41,7 +37,7 @@ A `.nigiro` file is a ZIP archive with the exact imported CSV bytes and a versio
 ## Tests
 
 ```sh
-python -m unittest discover -s tests -v
+uv run --locked python -m unittest discover -s tests -v
 ```
 
 Licensed under GPL-3.0-or-later. See [LICENSE](LICENSE).
