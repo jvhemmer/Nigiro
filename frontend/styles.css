@@ -253,20 +253,38 @@ button.primary:hover:not(:disabled) { background: #1b4669; }
 .figure-pane, .inspector { height: 100%; overflow: auto; }
 .figure-pane { display: flex; flex-direction: column; }
 .source-pane { height: 100%; min-height: 0; display: flex; flex-direction: column; }
-.source-pane .worksheet { flex: 1; height: auto; }
+.figure-content, .source-content {
+  flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column;
+}
+.figure-content { overflow: auto; }
+.source-content .worksheet { flex: 1; height: auto; }
 .view-picker {
-  display: flex; align-items: center; flex: none; gap: 8px; min-width: 0;
-  padding: 3px 5px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: stretch; flex: none; gap: 5px; min-width: 0;
+  padding-inline: 3px; border-bottom: 1px solid var(--line); background: #edf0f3;
 }
-.view-picker label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
-.view-picker label span { font-size: .84rem; color: var(--muted); }
-.view-picker select {
-  min-width: 0; width: 100%; border: 1px solid #d9dced; border-radius: 2px;
-  padding: 3px 4px; background: white; color: #232b47;
+.view-picker > button { align-self: center; flex: none; }
+.tab-navigation { display: flex; flex: 1; min-width: 0; align-items: stretch; }
+.tab-scroll { flex: none; width: 17px; min-height: 0; padding: 0; border-color: transparent; background: transparent; }
+.view-tabs {
+  display: flex; flex: 1; min-width: 0; gap: 2px; overflow: auto hidden;
+  scrollbar-width: thin; padding-top: 2px;
 }
-@media (max-width: 1000px) {
-  .view-picker { flex-wrap: wrap; }
+.view-tabs button {
+  display: block; flex: none; min-height: 24px; max-width: min(240px, 100%);
+  padding: 2px 7px; overflow: hidden; text-overflow: ellipsis;
+  background: #e5eaf0; border: 1px solid var(--line); border-bottom: 0; border-radius: 2px 2px 0 0;
 }
+.view-tabs button[aria-selected="true"] { color: var(--accent); background: var(--panel); box-shadow: inset 0 2px var(--accent); }
+.view-tabs button[aria-disabled="true"] { cursor: default; }
+.view-tabs button:focus-visible, .source-list button:focus-visible { outline-offset: -2px; }
+.source-list { margin: 0; padding: 2px; height: 100%; overflow: auto; list-style: none; }
+.source-list button {
+  width: 100%; min-height: 22px; justify-content: flex-start; gap: 5px;
+  padding: 2px 4px; background: transparent; border-color: transparent; text-align: left;
+}
+.source-list button[aria-current="true"] { color: var(--accent); background: var(--accent-soft); }
+.source-list svg { flex: none; }
+.source-list span { overflow: hidden; text-overflow: ellipsis; }
 
 .section-header {
   display: flex;

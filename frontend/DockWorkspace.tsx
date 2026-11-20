@@ -19,10 +19,15 @@ export interface DockPanel extends Pick<
 interface DockContext {
   panels: DockPanel[];
   collapse: (id: string) => void;
+  reveal: (id: string) => void;
 }
 
-const Dock = createContext<DockContext>({ panels: [], collapse: () => {} });
+const Dock = createContext<DockContext>({ panels: [], collapse: () => {}, reveal: () => {} });
 const storageKey = "nigiro.dock-layout.v1";
+
+export function useRevealDockPanel() {
+  return useContext(Dock).reveal;
+}
 
 function DockContent({ api }: IDockviewPanelProps) {
   const panel = useContext(Dock).panels.find((item) => item.id === api.id);
@@ -66,8 +71,9 @@ function readLayout(panels: DockPanel[]): SerializedDockview | null {
     const stored = localStorage.getItem(storageKey);
     if (!stored) return null;
     const layout: SerializedDockview = JSON.parse(stored);
-    if (Object.keys(layout.panels).length !== panels.length ||
-        !panels.every(({ id }) => layout.panels[id]?.contentComponent === "dock")) {
+    const entries = Object.entries(layout.panels);
+    if (!entries.length ||
+        !entries.every(([id, panel]) => panel.contentComponent === "dock" && panels.some((item) => item.id === id))) {
       return null;
     }
     return layout;
@@ -110,6 +116,14 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
     if (stored) {
       try {
         api.fromJSON(stored, { reuseExistingPanels: true });
+        for (const { icon: _icon, content: _content, ...options } of panels) {
+          if (api.getPanel(options.id)) continue;
+          const position = options.position;
+          const reference = position && "referencePanel" in position ? position.referencePanel : undefined;
+          const anchor = typeof reference === "string" ? api.getPanel(reference) : undefined;
+          const placement = anchor?.group.api.isVisible ? position : { direction: "left" as const };
+          api.addPanel({ initialWidth: 190, ...options, position: placement, component: "dock", renderer: "always" });
+        }
         if (api.panels.length !== panels.length || panels.some(({ id }) => !api.getPanel(id))) {
           api.fromJSON(defaultLayout.current, { reuseExistingPanels: true });
         }
@@ -168,8 +182,15 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
     syncLayout(api);
   }
 
+  function reveal(id: string) {
+    const panel = api?.getPanel(id);
+    if (!panel) return;
+    if (!panel.group.api.isVisible) restore(id);
+    else if (!panel.api.isActive) panel.api.setActive();
+  }
+
   return (
-    <Dock.Provider value={{ panels, collapse }}>
+    <Dock.Provider value={{ panels, collapse, reveal }}>
       <main className="workspace">
         <aside className="dock-rail" aria-label="Panel sidebar">
           {panels.filter(({ id }) => collapsed.includes(id)).map(({ id, title, icon: Icon }) => (

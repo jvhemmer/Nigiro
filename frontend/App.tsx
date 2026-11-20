@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
-  ChartNoAxesCombined, FileSpreadsheet, History, SlidersHorizontal, Table2,
+  ChartNoAxesCombined, Database, FileSpreadsheet, History, SlidersHorizontal, Table2,
 } from "lucide-react";
-import { DockWorkspace } from "./DockWorkspace";
+import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
 import { ExportDialog } from "./ExportDialog";
 import { FigureSettings } from "./FigureSettings";
 import type { StyleSection } from "./figureStyle";
@@ -12,6 +12,7 @@ import { FigurePlot, type CaptureFigure } from "./FitPlot";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
 import { MenuBar, type MenuRequest } from "./MenuBar";
 import { columnFields, PluginDialog } from "./PluginDialog";
+import { ViewTabs, viewTabId } from "./ViewTabs";
 import { Worksheet } from "./Worksheet";
 import {
   elementNames, formatNumber, plotNames, workspace,
@@ -94,6 +95,7 @@ function FigurePanel({ project, onSelect, onEdit, busy, capture, run }: {
   run: Run;
   capture: Ref<CaptureFigure>;
 }) {
+  const panelId = useId();
   const data = project.figure;
   const summary = Object.entries(data?.summary ?? {});
   const figureId = project.figure_id;
@@ -102,42 +104,40 @@ function FigurePanel({ project, onSelect, onEdit, busy, capture, run }: {
     <div className="figure-pane">
       {project.figures.length > 0 && (
         <div className="view-picker">
-          <label>
-            <span>Figure</span>
-            <select aria-label="Figure" value={figureId ?? ""} disabled={busy}
-              onChange={(event) => void run({ action: "select_figure", figure_id: Number(event.target.value) })}>
-              {project.figures.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
-            </select>
-          </label>
+          <ViewTabs id={panelId} label="Figures" items={project.figures} selected={figureId} busy={busy}
+            onSelect={(id) => { if (id !== null) void run({ action: "select_figure", figure_id: id }); }} />
           {data && <button type="button" disabled={busy} onClick={() => onEdit("figure")}>Figure settings…</button>}
         </div>
       )}
-      {data && figureId !== null ? (
-        <>
-          <FigurePlot
-            key={figureId}
-            capture={capture}
-            data={data}
-            colors={project.colors}
-            style={project.figure_style}
-            revision={figureId}
-            onEdit={onEdit}
-            onSelect={onSelect}
-          />
-          {summary.length > 0 && <dl className="fit-summary">
-            {summary.map(([label, value]) => (
-              <div key={label}><dt>{label}</dt><dd>{typeof value === "number" || value === null ? formatNumber(value) : String(value)}</dd></div>
-            ))}
-          </dl>}
-        </>
-      ) : (
-        <div className="empty-figure">
-          <ChartNoAxesCombined size={36} strokeWidth={1.5} />
-          {project.figure_error
-            ? <p role="alert">{project.figure_error}</p>
-            : <p>Choose a command from <strong>Plot</strong> or <strong>Analysis</strong>.</p>}
-        </div>
-      )}
+      <div className="figure-content" id={panelId} role={figureId !== null ? "tabpanel" : undefined}
+        aria-labelledby={figureId !== null ? viewTabId(panelId, figureId) : undefined}>
+        {data && figureId !== null ? (
+          <>
+            <FigurePlot
+              key={figureId}
+              capture={capture}
+              data={data}
+              colors={project.colors}
+              style={project.figure_style}
+              revision={figureId}
+              onEdit={onEdit}
+              onSelect={onSelect}
+            />
+            {summary.length > 0 && <dl className="fit-summary">
+              {summary.map(([label, value]) => (
+                <div key={label}><dt>{label}</dt><dd>{typeof value === "number" || value === null ? formatNumber(value) : String(value)}</dd></div>
+              ))}
+            </dl>}
+          </>
+        ) : (
+          <div className="empty-figure">
+            <ChartNoAxesCombined size={36} strokeWidth={1.5} />
+            {project.figure_error
+              ? <p role="alert">{project.figure_error}</p>
+              : <p>Choose a command from <strong>Plot</strong> or <strong>Analysis</strong>.</p>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -192,6 +192,46 @@ function AnalysisPanel({ project, busy, run, element, onSelect, onConfigure }: {
   );
 }
 
+function WorksheetPanel({ project, busy, run }: { project: Project; busy: boolean; run: Run }) {
+  const panelId = useId();
+  return (
+    <div className="source-pane">
+      <div className="view-picker">
+        <ViewTabs id={panelId} label="Worksheet sources" items={project.sources} selected={project.source_id}
+          busy={busy} onSelect={(id) => void run({ action: "select_source", source_id: id })} />
+      </div>
+      <div className="source-content" id={panelId} role="tabpanel" aria-labelledby={viewTabId(panelId, project.source_id)}>
+        <Worksheet key={project.source_id ?? "raw"}
+          columns={project.source_table?.columns ?? project.columns}
+          rows={project.source_table?.rows ?? project.rows}
+          originalRows={project.source_id === null ? project.original_rows : undefined}
+          busy={busy}
+          onCorrect={(row, column, value) => void run({ action: "correct", row, column, value })} />
+      </div>
+    </div>
+  );
+}
+
+function SourcesPanel({ project, busy, run }: { project: Project; busy: boolean; run: Run }) {
+  const reveal = useRevealDockPanel();
+  return (
+    <ul className="source-list" aria-label="Project sources">
+      {project.sources.map((source) => (
+        <li key={source.id ?? "raw"}>
+          <button type="button" title={source.name} aria-current={source.id === project.source_id} disabled={busy}
+            onClick={async () => {
+              if (source.id !== project.source_id) await run({ action: "select_source", source_id: source.id });
+              reveal("worksheet");
+            }}>
+            <Table2 size={13} aria-hidden="true" />
+            <span>{source.name}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ProjectEditor({ project, plugins, busy, run, onConfigure, onEdit, capture }: {
   project: Project;
   capture: Ref<CaptureFigure>;
@@ -212,27 +252,13 @@ function ProjectEditor({ project, plugins, busy, run, onConfigure, onEdit, captu
         id: "worksheet", title: "Worksheet", icon: Table2,
         position: { referencePanel: "figure", direction: "left" },
         initialWidth: 320, minimumWidth: 170, minimumHeight: 150,
-        content: (
-          <div className="source-pane">
-            <div className="view-picker">
-              <label>
-                <span>Source</span>
-                <select aria-label="Source" value={project.source_id ?? ""} disabled={busy}
-                  onChange={(event) => void run({ action: "select_source", source_id: event.target.value || null })}>
-                  {project.sources.map((item) => <option value={item.id ?? ""} key={item.id ?? "raw"}>{item.name}</option>)}
-                </select>
-              </label>
-            </div>
-            <Worksheet
-              key={project.source_id ?? "raw"}
-              columns={project.source_table?.columns ?? project.columns}
-              rows={project.source_table?.rows ?? project.rows}
-              originalRows={project.source_id === null ? project.original_rows : undefined}
-              busy={busy}
-              onCorrect={(row, column, value) => void run({ action: "correct", row, column, value })}
-            />
-          </div>
-        ),
+        content: <WorksheetPanel project={project} busy={busy} run={run} />,
+      },
+      {
+        id: "sources", title: "Sources", icon: Database,
+        position: { referencePanel: "worksheet", direction: "above" },
+        initialHeight: 115, minimumWidth: 150, minimumHeight: 65,
+        content: <SourcesPanel project={project} busy={busy} run={run} />,
       },
       {
         id: "history", title: "Recorded steps", icon: History,
