@@ -39,6 +39,14 @@ Find the package in `src-tauri/target/release/bundle/`. The bundle includes the 
 
 The fit excludes rows with a blank X or Y value and reports how many it excluded. Other invalid values produce an error with the row number.
 
+## Arrange panels
+
+Drag a panel tab to the edge of another panel to place them beside or above each other. Drag it onto another tab bar to group the panels. Drag the divider between panels to resize them.
+
+Select the collapse button on the right side of a panel header. Select the panel icon in the left sidebar to restore it.
+
+Nigiro saves the layout on this machine. Use **Reset panel layout** at the bottom of the sidebar to return to the default layout.
+
 ## Project files
 
 A `.nigiro` file is a ZIP archive with the original CSV bytes and a versioned JSON manifest. The manifest stores a checksum, import settings, corrections, fit settings, figure colors, and software versions. Nigiro checks the checksum and replays the operations when it opens a project.

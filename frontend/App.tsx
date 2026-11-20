@@ -3,8 +3,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   ArrowDownToLine, ChartNoAxesCombined, FileSpreadsheet, FolderOpen,
-  History, Save, Upload,
+  History, Save, SlidersHorizontal, Table2, Upload,
 } from "lucide-react";
+import { DockWorkspace } from "./DockWorkspace";
 import { FitPlot } from "./FitPlot";
 import { Worksheet } from "./Worksheet";
 import {
@@ -98,111 +99,146 @@ function ColorField({
   );
 }
 
-function ProjectEditor({ project, busy, run }: { project: Project; busy: boolean; run: Run }) {
-  const [element, setElement] = useState<FigureElement>("fit");
+function FigurePanel({ project, onSelect }: {
+  project: Project;
+  onSelect: (element: FigureElement) => void;
+}) {
   const recipe = [...project.operations].reverse().find((step) => step.kind === "linear_fit");
   const fit = project.fit;
 
   return (
-    <main className="workspace">
-      <aside className="data-pane">
-        <Worksheet
-          columns={project.columns}
-          rows={project.rows}
-          originalRows={project.original_rows}
-          busy={busy}
-          onCorrect={(row, column, value) => void run({ action: "correct", row, column, value })}
-        />
-        <section className="history" aria-labelledby="history-heading">
-          <div className="section-header">
-            <h2 id="history-heading"><History size={16} /> Recorded steps</h2>
-          </div>
-          <ol>
-            <li>Import {project.source_name}</li>
-            {project.operations.map((step, index) => <li key={index}>{stepLabel(step, project.columns)}</li>)}
-          </ol>
-        </section>
-      </aside>
-
-      <section className="figure-pane" aria-labelledby="figure-heading">
-        <div className="section-header">
-          <h2 id="figure-heading">Figure</h2>
-          {fit && <span className="muted">Select a line or point to edit its color</span>}
+    <div className="figure-pane">
+      {fit && recipe ? (
+        <>
+          <p className="figure-hint muted">Select a line or point to edit its color</p>
+          <FitPlot
+            fit={fit}
+            xLabel={project.columns[recipe.x]}
+            yLabel={project.columns[recipe.y]}
+            colors={project.colors}
+            onSelect={onSelect}
+          />
+          <dl className="fit-summary">
+            <div><dt>Slope</dt><dd>{formatNumber(fit.slope)}</dd></div>
+            <div><dt>Intercept</dt><dd>{formatNumber(fit.intercept)}</dd></div>
+            <div><dt>R²</dt><dd>{formatNumber(fit.r_squared)}</dd></div>
+            <div><dt>Observations</dt><dd>{fit.x.length.toLocaleString()}</dd></div>
+            <div><dt>Omitted</dt><dd>{fit.omitted_rows.toLocaleString()}</dd></div>
+          </dl>
+        </>
+      ) : (
+        <div className="empty-figure">
+          <ChartNoAxesCombined size={36} strokeWidth={1.5} />
+          {project.fit_error
+            ? <p role="alert">{project.fit_error}</p>
+            : <p>Choose X and Y columns, then run a linear fit.</p>}
         </div>
-        {fit && recipe ? (
-          <>
-            <FitPlot
-              fit={fit}
-              xLabel={project.columns[recipe.x]}
-              yLabel={project.columns[recipe.y]}
-              colors={project.colors}
-              onSelect={setElement}
-            />
-            <dl className="fit-summary">
-              <div><dt>Slope</dt><dd>{formatNumber(fit.slope)}</dd></div>
-              <div><dt>Intercept</dt><dd>{formatNumber(fit.intercept)}</dd></div>
-              <div><dt>R²</dt><dd>{formatNumber(fit.r_squared)}</dd></div>
-              <div><dt>Observations</dt><dd>{fit.x.length.toLocaleString()}</dd></div>
-              <div><dt>Omitted</dt><dd>{fit.omitted_rows.toLocaleString()}</dd></div>
-            </dl>
-          </>
-        ) : (
-          <div className="empty-figure">
-            <ChartNoAxesCombined size={36} strokeWidth={1.5} />
-            {project.fit_error
-              ? <p role="alert">{project.fit_error}</p>
-              : <p>Choose X and Y columns, then run a linear fit.</p>}
-          </div>
-        )}
-      </section>
+      )}
+    </div>
+  );
+}
 
-      <aside className="inspector" aria-label="Analysis and figure settings">
-        <FitSettings project={project} busy={busy} run={run} />
-        {fit && (
-          <>
-            <section className="element-settings" aria-labelledby="element-heading">
-              <div className="section-header"><h2 id="element-heading">Figure element</h2></div>
-              <div className="element-list">
-                {(["observations", "fit"] as const).map((item) => (
-                  <button
-                    key={item}
-                    aria-pressed={item === element}
-                    onClick={() => setElement(item)}
-                  >
-                    <span
-                      className={item === "fit" ? "swatch line-swatch" : "swatch"}
-                      style={{ backgroundColor: project.colors[item] }}
-                    />
-                    {elementNames[item]}
-                  </button>
-                ))}
-              </div>
-              <ColorField
-                key={`${element}:${project.colors[element]}`}
-                element={element}
-                color={project.colors[element]}
-                busy={busy}
-                run={run}
-              />
-            </section>
-            <section className="export-settings" aria-labelledby="export-heading">
-              <div className="section-header">
-                <h2 id="export-heading"><ArrowDownToLine size={16} /> Export figure</h2>
-              </div>
-              <div className="export-buttons">
-                {(["svg", "pdf"] as const).map((format) => (
-                  <button
-                    key={format}
-                    disabled={busy}
-                    onClick={() => void run({ action: "export", name: projectStem(project), format })}
-                  >{format.toUpperCase()}</button>
-                ))}
-              </div>
-            </section>
-          </>
-        )}
-      </aside>
-    </main>
+function AnalysisPanel({ project, busy, run, element, onSelect }: {
+  project: Project;
+  busy: boolean;
+  run: Run;
+  element: FigureElement;
+  onSelect: (element: FigureElement) => void;
+}) {
+  return (
+    <div className="inspector">
+      <FitSettings project={project} busy={busy} run={run} />
+      {project.fit && (
+        <>
+          <section className="element-settings" aria-labelledby="element-heading">
+            <div className="section-header"><h2 id="element-heading">Figure element</h2></div>
+            <div className="element-list">
+              {(["observations", "fit"] as const).map((item) => (
+                <button
+                  key={item}
+                  aria-pressed={item === element}
+                  onClick={() => onSelect(item)}
+                >
+                  <span
+                    className={item === "fit" ? "swatch line-swatch" : "swatch"}
+                    style={{ backgroundColor: project.colors[item] }}
+                  />
+                  {elementNames[item]}
+                </button>
+              ))}
+            </div>
+            <ColorField
+              key={`${element}:${project.colors[element]}`}
+              element={element}
+              color={project.colors[element]}
+              busy={busy}
+              run={run}
+            />
+          </section>
+          <section className="export-settings" aria-labelledby="export-heading">
+            <div className="section-header">
+              <h2 id="export-heading"><ArrowDownToLine size={16} /> Export figure</h2>
+            </div>
+            <div className="export-buttons">
+              {(["svg", "pdf"] as const).map((format) => (
+                <button
+                  key={format}
+                  disabled={busy}
+                  onClick={() => void run({ action: "export", name: projectStem(project), format })}
+                >{format.toUpperCase()}</button>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProjectEditor({ project, busy, run }: { project: Project; busy: boolean; run: Run }) {
+  const [element, setElement] = useState<FigureElement>("fit");
+  return (
+    <DockWorkspace panels={[
+      {
+        id: "figure", title: "Figure", icon: ChartNoAxesCombined, minimumWidth: 210,
+        content: <FigurePanel project={project} onSelect={setElement} />,
+      },
+      {
+        id: "worksheet", title: "Worksheet", icon: Table2,
+        position: { referencePanel: "figure", direction: "left" },
+        initialWidth: 320, minimumWidth: 170, minimumHeight: 150,
+        content: (
+          <Worksheet
+            columns={project.columns}
+            rows={project.rows}
+            originalRows={project.original_rows}
+            busy={busy}
+            onCorrect={(row, column, value) => void run({ action: "correct", row, column, value })}
+          />
+        ),
+      },
+      {
+        id: "history", title: "Recorded steps", icon: History,
+        position: { referencePanel: "worksheet", direction: "below" },
+        initialHeight: 180, minimumWidth: 150, minimumHeight: 90,
+        content: (
+          <div className="history">
+            <ol>
+              <li>Import {project.source_name}</li>
+              {project.operations.map((step, index) => <li key={index}>{stepLabel(step, project.columns)}</li>)}
+            </ol>
+          </div>
+        ),
+      },
+      {
+        id: "analysis", title: "Analysis", icon: SlidersHorizontal,
+        position: { referencePanel: "figure", direction: "right" },
+        initialWidth: 230, minimumWidth: 186,
+        content: (
+          <AnalysisPanel project={project} busy={busy} run={run} element={element} onSelect={setElement} />
+        ),
+      },
+    ]} />
   );
 }
 

@@ -28,16 +28,13 @@ export function Worksheet({ columns, rows, originalRows, busy, onCorrect }: Work
   }
 
   return (
-    <section className="worksheet" aria-labelledby="worksheet-heading">
-      <div className="section-header">
-        <h2 id="worksheet-heading">Worksheet</h2>
-        <span className="muted">{rows.length.toLocaleString()} rows</span>
-      </div>
+    <div className="worksheet">
       <div className="worksheet-tabs" aria-label="Data views">
         <button aria-pressed={!original} onClick={() => setOriginal(false)}>Working data</button>
         <button aria-pressed={original} onClick={() => setOriginal(true)}>
           <LockKeyhole size={13} /> Original CSV
         </button>
+        <span className="worksheet-count muted">{rows.length.toLocaleString()} rows</span>
       </div>
       <div className="table-scroll">
         <table aria-label={original ? "Original CSV" : "Working worksheet"}>
@@ -109,6 +106,6 @@ export function Worksheet({ columns, rows, originalRows, busy, onCorrect }: Work
           </div>
         )}
       </div>
-    </section>
+    </div>
   );
 }
