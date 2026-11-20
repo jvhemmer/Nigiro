@@ -1,43 +1,57 @@
 # Nigiro
 
-Nigiro is a free, open-source desktop app for scientific plotting and reproducible analysis. The first workflow links a CSV, a working worksheet, a linear fit, and an editable figure.
+Nigiro is a free, open-source desktop app for scientific plotting and reproducible analysis. The editor links a CSV, a worksheet, a linear fit, and a figure.
 
-## Run
+## Run the desktop app in development
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run these commands from this directory. uv manages the Python 3.10+ project environment and installs dependencies from `uv.lock`.
+Install Node.js 22.12 or later, uv, and the Tauri prerequisites for your operating system. See the [uv install guide](https://docs.astral.sh/uv/getting-started/installation/) and [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```sh
-uv sync --locked
-uv run --locked python -m nigiro
+npm ci
+npm run dev
 ```
 
-## Try it
+Tauri opens Nigiro in its own window. The development command builds the Python engine from `uv.lock`.
 
-Save this sample as `trial.csv` and choose **File → Import CSV**.
+## Build a desktop bundle
 
-```csv
-Time,Signal
-0,1
-1,4
-2,5
-3,7
+Run the build on the operating system and architecture you want to package.
+
+```sh
+npm run bundle -- -- --locked
 ```
 
-1. Choose **Time** for X and **Signal** for Y, then run the linear fit.
-2. Click the fitted line to select it, then choose **Change color**. Double-clicking the line opens the color picker directly.
-3. In the **Working worksheet**, double-click the second Signal value and change it from 4 to 3. The slope updates to 2 and the fit keeps its new color. The **Original CSV** tab still shows 4.
-4. Save a `.nigiro` project and reopen it to replay the steps. Use **File → Export Figure** to save SVG or PDF.
+On Debian or Ubuntu, build just the `.deb` package with this command.
 
-This version supports comma-separated UTF-8 files with a header row and one active linear fit per project. The fit omits rows with a blank X or Y value and reports the number omitted. Other invalid X or Y values produce a worksheet row error.
+```sh
+npm run bundle -- --bundles deb -- --locked
+```
+
+Find the package in `src-tauri/target/release/bundle/`. The bundle includes the Python engine and runs offline with the system webview.
+
+## Try the editor
+
+1. Select **Try sample data** or import a comma-separated UTF-8 CSV with a header row.
+2. Choose the X and Y columns and run the linear fit.
+3. Select a point or the fit line, then apply a color in **Figure element**.
+4. Double-click a value in **Working data** and press Enter to apply the edit.
+5. Save the project or export the figure as SVG or PDF.
+
+The fit excludes rows with a blank X or Y value and reports how many it excluded. Other invalid values produce an error with the row number.
 
 ## Project files
 
-A `.nigiro` file is a ZIP archive with the exact imported CSV bytes and a versioned JSON manifest. The manifest records the source checksum, import settings, worksheet corrections, fit settings, figure colors, and software versions at save time. Nigiro verifies the checksum on open and derives the working worksheet and figure from the saved operations. The file is self-contained.
+A `.nigiro` file is a ZIP archive with the original CSV bytes and a versioned JSON manifest. The manifest stores a checksum, import settings, corrections, fit settings, figure colors, and software versions. Nigiro checks the checksum and replays the operations when it opens a project.
 
-## Tests
+## Tests and Qt editor
+
+Use the optional `qt` extra to run the tests for both editors.
 
 ```sh
-uv run --locked python -m unittest discover -s tests -v
+uv run --locked --extra qt python -m unittest discover -s tests -v
+npm run build
 ```
+
+To open the original Qt editor, run `uv run --locked --extra qt python -m nigiro`.
 
 Licensed under GPL-3.0-or-later. See [LICENSE](LICENSE).

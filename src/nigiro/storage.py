@@ -14,7 +14,7 @@ from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 import numpy
 import scipy
 
-from .project import Correction, FigureColor, LinearFit, Project, Source
+from .project import Correction, FigureColor, LinearFit, Operation, Project, Source
 
 
 OPERATION_TYPES = {
@@ -23,6 +23,10 @@ OPERATION_TYPES = {
     "figure_color": FigureColor,
 }
 OPERATION_NAMES = {cls: name for name, cls in OPERATION_TYPES.items()}
+
+
+def operation_record(operation: Operation) -> dict:
+    return {"kind": OPERATION_NAMES[type(operation)], **asdict(operation)}
 
 
 def save_project(path: Path, project: Project) -> None:
@@ -36,10 +40,7 @@ def save_project(path: Path, project: Project) -> None:
             "delimiter": source.delimiter,
             "sha256": hashlib.sha256(source.content).hexdigest(),
         },
-        "operations": [
-            {"kind": OPERATION_NAMES[type(op)], **asdict(op)}
-            for op in project.operations
-        ],
+        "operations": [operation_record(op) for op in project.operations],
         "saved_with": {
             "python": platform.python_version(),
             "numpy": numpy.__version__,

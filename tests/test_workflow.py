@@ -5,11 +5,15 @@ import json
 import os
 import tempfile
 import unittest
+from importlib.util import find_spec
 from pathlib import Path
 from unittest.mock import patch
 from zipfile import ZipFile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+if find_spec("PyQt6") is None:
+    raise unittest.SkipTest("Install the qt extra to test the original editor.")
 
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtGui import QColor
