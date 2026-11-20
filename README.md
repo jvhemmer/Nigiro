@@ -32,7 +32,7 @@ Find the package in `src-tauri/target/release/bundle/`. The bundle includes the 
 ## Try the editor
 
 1. Select **File → Try Sample Data**. To import your own data, select **File → Import CSV**. Use a comma-separated UTF-8 file with a header row.
-2. Choose the X and Y columns in the **Analysis** panel. Select **Analysis → Linear Fit** in the menu bar.
+2. Select **Analysis → Linear Fit**. Choose the X and Y columns, then select **Run analysis**.
 3. Select a point or the fit line, then apply a color in **Figure element**.
 4. Double-click a value in **Working data** and press Enter to apply the edit.
 5. Select **File → Save** to save the project.
@@ -44,6 +44,26 @@ The fit excludes rows with a blank X or Y value and reports how many it excluded
 Select **Plot → Scatter**, **Line**, or **Bar**. Choose one X column and one Y column, then select **Create plot**. Scatter and line plots use numeric X and Y values. Bar plots use the X column as labels.
 
 The new plot becomes the active figure. Nigiro records the plot type and column choices in the project and redraws the figure after worksheet edits.
+
+## Install a plugin
+
+1. Download a Nigiro plugin as a `.py` file. You can try [Scaled XY](examples/plugins/scaled_xy.py).
+2. Select **Plugins → Install Python Plugin**. Select the downloaded file and check the trust prompt.
+3. Open a worksheet. Select the plugin from **Plot** or **Analysis** and set its options.
+
+Linear Fit, Scatter, Line, and Bar ship with Nigiro. Use **Plugin settings** in the **Analysis** panel to edit the current plugin's options. Save the project to record the options and plugin version. Install the same plugin file on another machine to reopen a project that uses it.
+
+## Write a plugin
+
+Use the [Scaled XY example](examples/plugins/scaled_xy.py) as a template. Define a literal `PLUGIN` dictionary at the top of a UTF-8 Python file. Give it an `id`, a `name`, a `version` string, `api: 1`, and a `menu` of `plot` or `analysis`.
+
+Define the plugin's `fields` as a list of controls. Each control has a `key`, `label`, `type`, and `default`. The available types are `column`, `number`, `text`, `boolean`, and `choice`. Number fields accept optional `min` and `max`. Choice fields take a `choices` list with a text `value` and `label` for each choice. Set `distinct_columns` to `True` to require different columns.
+
+Define `run(columns, rows, options)`. Nigiro passes the column names, corrected worksheet rows, and selected options. Column indices start at zero. Return a dictionary with a `traces` list of Plotly trace dictionaries. The desktop renderer supports `scatter`, `bar`, and `pie`. You can also return `layout`, `x_label`, `y_label`, and a `summary` of name-value pairs. Use JSON-compatible values.
+
+Use `elements` to give each trace a style role. Set each role to `"observations"`, `"fit"`, or `None`. Use `residual_panel: True` for a residual panel with traces on `x2` and `y2`. Use `categorical_x: True` for bar positions with labels supplied in `layout.xaxis`. Nigiro applies any plugin layout overrides to its figure layout.
+
+Install plugins as single files. The desktop worker supplies bundled modules such as NumPy and SciPy. A Python export includes the active plugin code and the current figure settings.
 
 ## Edit the figure
 
@@ -82,7 +102,7 @@ Nigiro saves the layout on this machine. Use **Reset panel layout** at the botto
 
 ## Project files
 
-A `.nigiro` file is a ZIP archive with the original CSV bytes and a versioned JSON manifest. The manifest stores a checksum, import settings, corrections, fit settings, figure colors, and software versions. Nigiro checks the checksum and replays the operations when it opens a project.
+A `.nigiro` file is a ZIP archive with the original CSV bytes and a versioned JSON manifest. The manifest records corrections, figure settings, plugin IDs, versions, checksums, and options. Nigiro checks the CSV checksum and replays the operations when it opens a project.
 
 ## Tests and Qt editor
 

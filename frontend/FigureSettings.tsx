@@ -84,9 +84,10 @@ function AxisFields({ style, fallback, categorical, onChange }: {
   </>;
 }
 
-function FigureFields({ style, bar, line, onChange }: {
+function FigureFields({ style, bar, markers, line, onChange }: {
   style: FigureStyle;
   bar: boolean;
+  markers: boolean;
   line: boolean;
   onChange: (style: FigureStyle) => void;
 }) {
@@ -110,8 +111,8 @@ function FigureFields({ style, bar, line, onChange }: {
         ["top_left", "Top left"], ["top_right", "Top right"],
         ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"],
       ]} />
-    {bar ? <NumberField label="Bar width (fraction)" value={style.bar_width} onChange={(value) => set("bar_width", value)} />
-      : <>
+    {bar && <NumberField label="Bar width (fraction)" value={style.bar_width} onChange={(value) => set("bar_width", value)} />}
+    {markers && <>
           <NumberField label="Marker size (px)" value={style.marker_size} onChange={(value) => set("marker_size", value)} />
           <Choice label="Marker shape" value={style.marker_symbol} onChange={(value) => set("marker_symbol", value)}
             options={[
@@ -147,13 +148,15 @@ function figureError(style: FigureStyle) {
   return "";
 }
 
-export function FigureSettings({ initial, defaults, initialSection, labels, fit, bar, line, onClose, onApply }: {
+export function FigureSettings({ initial, defaults, initialSection, labels, fit, categoricalX, bar, markers, line, onClose, onApply }: {
   initial: FigureStyle;
   defaults: FigureStyle;
   initialSection: StyleSection;
   labels: Record<AxisKey, string>;
   fit: boolean;
+  categoricalX: boolean;
   bar: boolean;
+  markers: boolean;
   line: boolean;
   onClose: () => void;
   onApply: (style: FigureStyle) => void;
@@ -197,8 +200,8 @@ export function FigureSettings({ initial, defaults, initialSection, labels, fit,
           </button>
         ))}
       </div>
-      {section === "figure" ? <FigureFields style={style} bar={bar} line={line} onChange={setStyle} />
-        : <AxisFields style={style[section]} fallback={labels[section]} categorical={bar && section === "x"}
+      {section === "figure" ? <FigureFields style={style} bar={bar} markers={markers} line={line} onChange={setStyle} />
+        : <AxisFields style={style[section]} fallback={labels[section]} categorical={categoricalX && section === "x"}
             onChange={(value) => setStyle({ ...style, [section]: value })} />}
       {error && <p className="figure-settings-error" role="alert">{error}</p>}
       <footer>

@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{path::PathBuf, sync::Mutex};
 use tauri::{Manager, WebviewWindow};
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use worker::Worker;
 
 #[derive(Deserialize)]
@@ -21,14 +21,12 @@ enum Action {
         column: usize,
         value: String,
     },
-    Fit {
-        x: usize,
-        y: usize,
-    },
-    Plot {
-        plot_type: String,
-        x: usize,
-        y: usize,
+    InstallPlugin,
+    RunPlugin {
+        plugin_id: String,
+        version: String,
+        checksum: Option<String>,
+        options: Value,
     },
     Color {
         element: String,
@@ -49,7 +47,12 @@ fn request_engine(window: &WebviewWindow, request: &Value) -> Result<Value, Stri
     let engine = window.state::<Engine>();
     let mut engine = engine.lock().map_err(|err| err.to_string())?;
     if engine.is_none() {
-        *engine = Some(Worker::start()?);
+        let plugins = window
+            .path()
+            .app_data_dir()
+            .map_err(|err| err.to_string())?
+            .join("plugins");
+        *engine = Some(Worker::start(&plugins)?);
     }
     engine.as_mut().unwrap().request(request)
 }
@@ -114,10 +117,15 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         Action::Correct { row, column, value } => {
             json!({ "action": "correct", "row": row, "column": column, "value": value })
         }
-        Action::Fit { x, y } => json!({ "action": "fit", "x": x, "y": y }),
-        Action::Plot { plot_type, x, y } => {
-            json!({ "action": "plot", "plot_type": plot_type, "x": x, "y": y })
-        }
+        Action::RunPlugin {
+            plugin_id,
+            version,
+            checksum,
+            options,
+        } => json!({
+            "action": "run_plugin", "plugin_id": plugin_id, "version": version,
+            "checksum": checksum, "options": options
+        }),
         Action::Color { element, color } => {
             json!({ "action": "color", "element": element, "color": color })
         }
@@ -125,6 +133,38 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         Action::Save => json!({ "action": "save" }),
         Action::ImportCsv => return pick_file(window, "import_csv", "Import CSV", "CSV", "csv"),
         Action::Open => return pick_file(window, "open", "Open project", "Nigiro", "nigiro"),
+        Action::InstallPlugin => {
+            let Some(request) = pick_file(
+                window,
+                "install_plugin",
+                "Install Python plugin",
+                "Python",
+                "py",
+            )?
+            else {
+                return Ok(None);
+            };
+            let path = request["path"].as_str().ok_or("Invalid plugin path.")?;
+            let name = std::path::Path::new(path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(path);
+            let message = format!(
+                "Install {name}? A plugin runs Python code with your permissions. Install it only if you trust its author."
+            );
+            let approved = window
+                .dialog()
+                .message(message)
+                .parent(window)
+                .title("Trust Python plugin")
+                .kind(MessageDialogKind::Warning)
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "Install".into(),
+                    "Cancel".into(),
+                ))
+                .blocking_show();
+            return Ok(approved.then_some(request));
+        }
         Action::SaveAs { name } => {
             return save_file(window, "save", "Save project", "Nigiro", &name, "nigiro");
         }

@@ -2,6 +2,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::{
     io::{BufRead, BufReader, Write},
+    path::Path,
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
 
@@ -19,11 +20,12 @@ enum Reply {
 }
 
 impl Worker {
-    pub fn start() -> Result<Self, String> {
+    pub fn start(plugin_dir: &Path) -> Result<Self, String> {
         let path = std::env::current_exe()
             .map_err(|err| err.to_string())?
             .with_file_name(format!("nigiro-engine{}", std::env::consts::EXE_SUFFIX));
         let mut command = Command::new(path);
+        command.env("NIGIRO_PLUGIN_DIR", plugin_dir);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;

@@ -16,7 +16,7 @@ CSV = "Time,Signal µ\r\n0,1\r\n1,4\r\n2,5\r\n3,7\r\n".encode()
 
 
 class DesktopWorkerTest(unittest.TestCase):
-    def run_worker(self, *requests: dict) -> list[dict]:
+    def run_worker(self, *requests: dict, plugins: Path | None = None) -> list[dict]:
         engine = os.environ.get("NIGIRO_TEST_ENGINE")
         command = [engine] if engine else [sys.executable, "-m", "nigiro.desktop"]
         result = subprocess.run(
@@ -25,11 +25,68 @@ class DesktopWorkerTest(unittest.TestCase):
             capture_output=True,
             encoding="utf-8",
             timeout=45,
+            env={**os.environ, "NIGIRO_PLUGIN_DIR": str(plugins)} if plugins else None,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         replies = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertEqual(len(replies), len(requests))
         return replies
+
+    def test_plugin_options_and_code_are_pinned_to_the_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plugins = root / "installed"
+            marker = root / "ran"
+            download = root / "scaled_xy.py"
+            example = Path(__file__).resolve().parents[1] / "examples" / "plugins" / "scaled_xy.py"
+            download.write_text(
+                example.read_text(encoding="utf-8")
+                + f"\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\n",
+                encoding="utf-8",
+            )
+            installed, = self.run_worker({"action": "install_plugin", "path": str(download)}, plugins=plugins)
+            self.assertFalse(marker.exists())
+            (definition,) = [plugin for plugin in installed["state"]["plugins"] if plugin["id"] == "example.scaled_xy"]
+            options = {field["key"]: field["default"] for field in definition["fields"]}
+            request = {
+                "action": "run_plugin", "plugin_id": definition["id"], "version": definition["version"],
+                "checksum": definition["checksum"], "options": options,
+            }
+            saved = root / "saved.nigiro"
+            _, result, rejected, _, after, _ = self.run_worker(
+                {"action": "sample"}, request,
+                {**request, "options": {**options, "factor": "two"}},
+                {"action": "figure_style", "style": {"title": "Scaled result"}},
+                {**request, "options": {**options, "factor": 3}},
+                {"action": "save", "path": str(saved)},
+                plugins=plugins,
+            )
+            self.assertTrue(marker.exists())
+            self.assertEqual(result["state"]["project"]["figure"]["traces"][0]["y"][0], 2)
+            self.assertIn("Y multiplier", rejected["error"])
+            self.assertEqual(after["state"]["project"]["figure_style"]["title"], "Scaled result")
+            self.assertEqual(after["state"]["project"]["figure"]["traces"][0]["y"][0], 3)
+            marker.unlink()
+            download.unlink()
+
+            opened, = self.run_worker({"action": "open", "path": str(saved)}, plugins=root / "empty")
+            self.assertIsNone(opened["state"]["project"]["figure"])
+            self.assertIn("Install the original example.scaled_xy", opened["state"]["project"]["figure_error"])
+            self.assertFalse(marker.exists())
+            with ZipFile(saved) as archive:
+                self.assertEqual(set(archive.namelist()), {"manifest.json", "source.csv"})
+            download.write_text(
+                example.read_text(encoding="utf-8").replace('"version": "1"', '"version": "2"'),
+                encoding="utf-8",
+            )
+            updated, replayed = self.run_worker(
+                {"action": "install_plugin", "path": str(download)},
+                {"action": "open", "path": str(saved)},
+                plugins=plugins,
+            )
+            self.assertEqual(updated["state"]["plugins"][-1]["version"], "2")
+            self.assertEqual(replayed["state"]["project"]["figure"], after["state"]["project"]["figure"])
+            self.assertTrue(marker.exists())
 
     def test_worker_replays_genuine_project_and_exports(self):
         with tempfile.TemporaryDirectory() as directory:

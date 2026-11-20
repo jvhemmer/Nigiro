@@ -29,8 +29,9 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
 from .analysis import run_linear_fit
+from .figure_style import FigureStyle
 from .plotting import draw_fit
-from .project import Correction, FigureColor, LinearFit, Project, Source, Worksheet
+from .project import Correction, FigureColor, LinearFit, Plot, PluginStep, Project, Source, Worksheet
 from .storage import load_project, save_project
 
 
@@ -194,8 +195,14 @@ class MainWindow(QMainWindow):
                 elif isinstance(operation, LinearFit):
                     columns = project.worksheet.columns
                     step = f"Linear fit: {columns[operation.y]} vs {columns[operation.x]}"
-                else:
+                elif isinstance(operation, FigureColor):
                     step = f"Set {operation.element} color to {operation.color}"
+                elif isinstance(operation, FigureStyle):
+                    step = "Change figure settings"
+                elif isinstance(operation, Plot):
+                    step = f"Create {operation.plot_type} plot"
+                elif isinstance(operation, PluginStep):
+                    step = f"Run {operation.plugin_id} {operation.version}"
                 self.history.addItem(step)
             self.history.scrollToBottom()
 

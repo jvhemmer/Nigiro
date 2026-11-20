@@ -11,22 +11,17 @@ import type { StyleSection } from "./figureStyle";
 import { FigurePlot, type CaptureFigure } from "./FitPlot";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
 import { MenuBar, type MenuRequest } from "./MenuBar";
-import { PlotDialog } from "./PlotDialog";
+import { columnFields, PluginDialog } from "./PluginDialog";
 import { Worksheet } from "./Worksheet";
 import {
   elementNames, formatNumber, plotNames, workspace,
-  type FigureElement, type PlotKind, type Project, type RecordedStep, type Request,
+  type FigureElement, type PluginDefinition, type PluginRun, type Project, type RecordedStep, type Request,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<void>;
 
-interface FitColumns {
-  x: number;
-  y: number;
-}
-
-function lastFit(project: Project) {
-  return [...project.operations].reverse().find((step) => step.kind === "linear_fit");
+function matchesPlugin(run: PluginRun, plugin: PluginDefinition) {
+  return run.plugin_id === plugin.id && run.version === plugin.version && run.checksum === plugin.checksum;
 }
 
 function projectStem(project: Project) {
@@ -47,7 +42,7 @@ function confirmDiscard() {
   });
 }
 
-function stepLabel(operation: RecordedStep, columns: string[]) {
+function stepLabel(operation: RecordedStep, columns: string[], plugins: PluginDefinition[]) {
   switch (operation.kind) {
     case "correct_cell":
       return `Set row ${operation.row + 1}, ${columns[operation.column]} to ${JSON.stringify(operation.value)}`;
@@ -55,40 +50,13 @@ function stepLabel(operation: RecordedStep, columns: string[]) {
       return `${plotNames[operation.plot_type]} plot of ${columns[operation.y]} against ${columns[operation.x]}`;
     case "linear_fit":
       return `Fit ${columns[operation.y]} against ${columns[operation.x]}`;
+    case "plugin":
+      return `Run ${plugins.find((plugin) => matchesPlugin(operation, plugin))?.name ?? operation.plugin_id}`;
     case "figure_color":
       return `Change ${elementNames[operation.element].toLowerCase()} color to ${operation.color}`;
     case "figure_style":
       return "Change figure settings";
   }
-}
-
-function FitSettings({ columns, selection, busy, onChange }: {
-  columns: string[];
-  selection: FitColumns;
-  busy: boolean;
-  onChange: (selection: FitColumns) => void;
-}) {
-  const options = columns.map((name, index) => (
-    <option key={index} value={index}>{name || `Column ${index + 1}`}</option>
-  ));
-
-  return (
-    <section className="fit-settings">
-      <div className="section-header"><h2>Linear fit</h2></div>
-      {(["x", "y"] as const).map((axis) => (
-        <label key={axis}>
-          <span>{axis.toUpperCase()} column</span>
-          <select
-            value={selection[axis]}
-            disabled={busy}
-            onChange={(event) => onChange({ ...selection, [axis]: Number(event.target.value) })}
-          >
-            {options}
-          </select>
-        </label>
-      ))}
-    </section>
-  );
 }
 
 function ColorField({
@@ -122,77 +90,68 @@ function FigurePanel({ project, onSelect, onEdit, busy, capture }: {
   busy: boolean;
   capture: Ref<CaptureFigure>;
 }) {
-  const recipe = lastFit(project);
-  const fit = project.fit;
-  const plot = project.plot;
-  const axes = plot ?? recipe;
-  const data = plot ?? fit;
+  const data = project.figure;
+  const summary = Object.entries(data?.summary ?? {});
+  const canColor = data?.elements?.some(Boolean);
   const revision = project.operations.reduce((previous, step, index) =>
-    step.kind === "linear_fit" || step.kind === "plot" ? index : previous, 0);
+    step.kind === "linear_fit" || step.kind === "plot" || step.kind === "plugin" ? index : previous, 0);
 
   return (
     <div className="figure-pane">
-      {data && axes ? (
+      {data ? (
         <>
           <div className="figure-toolbar">
-            <p className="figure-hint muted">Select a line or point to edit its color</p>
+            <p className="figure-hint muted">{canColor ? "Select a line or point to edit its color" : data.definition.name}</p>
             <button type="button" disabled={busy} onClick={() => onEdit("figure")}>Figure settings…</button>
           </div>
           <FigurePlot
             capture={capture}
             data={data}
-            xLabel={project.columns[axes.x]}
-            yLabel={project.columns[axes.y]}
             colors={project.colors}
             style={project.figure_style}
             revision={revision}
             onEdit={onEdit}
             onSelect={onSelect}
           />
-          {fit && <dl className="fit-summary">
-            <div><dt>Slope</dt><dd>{formatNumber(fit.slope)}</dd></div>
-            <div><dt>Intercept</dt><dd>{formatNumber(fit.intercept)}</dd></div>
-            <div><dt>R²</dt><dd>{formatNumber(fit.r_squared)}</dd></div>
-            <div><dt>Observations</dt><dd>{fit.x.length.toLocaleString()}</dd></div>
-            <div><dt>Omitted</dt><dd>{fit.omitted_rows.toLocaleString()}</dd></div>
+          {summary.length > 0 && <dl className="fit-summary">
+            {summary.map(([label, value]) => (
+              <div key={label}><dt>{label}</dt><dd>{typeof value === "number" || value === null ? formatNumber(value) : String(value)}</dd></div>
+            ))}
           </dl>}
-          {plot && <p className="figure-hint muted">{plot.y_values.length} observations · {plot.omitted_rows} omitted</p>}
         </>
       ) : (
         <div className="empty-figure">
           <ChartNoAxesCombined size={36} strokeWidth={1.5} />
-          {project.plot_error || project.fit_error
-            ? <p role="alert">{project.plot_error || project.fit_error}</p>
-            : <p>Choose a plot type from <strong>Plot</strong> to create a figure.</p>}
+          {project.figure_error
+            ? <p role="alert">{project.figure_error}</p>
+            : <p>Choose a command from <strong>Plot</strong> or <strong>Analysis</strong>.</p>}
         </div>
       )}
     </div>
   );
 }
 
-function AnalysisPanel({ project, busy, run, element, onSelect, fitColumns, onFitColumnsChange }: {
+function AnalysisPanel({ project, busy, run, element, onSelect, onConfigure }: {
   project: Project;
   busy: boolean;
   run: Run;
   element: FigureElement;
   onSelect: (element: FigureElement) => void;
-  fitColumns: FitColumns;
-  onFitColumnsChange: (selection: FitColumns) => void;
+  onConfigure?: () => void;
 }) {
-  const selected = project.fit ? element : "observations";
+  const available = (["observations", "fit"] as const).filter((role) => project.figure?.elements?.includes(role));
+  const selected = available.includes(element) ? element : available[0];
   return (
     <div className="inspector">
-      <FitSettings
-        columns={project.columns}
-        selection={fitColumns}
-        busy={busy}
-        onChange={onFitColumnsChange}
-      />
-      {(project.fit || project.plot) && (
+      {project.figure && <section className="fit-settings">
+        <div className="section-header"><h2>{project.figure.definition.name}</h2></div>
+        {onConfigure && <button type="button" disabled={busy} onClick={onConfigure}>Plugin settings…</button>}
+      </section>}
+      {selected && (
         <section className="element-settings" aria-labelledby="element-heading">
           <div className="section-header"><h2 id="element-heading">Figure element</h2></div>
           <div className="element-list">
-            {(["observations", "fit"] as const).filter((item) => item !== "fit" || project.fit).map((item) => (
+            {available.map((item) => (
               <button
                 key={item}
                 aria-pressed={item === selected}
@@ -219,13 +178,13 @@ function AnalysisPanel({ project, busy, run, element, onSelect, fitColumns, onFi
   );
 }
 
-function ProjectEditor({ project, busy, run, fitColumns, onFitColumnsChange, onEdit, capture }: {
+function ProjectEditor({ project, plugins, busy, run, onConfigure, onEdit, capture }: {
   project: Project;
   capture: Ref<CaptureFigure>;
   busy: boolean;
   run: Run;
-  fitColumns: FitColumns;
-  onFitColumnsChange: (selection: FitColumns) => void;
+  plugins: PluginDefinition[];
+  onConfigure?: () => void;
   onEdit: (section: StyleSection) => void;
 }) {
   const [element, setElement] = useState<FigureElement>("fit");
@@ -257,7 +216,7 @@ function ProjectEditor({ project, busy, run, fitColumns, onFitColumnsChange, onE
           <div className="history">
             <ol>
               <li>Import {project.source_name}</li>
-              {project.operations.map((step, index) => <li key={index}>{stepLabel(step, project.columns)}</li>)}
+              {project.operations.map((step, index) => <li key={index}>{stepLabel(step, project.columns, plugins)}</li>)}
             </ol>
           </div>
         ),
@@ -267,7 +226,7 @@ function ProjectEditor({ project, busy, run, fitColumns, onFitColumnsChange, onE
         position: { referencePanel: "figure", direction: "right" },
         initialWidth: 230, minimumWidth: 186,
         content: (
-          <AnalysisPanel {...{ project, busy, run, element, fitColumns, onFitColumnsChange }} onSelect={setElement} />
+          <AnalysisPanel {...{ project, busy, run, element, onConfigure }} onSelect={setElement} />
         ),
       },
     ]} />
@@ -277,8 +236,8 @@ function ProjectEditor({ project, busy, run, fitColumns, onFitColumnsChange, onE
 export function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [projectKey, setProjectKey] = useState(0);
-  const [fitColumns, setFitColumns] = useState<FitColumns>({ x: 0, y: 0 });
-  const [plotDialog, setPlotDialog] = useState<PlotKind | null>(null);
+  const [plugins, setPlugins] = useState<PluginDefinition[]>([]);
+  const [pluginDialog, setPluginDialog] = useState<PluginDefinition | null>(null);
   const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
   const [exportDialog, setExportDialog] = useState<ExportTarget | null>(null);
   const [exportSettings, setExportSettings] = useState<ExportSettings>({ format: "pdf", scale: 3 });
@@ -298,10 +257,7 @@ export function App() {
       if (replace && projectRef.current?.dirty && !await confirmDiscard()) return;
       const response = await workspace(request);
       if (response) {
-        if (response.project && (replace || !projectRef.current)) {
-          const recipe = lastFit(response.project);
-          setFitColumns({ x: recipe?.x ?? 0, y: recipe?.y ?? Math.min(1, response.project.columns.length - 1) });
-        }
+        setPlugins(response.plugins);
         projectRef.current = response.project;
         setProject(response.project);
         if (replace) setProjectKey((key) => key + 1);
@@ -339,9 +295,24 @@ export function App() {
     return () => { void unlisten.then((stop) => stop(), () => {}); };
   }, [run]);
 
-  const exportName = project && (project.fit || project.plot) ? projectStem(project) : null;
-  const currentRecipe = project && (project.plot ?? lastFit(project));
-  const previousPlot = project?.operations.slice().reverse().find((step) => step.kind === "plot");
+  const figure = project?.figure;
+  const exportName = project && figure ? projectStem(project) : null;
+  const editableTraces = figure?.traces.filter((_, index) => figure.elements?.[index]) ?? [];
+  const previous = project?.operations.slice().reverse().find((step) =>
+    step.kind === "plugin" && pluginDialog && matchesPlugin(step, pluginDialog));
+  const initialOptions = figure && pluginDialog && matchesPlugin(figure.recipe, pluginDialog)
+    ? figure.recipe.options : previous?.kind === "plugin" ? previous.options : undefined;
+
+  function pluginCommands(menu: PluginDefinition["menu"]) {
+    return plugins.filter((plugin) => plugin.menu === menu).map((plugin) => {
+      const columns = columnFields(plugin).length;
+      const required = plugin.distinct_columns ? columns : Math.min(columns, 1);
+      return {
+        label: `${plugin.name}…`,
+        request: project && project.columns.length >= required ? { action: "choose_plugin", plugin } as const : null,
+      };
+    });
+  }
 
   async function exportCurrent(target: ExportTarget, settings: ExportSettings) {
     if (!project || !exportName || inFlight.current) return;
@@ -360,19 +331,18 @@ export function App() {
   }
 
   function runMenu(request: MenuRequest) {
-    if (request.action === "choose_plot") setPlotDialog(request.plot_type);
+    if (request.action === "choose_plugin") setPluginDialog(request.plugin);
     else if (request.action === "figure_settings") setFigureDialog("figure");
     else if (request.action === "choose_export") setExportDialog(request.target);
     else void run(request);
   }
-  const canFit = project && fitColumns.x !== fitColumns.y;
 
   return (
     <div className="app">
       <header className="app-bar">
         <div className="brand"><ChartNoAxesCombined size={21} /><span>Nigiro</span></div>
         <MenuBar
-          busy={busy || plotDialog !== null || exportDialog !== null || figureDialog !== null}
+          busy={busy || pluginDialog !== null || exportDialog !== null || figureDialog !== null}
           onRun={runMenu}
           menus={[
             {
@@ -400,16 +370,17 @@ export function App() {
             {
               label: "Plot",
               groups: [
-                (Object.keys(plotNames) as PlotKind[]).map((plot_type) => ({
-                  label: `${plotNames[plot_type]}…`,
-                  request: project && project.columns.length >= 2 ? { action: "choose_plot", plot_type } as const : null,
-                })),
+                pluginCommands("plot"),
                 [{ label: "Figure Settings…", request: exportName ? { action: "figure_settings" } : null }],
               ],
             },
             {
               label: "Analysis",
-              groups: [[{ label: "Linear Fit", request: canFit ? { action: "fit", ...fitColumns } : null }]],
+              groups: [pluginCommands("analysis")],
+            },
+            {
+              label: "Plugins",
+              groups: [[{ label: "Install Python Plugin…", request: { action: "install_plugin" } }]],
             },
           ]}
         />
@@ -423,13 +394,15 @@ export function App() {
           </div>
         )}
       </header>
-      {project && plotDialog && (
-        <PlotDialog kind={plotDialog} columns={project.columns}
-          initialX={previousPlot?.x ?? 0} initialY={previousPlot?.y ?? 1}
-          onClose={() => setPlotDialog(null)}
-          onPlot={(x, y) => {
-            setPlotDialog(null);
-            void run({ action: "plot", plot_type: plotDialog, x, y });
+      {project && pluginDialog && (
+        <PluginDialog plugin={pluginDialog} columns={project.columns} previous={initialOptions}
+          onClose={() => setPluginDialog(null)}
+          onRun={(options) => {
+            setPluginDialog(null);
+            void run({
+              action: "run_plugin", plugin_id: pluginDialog.id, version: pluginDialog.version,
+              checksum: pluginDialog.checksum, options,
+            });
           }}
         />
       )}
@@ -443,15 +416,17 @@ export function App() {
           }}
         />
       )}
-      {project && currentRecipe && figureDialog && (
+      {project && figure && figureDialog && (
         <FigureSettings
           initial={project.figure_style}
           defaults={project.default_figure_style}
           initialSection={figureDialog}
-          labels={{ x: project.columns[currentRecipe.x], y: project.columns[currentRecipe.y], residual: "Residual" }}
-          fit={!!project.fit}
-          bar={project.plot?.plot_type === "bar"}
-          line={!!project.fit || project.plot?.plot_type === "line"}
+          labels={{ x: figure.x_label ?? "", y: figure.y_label ?? "", residual: "Residual" }}
+          fit={!!figure.residual_panel}
+          categoricalX={!!figure.categorical_x}
+          bar={editableTraces.some((trace) => trace.type === "bar")}
+          markers={editableTraces.some((trace) => trace.type === "scatter" && trace.mode?.includes("markers"))}
+          line={editableTraces.some((trace) => trace.type === "scatter" && trace.mode?.includes("lines"))}
           onClose={() => setFigureDialog(null)}
           onApply={(style) => {
             setFigureDialog(null);
@@ -461,8 +436,8 @@ export function App() {
       )}
       {error && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
-        <ProjectEditor key={projectKey} {...{ project, busy, run, fitColumns, capture }}
-          onFitColumnsChange={setFitColumns} onEdit={setFigureDialog} />
+        <ProjectEditor key={projectKey} {...{ project, plugins, busy, run, capture }}
+          onConfigure={figure ? () => setPluginDialog(figure.definition) : undefined} onEdit={setFigureDialog} />
       ) : (
         <main className="welcome">
           <div className="welcome-card">

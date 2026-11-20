@@ -120,12 +120,16 @@ button.primary:hover:not(:disabled) { background: #372aba; }
   inset: calc(100% + 4px) auto auto 0;
   width: max-content;
   min-width: 220px;
+  max-width: 350px;
+  max-height: calc(100dvh - 56px);
+  overflow: auto;
   padding: 5px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
   box-shadow: 0 8px 22px #20244a21;
 }
+.menu-command span { overflow: hidden; text-overflow: ellipsis; }
 .menu-command {
   justify-content: space-between;
   width: 100%;
@@ -385,6 +389,12 @@ td input {
 .settings-dialog::backdrop { background: #19213a55; }
 .settings-dialog h2 { margin-bottom: 16px; font-size: 1.15rem; }
 .settings-dialog .fit-settings { padding: 0; }
+.plugin-fields input:not([type="checkbox"]) {
+  min-width: 0; width: 100%; border: 1px solid #d9dced; border-radius: 6px;
+  padding: 6px 8px; background: white; color: #232b47;
+}
+.plugin-fields input[type="checkbox"] { margin: 0; justify-self: start; }
+.plugin-fields + .muted { margin-top: 10px; }
 .settings-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
 .figure-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-right: 8px; }

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { Data, Layout } from "plotly.js";
 import type { FigureStyle } from "./figureStyle";
 
 export type FigureElement = "fit" | "observations";
@@ -13,29 +14,56 @@ interface PlotRecipe {
   y: number;
 }
 
-export interface Plot extends PlotRecipe {
-  x_values: (number | string)[];
-  y_values: number[];
-  omitted_rows: number;
+export type PluginOptions = Record<string, number | string | boolean>;
+
+export interface PluginField {
+  key: string;
+  label: string;
+  type: "column" | "number" | "text" | "boolean" | "choice";
+  default: PluginOptions[string];
+  min?: number;
+  max?: number;
+  choices?: { value: string; label: string }[];
+}
+
+export interface PluginDefinition {
+  id: string;
+  version: string;
+  checksum: string | null;
+  name: string;
+  menu: "plot" | "analysis";
+  fields: PluginField[];
+  distinct_columns?: boolean;
+}
+
+export interface PluginRun {
+  plugin_id: string;
+  version: string;
+  checksum: string | null;
+  options: PluginOptions;
+}
+
+export interface PluginFigure {
+  definition: PluginDefinition;
+  recipe: PluginRun;
+  source: string | null;
+  traces: Data[];
+  layout?: Partial<Layout>;
+  elements?: (FigureElement | null)[];
+  x_label?: string;
+  y_label?: string;
+  categorical_x?: boolean;
+  residual_panel?: boolean;
+  summary?: Record<string, number | string | boolean | null>;
 }
 
 export type RecordedStep =
   | { kind: "correct_cell"; row: number; column: number; value: string }
   | { kind: "linear_fit"; x: number; y: number; version: number }
   | PlotRecipe
+  | ({ kind: "plugin" } & PluginRun)
   | { kind: "figure_color"; element: FigureElement; color: string }
   | ({ kind: "figure_style" } & FigureStyle);
-
-export interface Fit {
-  slope: number;
-  intercept: number;
-  r_squared: number | null;
-  omitted_rows: number;
-  x: number[];
-  y: number[];
-  fitted: number[];
-  residuals: number[];
-}
 
 export interface Project {
   source_name: string;
@@ -45,10 +73,8 @@ export interface Project {
   rows: string[][];
   original_rows: string[][];
   operations: RecordedStep[];
-  fit: Fit | null;
-  fit_error: string | null;
-  plot: Plot | null;
-  plot_error: string | null;
+  figure: PluginFigure | null;
+  figure_error: string | null;
   colors: Record<FigureElement, string>;
   figure_style: FigureStyle;
   default_figure_style: FigureStyle;
@@ -56,10 +82,9 @@ export interface Project {
 }
 
 export type Request =
-  | { action: "state" | "sample" | "import_csv" | "open" | "save" }
+  | { action: "state" | "sample" | "import_csv" | "open" | "save" | "install_plugin" }
   | { action: "correct"; row: number; column: number; value: string }
-  | { action: "plot"; plot_type: PlotKind; x: number; y: number }
-  | { action: "fit"; x: number; y: number }
+  | ({ action: "run_plugin" } & PluginRun)
   | { action: "color"; element: FigureElement; color: string }
   | { action: "figure_style"; style: FigureStyle }
   | { action: "save_as"; name: string };
@@ -70,7 +95,7 @@ export const elementNames: Record<FigureElement, string> = {
 };
 
 export function workspace(request: Request) {
-  return invoke<{ project: Project | null } | null>("workspace", { request });
+  return invoke<{ project: Project | null; plugins: PluginDefinition[] } | null>("workspace", { request });
 }
 
 export function formatNumber(value: number | null) {

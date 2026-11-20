@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import figureStyle from "../src/nigiro/figure_style.py?raw";
 import model from "../src/nigiro/project.py?raw";
 import analysis from "../src/nigiro/analysis.py?raw";
+import builtinPlugins from "../src/nigiro/builtin_plugins.py?raw";
+import pluginSource from "../src/nigiro/plugin_source.py?raw";
 import figureExport from "../src/nigiro/figure_export.py?raw";
 import replay from "./replay.py?raw";
 import type { CaptureFigure, FigureSnapshot } from "./FitPlot";
@@ -20,11 +22,14 @@ function sourceBody(source: string) {
 }
 
 function script(project: Project, figure: FigureSnapshot, settings: ExportSettings) {
+  const plugin = project.figure;
+  if (!plugin) throw new Error("Create a figure before you export it.");
   const payload = JSON.stringify({
     source_name: project.source_name,
     columns: project.columns,
     rows: project.original_rows,
     operations: project.operations,
+    plugin: { ...plugin.recipe, source: plugin.source },
     figure,
     export_settings: settings,
   }, null, 2);
@@ -48,7 +53,6 @@ from __future__ import annotations
 import argparse
 import json
 from base64 import b64encode
-from html import escape
 
 PAYLOAD = json.loads(r"""
 ${payload}
@@ -57,6 +61,8 @@ ${payload}
 ${sourceBody(figureStyle)}
 ${sourceBody(model).replace(/^from \.figure_style import .*\n/m, "")}
 ${sourceBody(analysis).replace(/^from \.project import .*\n/m, "")}
+${sourceBody(builtinPlugins).replace(/^from \.(analysis|project) import .*\n/gm, "")}
+${sourceBody(pluginSource)}
 ${sourceBody(figureExport)}
 ${replay}
 

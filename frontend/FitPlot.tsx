@@ -1,13 +1,13 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
-import type { Data, PlotData, Layout, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
-import { figureFont, figureLayout, plotText, type FigureStyle, type StyleSection } from "./figureStyle";
-import type { FigureElement, Fit, Plot } from "./workspace";
+import type { Data, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
+import { figureFont, figureLayout, type FigureStyle, type StyleSection } from "./figureStyle";
+import type { FigureElement, PluginFigure } from "./workspace";
 
 type Colors = Record<FigureElement, string>;
 
 export interface FigureSnapshot {
-  traces: Data[];
-  layout: Partial<Layout>;
+  traces: object[];
+  layout: object;
   width: number;
   height: number;
 }
@@ -19,9 +19,7 @@ export interface CaptureFigure {
 
 interface FigurePlotProps {
   capture: Ref<CaptureFigure>;
-  data: Fit | Plot;
-  xLabel: string;
-  yLabel: string;
+  data: PluginFigure;
   colors: Colors;
   style: FigureStyle;
   revision: number;
@@ -29,55 +27,46 @@ interface FigurePlotProps {
   onSelect: (element: FigureElement) => void;
 }
 
-const traces: FigureElement[] = ["observations", "fit", "observations"];
-
-function makeTraces(fit: Fit, colors: Colors, style: FigureStyle): Data[] {
-  // Extra vertices let Plotly detect clicks between observations on a fitted line.
-  const order = fit.x.reduce(({ min, max }, x, index) => ({
-    min: x < fit.x[min] ? index : min,
-    max: x > fit.x[max] ? index : max,
-  }), { min: 0, max: 0 });
-  const fractions = Array.from({ length: 201 }, (_, index) => index / 200);
-  const interpolate = (values: number[]) =>
-    fractions.map((t) => (1 - t) * values[order.min] + t * values[order.max]);
-
-  const marker = { color: colors.observations, size: style.marker_size, symbol: style.marker_symbol };
-  return [
-    { type: "scatter", mode: "markers", name: "Observations", x: fit.x, y: fit.y, marker },
-    {
-      type: "scatter", mode: "lines", name: "Linear fit",
-      x: interpolate(fit.x), y: interpolate(fit.fitted),
-      line: { color: colors.fit, width: style.line_width, dash: style.line_dash },
-      hoverinfo: "none",
-    },
-    {
-      type: "scatter", mode: "markers", name: "Residuals",
-      x: fit.x, y: fit.residuals, xaxis: "x2", yaxis: "y2", marker, showlegend: false,
-    },
-  ];
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function makePlotTraces(plot: Plot, label: string, color: string, style: FigureStyle, barLabels?: string[]): Data[] {
-  const name = plotText(label);
-  return barLabels
-    ? [{
-        type: "bar", name, x: barLabels.map((_, index) => index), y: plot.y_values,
-        marker: { color }, width: style.bar_width, text: barLabels, hoverinfo: "y+text",
-      }]
-    : [{
-        type: "scatter", name, x: plot.x_values, y: plot.y_values,
-        mode: plot.plot_type === "line" ? "lines+markers" : "markers",
-        marker: { color, size: style.marker_size, symbol: style.marker_symbol },
-        line: { color, width: style.line_width, dash: style.line_dash },
-      }];
+function merge<T extends object>(base: T, patch: object): T {
+  return {
+    ...base,
+    ...Object.fromEntries(Object.entries(patch).map(([key, value]) => {
+      const before: unknown = Object.hasOwn(base, key) ? base[key as keyof T] : undefined;
+      return [key, isRecord(before) && isRecord(value) ? merge(before, value) : value];
+    })),
+  };
 }
 
-export function FigurePlot({ capture, data, xLabel, yLabel, colors, style, revision, onEdit, onSelect }: FigurePlotProps) {
+// Keep view changes while the replay script regenerates the plugin data.
+function differences(base: object, current: object): object {
+  return Object.fromEntries(Object.entries(current).flatMap(([key, value]) => {
+    const before: unknown = Object.hasOwn(base, key) ? base[key as keyof typeof base] : undefined;
+    if (isRecord(before) && isRecord(value)) {
+      const nested = differences(before, value);
+      return Object.keys(nested).length ? [[key, nested]] : [];
+    }
+    return JSON.stringify(before) === JSON.stringify(value) ? [] : [[key, value]];
+  }));
+}
+
+function styleTrace(trace: Data, style: FigureStyle, color: string): Data {
+  if (trace.type === "bar") return merge(trace, { marker: { color }, width: style.bar_width });
+  if (trace.type !== "scatter") return trace;
+  const marker = { color, size: style.marker_size, symbol: style.marker_symbol };
+  const line = { color, width: style.line_width, dash: style.line_dash };
+  return merge(trace, { marker, line });
+}
+
+export function FigurePlot({ capture, data, colors, style, revision, onEdit, onSelect }: FigurePlotProps) {
   const container = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
   const plotly = useRef<typeof import("plotly.js-basic-dist-min") | null>(null);
   const rendered = useRef<PlotlyHTMLElement | null>(null);
-  const renderedData = useRef<Fit | Plot | null>(null);
+  const renderedData = useRef<PluginFigure | null>(null);
 
   useImperativeHandle(capture, () => {
     function currentFigure() {
@@ -98,13 +87,8 @@ export function FigurePlot({ capture, data, xLabel, yLabel, colors, style, revis
       },
       snapshot() {
         const { graph, width, height } = currentFigure();
-        const traces = graph.data.map((trace) => {
-          const style = { ...trace } as Partial<PlotData>;
-          delete style.x;
-          delete style.y;
-          return style as Data;
-        });
-        return { traces, layout: graph.layout, width, height };
+        const traces = graph.data.map((trace, index) => differences(data.traces[index] ?? {}, trace));
+        return { traces, layout: differences(data.layout ?? {}, graph.layout), width, height };
       },
     };
   }, [data]);
@@ -128,8 +112,7 @@ export function FigurePlot({ capture, data, xLabel, yLabel, colors, style, revis
     const node = container.current!;
     let active = true;
     let chart: PlotlyHTMLElement | undefined;
-    const plot = "plot_type" in data ? data : null;
-    const elements = plot ? ["observations" as const] : traces;
+    const elements = data.elements ?? [];
     function selectPoint(event: PlotMouseEvent) {
       const element = elements[event.points[0]?.curveNumber];
       if (element) onSelect(element);
@@ -148,11 +131,14 @@ export function FigurePlot({ capture, data, xLabel, yLabel, colors, style, revis
       // The distribution exposes Plotly as its default export in Vite.
       const renderer = library.default ?? library;
       plotly.current = renderer;
-      const barLabels = plot?.plot_type === "bar" ? plot.x_values.map((value) => plotText(String(value))) : undefined;
-      const layout = figureLayout(style, xLabel, yLabel, revision, !plot, barLabels);
-      const series = "plot_type" in data
-        ? makePlotTraces(data, yLabel, colors.observations, style, barLabels)
-        : makeTraces(data, colors, style);
+      const layout = merge(
+        figureLayout(style, data.x_label ?? "", data.y_label ?? "", revision, !!data.residual_panel, !!data.categorical_x),
+        structuredClone(data.layout ?? {}),
+      );
+      const series = structuredClone(data.traces).map((trace, index) => {
+        const element = elements[index];
+        return element ? styleTrace(trace, style, colors[element]) : trace;
+      });
       const next = await renderer.react(node, series, layout, {
         responsive: false,
         displayModeBar: false,
@@ -175,12 +161,12 @@ export function FigurePlot({ capture, data, xLabel, yLabel, colors, style, revis
       chart?.removeAllListeners?.("plotly_click");
       chart?.removeAllListeners?.("plotly_legendclick");
     };
-  }, [data, xLabel, yLabel, colors, style, revision, onSelect]);
+  }, [data, colors, style, revision, onSelect]);
 
   return (
     <div className="chart-panel">
       {error && <p role="alert">Could not draw the figure. {error}</p>}
-      <div className="plot" ref={container} aria-label={"plot_type" in data ? "Worksheet plot" : "Linear fit and residuals"}
+      <div className="plot" ref={container} aria-label={data.definition.name}
         onDoubleClick={(event) => {
           const target = event.target;
           if (!(target instanceof Element)) return;

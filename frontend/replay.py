@@ -7,6 +7,7 @@ def replay_inputs(payload):
         "correct_cell": Correction,
         "linear_fit": LinearFit,
         "plot": Plot,
+        "plugin": PluginStep,
         "figure_color": FigureColor,
         "figure_style": FigureStyle,
     }
@@ -20,36 +21,30 @@ def replay_inputs(payload):
     return project
 
 
-def replay_figure(project, figure):
-    recipe = project.figure
-    traces = figure["traces"]
-    if isinstance(recipe, LinearFit):
-        result = run_linear_fit(project.worksheet, recipe)
-        x = result.x.tolist()
-        y = result.y.tolist()
-        fitted = result.fitted.tolist()
-        first = x.index(min(x))
-        last = x.index(max(x))
+def merge_style(original, changes):
+    merged = original.copy()
+    for key, value in changes.items():
+        before = merged.get(key)
+        merged[key] = merge_style(before, value) if isinstance(before, dict) and isinstance(value, dict) else value
+    return merged
 
-        def interpolate(values):
-            fractions = (i / 200 for i in range(201))
-            return [(1 - t) * values[first] + t * values[last] for t in fractions]
 
-        traces[0].update(x=x, y=y)
-        traces[1].update(x=interpolate(x), y=interpolate(fitted))
-        traces[2].update(x=x, y=result.residuals.tolist())
-    elif isinstance(recipe, Plot):
-        result = run_plot(project.worksheet, recipe)
-        if recipe.plot_type == "bar":
-            positions = list(range(len(result.x)))
-            labels = [escape(str(value), quote=False).replace("\n", "<br>") for value in result.x]
-            traces[0].update(x=positions, y=result.y, text=labels)
-            figure["layout"]["xaxis"].update(tickvals=positions, ticktext=labels)
-        else:
-            traces[0].update(x=result.x, y=result.y)
+def replay_figure(project, figure, plugin):
+    worksheet = project.worksheet
+    args = worksheet.columns, worksheet.rows, plugin["options"].copy()
+    if plugin["source"] is None:
+        manifest, runner = BUILTINS[plugin["plugin_id"]]
+        if manifest["version"] != plugin["version"]:
+            raise ValueError("The bundled plugin version does not match the saved recipe.")
+        result = runner(*args)
     else:
-        raise ValueError("The recipe has no figure.")
-    return figure
+        result = run_plugin_source(plugin["source"], plugin["plugin_id"], *args)
+
+    return {
+        **figure,
+        "traces": [merge_style(trace, style) for trace, style in zip(result["traces"], figure["traces"], strict=True)],
+        "layout": merge_style(result.get("layout", {}), figure["layout"]),
+    }
 
 
 def render_svg(figure, browser_executable, font):
@@ -103,7 +98,7 @@ def main():
         extension = args.format or settings["format"]
         output = Path(__file__).with_suffix(f".{extension}")
 
-    figure = replay_figure(replay_inputs(payload), payload["figure"])
+    figure = replay_figure(replay_inputs(payload), payload["figure"], payload["plugin"])
     font = (Path(get_data_path()) / "fonts" / "ttf" / "DejaVuSans.ttf").read_bytes()
     svg = render_svg(figure, args.browser_executable, font)
     with TemporaryDirectory() as directory:

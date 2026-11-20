@@ -119,8 +119,8 @@ function legendLayout(style: FigureStyle, fit: boolean): Partial<Layout> {
   };
 }
 
-export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string, revision: number, fit: boolean, barLabels?: string[]): Partial<Layout> {
-  const x = axisLayout(style, style.x, xLabel, revision, barLabels !== undefined);
+export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string, revision: number, fit: boolean, categorical = false): Partial<Layout> {
+  const x = axisLayout(style, style.x, xLabel, revision, categorical);
   const y = axisLayout(style, style.y, yLabel, revision);
   const font = style.font_family === figureFont ? figureFont : `"${style.font_family}", "${figureFont}"`;
   const above = style.legend === "above" || (fit && style.legend === "auto");
@@ -143,12 +143,6 @@ export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string,
           xaxis2: { ...x, anchor: "y2" },
           yaxis2: { ...axisLayout(style, style.residual, "Residual", revision), domain: [0, 0.26] },
         }
-      : {
-          xaxis: {
-            ...x,
-            ...(barLabels && { tickmode: "array", tickvals: barLabels.map((_, index) => index), ticktext: barLabels }),
-          },
-          yaxis: y,
-        }),
+      : { xaxis: x, yaxis: y }),
   };
 }

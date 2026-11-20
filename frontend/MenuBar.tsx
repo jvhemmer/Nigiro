@@ -1,9 +1,9 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { ExportTarget } from "./exportFigure";
-import type { PlotKind, Request } from "./workspace";
+import type { PluginDefinition, Request } from "./workspace";
 
 export type MenuRequest = Request
-  | { action: "choose_plot"; plot_type: PlotKind }
+  | { action: "choose_plugin"; plugin: PluginDefinition }
   | { action: "figure_settings" }
   | { action: "choose_export"; target: ExportTarget };
 
@@ -156,14 +156,14 @@ export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
             </button>
             {expanded && (
               <div className="menu-popup" id={menuId} ref={popup} role="menu" aria-labelledby={triggerId}>
-                {groups.map((group, groupIndex) => (
+                {groups.filter((group) => group.length).map((group, groupIndex) => (
                   <Fragment key={group[0].label}>
                     {groupIndex > 0 && <div className="menu-separator" role="separator" />}
-                    {group.map((command) => (
+                    {group.map((command, commandIndex) => (
                       <button
                         className="menu-command"
                         type="button"
-                        key={command.label}
+                        key={`${command.label}:${commandIndex}`}
                         role="menuitem"
                         tabIndex={-1}
                         aria-disabled={busy || !command.request}

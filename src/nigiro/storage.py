@@ -15,13 +15,14 @@ import numpy
 import scipy
 
 from .figure_style import FigureStyle
-from .project import Correction, FigureColor, LinearFit, Operation, Plot, Project, Source
+from .project import Correction, FigureColor, LinearFit, Operation, Plot, PluginStep, Project, Source
 
 
 OPERATION_TYPES = {
     "correct_cell": Correction,
     "linear_fit": LinearFit,
     "plot": Plot,
+    "plugin": PluginStep,
     "figure_color": FigureColor,
     "figure_style": FigureStyle,
 }

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import matplotlib
@@ -14,10 +15,11 @@ import scipy
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
-from nigiro.analysis import FitResult, PlotResult, run_linear_fit, run_plot
+from nigiro.analysis import FitResult, PlotResult
 from nigiro.figure_style import FigureStyle
 from nigiro.plotting import draw_fit, draw_plot
-from nigiro.project import Correction, FigureColor, LinearFit, Plot, Project, Source
+from nigiro.plugin_registry import PluginRegistry, plugin_step
+from nigiro.project import Correction, FigureColor, LinearFit, Plot, PluginStep, Project, Source
 from nigiro.storage import load_project, operation_record, save_project
 
 
@@ -38,8 +40,10 @@ class Workspace:
         self.project: Project | None = None
         self.path: Path | None = None
         self.dirty = False
-        self.fit: FitResult | None = None
-        self.plot: PlotResult | None = None
+        folder = os.environ.get("NIGIRO_PLUGIN_DIR")
+        self.plugins = PluginRegistry(Path(folder) if folder else None)
+        self.figure: dict | None = None
+        self.legacy: dict | None = None
         self.figure_error: str | None = None
 
     def set_project(self, project: Project, path: Path | None) -> None:
@@ -47,7 +51,7 @@ class Workspace:
         try:
             self.render(project)
         except ValueError as exc:
-            self.fit = self.plot = None
+            self.figure = self.legacy = None
             self.figure_error = str(exc)
         self.project = project
         self.path = path
@@ -55,35 +59,26 @@ class Workspace:
 
     def render(self, project: Project) -> None:
         recipe = project.figure
-        fit = plot = None
-        if isinstance(recipe, LinearFit):
-            fit = run_linear_fit(project.worksheet, recipe)
-        elif isinstance(recipe, Plot):
-            plot = run_plot(project.worksheet, recipe)
-        self.fit = fit
-        self.plot = plot
+        figure = legacy = None
+        if recipe is not None:
+            step = plugin_step(recipe)
+            plugin = self.plugins.resolve(step)
+            figure = self.plugins.execute(step, project.worksheet)
+            legacy = figure.pop("legacy", None) if plugin.checksum is None else None
+            figure["recipe"] = asdict(step)
+            figure["definition"] = plugin.definition
+            figure["source"] = plugin.source
+        self.figure = figure
+        self.legacy = legacy
         self.figure_error = None
 
     def snapshot(self) -> dict:
         project = self.project
+        state = {"plugins": self.plugins.catalog(), "project": None}
         if project is None:
-            return {"project": None}
+            return state
 
-        fit = self.fit
-        result = None
-        if fit is not None:
-            result = {
-                "slope": fit.slope,
-                "intercept": fit.intercept,
-                "r_squared": fit.r_squared,
-                "omitted_rows": fit.omitted_rows,
-                "x": fit.x.tolist(),
-                "y": fit.y.tolist(),
-                "fitted": fit.fitted.tolist(),
-                "residuals": fit.residuals.tolist(),
-            }
-
-        return {"project": {
+        state["project"] = {
             "source_name": project.source.name,
             "file_name": self.path.name if self.path else None,
             "dirty": self.dirty,
@@ -91,14 +86,12 @@ class Workspace:
             "rows": project.worksheet.rows,
             "original_rows": project.source.worksheet.rows,
             "operations": [operation_record(op) for op in project.operations],
-            "fit": result,
+            "figure": self.figure,
+            "figure_error": self.figure_error,
+            "fit": self.legacy if isinstance(project.figure, LinearFit) else None,
             "fit_error": self.figure_error if isinstance(project.figure, LinearFit) else None,
-            "plot": {
-                **operation_record(project.figure),
-                "x_values": self.plot.x,
-                "y_values": self.plot.y,
-                "omitted_rows": self.plot.omitted_rows,
-            } if self.plot else None,
+            "plot": {**operation_record(project.figure), **self.legacy}
+            if isinstance(project.figure, Plot) and self.legacy is not None else None,
             "plot_error": self.figure_error if isinstance(project.figure, Plot) else None,
             "colors": project.colors,
             "figure_style": asdict(project.figure_style),
@@ -108,7 +101,8 @@ class Workspace:
                 "numpy": numpy.__version__,
                 "scipy": scipy.__version__,
             },
-        }}
+        }
+        return state
 
     def dispatch(self, request: dict) -> dict:
         match request["action"]:
@@ -122,6 +116,13 @@ class Workspace:
             case "open":
                 path = Path(request["path"])
                 self.set_project(load_project(path), path)
+            case "install_plugin":
+                self.plugins.install(Path(request["path"]))
+                if self.project is not None and self.figure_error is not None:
+                    try:
+                        self.render(self.project)
+                    except ValueError as exc:
+                        self.figure_error = str(exc)
             case "export_rendered":
                 from nigiro.figure_export import write_figure
 
@@ -144,8 +145,12 @@ class Workspace:
                 if project.worksheet.rows[operation.row][operation.column] != operation.value:
                     self.set_project(updated, self.path)
                     self.dirty = True
-            case "fit" | "plot":
-                if request["action"] == "fit":
+            case "run_plugin" | "fit" | "plot":
+                if request["action"] == "run_plugin":
+                    recipe = PluginStep(request["plugin_id"], request["version"], request["checksum"], request["options"])
+                    if project.figure is not None and plugin_step(project.figure).pin == recipe.pin:
+                        recipe = replace(recipe, keep_style=True)
+                elif request["action"] == "fit":
                     recipe = LinearFit(request["x"], request["y"])
                 else:
                     recipe = Plot(request["plot_type"], request["x"], request["y"])
@@ -181,17 +186,22 @@ class Workspace:
         if path.suffix.lower() not in (".svg", ".pdf"):
             raise ValueError("Choose a file name with the .svg or .pdf extension.")
         project = self.project
-        if project is None or (self.fit is None and self.plot is None):
+        if project is None or self.legacy is None:
             raise ValueError("Create a figure before you export it.")
-        recipe = project.figure
+        step = plugin_step(project.figure)
         columns = project.worksheet.columns
         figure = Figure(figsize=(8, 5.5), layout="constrained")
         FigureCanvasAgg(figure)
-        x_label, y_label = columns[recipe.x], columns[recipe.y]
-        if self.plot is not None:
-            draw_plot(figure, recipe.plot_type, self.plot, x_label, y_label, project.colors["observations"])
+        x_label, y_label = columns[step.options["x"]], columns[step.options["y"]]
+        if step.plugin_id == "nigiro.linear_fit":
+            result = FitResult(**{
+                key: numpy.asarray(value) if isinstance(value, list) else value
+                for key, value in self.legacy.items()
+            })
+            draw_fit(figure, result, x_label, y_label, project.colors)
         else:
-            draw_fit(figure, self.fit, x_label, y_label, project.colors)
+            result = PlotResult(self.legacy["x_values"], self.legacy["y_values"], self.legacy["omitted_rows"])
+            draw_plot(figure, step.plugin_id.split(".", 1)[1], result, x_label, y_label, project.colors["observations"])
         figure.savefig(path, format=path.suffix[1:].lower())
 
 

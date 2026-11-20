@@ -103,7 +103,37 @@ class FigureColor:
             raise ValueError("Invalid figure color.")
 
 
-Operation = Correction | LinearFit | Plot | FigureColor | FigureStyle
+@dataclass(frozen=True)
+class PluginStep:
+    plugin_id: str
+    version: str
+    checksum: str | None
+    options: dict[str, str | int | float | bool]
+    keep_style: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.plugin_id, str) or not self.plugin_id or not isinstance(self.version, str) or not self.version:
+            raise ValueError("Invalid plugin record.")
+        if self.checksum is not None and not (
+            isinstance(self.checksum, str) and re.fullmatch(r"[0-9a-f]{64}", self.checksum)
+        ):
+            raise ValueError("Invalid plugin checksum.")
+        if type(self.keep_style) is not bool:
+            raise ValueError("Invalid plugin style setting.")
+        if not isinstance(self.options, dict) or any(
+            not isinstance(key, str) or type(value) not in (str, int, float, bool)
+            or (isinstance(value, float) and not math.isfinite(value))
+            for key, value in self.options.items()
+        ):
+            raise ValueError("Invalid saved plugin options.")
+        object.__setattr__(self, "options", self.options.copy())
+
+    @property
+    def pin(self) -> tuple[str, str, str | None]:
+        return self.plugin_id, self.version, self.checksum
+
+
+Operation = Correction | LinearFit | Plot | PluginStep | FigureColor | FigureStyle
 
 
 @dataclass(frozen=True)
@@ -130,15 +160,17 @@ class Project:
                 raise ValueError("Plot refers to a missing worksheet column.")
 
     @cached_property
-    def figure(self) -> LinearFit | Plot | None:
-        return next((op for op in reversed(self.operations) if isinstance(op, (LinearFit, Plot))), None)
+    def figure(self) -> LinearFit | Plot | PluginStep | None:
+        return next((op for op in reversed(self.operations) if isinstance(op, (LinearFit, Plot, PluginStep))), None)
 
     @cached_property
     def figure_style(self) -> FigureStyle:
         for operation in reversed(self.operations):
             if isinstance(operation, FigureStyle):
                 return operation
-            if isinstance(operation, (LinearFit, Plot)):
+            if isinstance(operation, PluginStep) and operation.keep_style:
+                continue
+            if isinstance(operation, (LinearFit, Plot, PluginStep)):
                 break
         return FigureStyle()
 
@@ -162,7 +194,14 @@ class Project:
 
     @cached_property
     def fit(self) -> LinearFit | None:
-        return next((op for op in reversed(self.operations) if isinstance(op, LinearFit)), None)
+        for operation in reversed(self.operations):
+            if isinstance(operation, LinearFit):
+                return operation
+            if isinstance(operation, PluginStep) and operation.pin == ("nigiro.linear_fit", "1", None):
+                x, y = operation.options.get("x"), operation.options.get("y")
+                if type(x) is int and type(y) is int and 0 <= min(x, y) <= max(x, y) < len(self.worksheet.columns):
+                    return LinearFit(x, y)
+        return None
 
     @cached_property
     def colors(self) -> dict[str, str]:
