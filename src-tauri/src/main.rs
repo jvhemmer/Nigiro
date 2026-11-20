@@ -35,6 +35,10 @@ enum Action {
     SelectFigure {
         figure_id: usize,
     },
+    EditItem {
+        item: Value,
+        name: Value,
+    },
     Color {
         element: String,
         color: String,
@@ -141,6 +145,9 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         }
         Action::SelectFigure { figure_id } => {
             json!({ "action": "select_figure", "figure_id": figure_id })
+        }
+        Action::EditItem { item, name } => {
+            json!({ "action": "edit_item", "item": item, "name": name })
         }
         Action::Color {
             element,

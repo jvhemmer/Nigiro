@@ -68,9 +68,9 @@ export function ContextMenu({ menu, onClose, onRun }: {
       {menu.groups.map((group, index) => (
         <Fragment key={index}>
           {index > 0 && <div className="menu-separator" role="separator" />}
-          {group.map(({ label, request }, position) => (
+          {group.map(({ label, request, disabledReason }, position) => (
             <button className="menu-command" type="button" role="menuitem" tabIndex={-1}
-              key={`${label}-${position}`} aria-disabled={!request} onClick={() => {
+              key={`${label}-${position}`} aria-disabled={!request} title={disabledReason} onClick={() => {
                 if (!request) return;
                 close();
                 onRun(request);

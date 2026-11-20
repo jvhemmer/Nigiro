@@ -67,7 +67,12 @@ export type RecordedStep =
   | { kind: "figure_color"; element: FigureElement; color: string }
   | ({ kind: "figure_style" } & FigureStyle)
   | { kind: "figure_appearance"; figure_id: number; style: FigureStyle }
-  | { kind: "residual_figure"; fit_id: number };
+  | { kind: "residual_figure"; fit_id: number }
+  | { kind: "item_edit"; target: WorkspaceItem["kind"]; item_id: WorkspaceItem["id"]; name: string | null };
+
+export type WorkspaceItem =
+  | { kind: "source"; id: string | null }
+  | { kind: "figure"; id: number };
 
 export interface SourceTable {
   name: string;
@@ -103,6 +108,7 @@ export type Request =
   | ({ action: "run_plugin"; figure_id?: number } & PluginRun)
   | { action: "select_source"; source_id: string | null }
   | { action: "select_figure"; figure_id: number }
+  | { action: "edit_item"; item: WorkspaceItem; name: string | null }
   | { action: "color"; element: FigureElement; color: string; figure_id: number }
   | { action: "figure_style"; style: FigureStyle; figure_id: number }
   | { action: "save_as"; name: string };

@@ -1,17 +1,20 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { ExportTarget } from "./exportFigure";
+import type { ItemAction } from "./ItemDialog";
 import type { PluginDefinition, Request } from "./workspace";
 
 export type MenuRequest = Request
   | { action: "choose_plugin"; plugin: PluginDefinition }
   | { action: "figure_settings" }
-  | { action: "choose_export"; target: ExportTarget };
+  | { action: "choose_export"; target: ExportTarget }
+  | { action: "manage_item"; change: ItemAction };
 
 export interface MenuCommand {
   label: string;
   request: MenuRequest | null;
   shortcut?: string;
+  disabledReason?: string;
 }
 
 interface Menu {

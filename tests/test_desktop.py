@@ -247,6 +247,56 @@ class DesktopWorkerTest(unittest.TestCase):
                 ["Linear Fit 2", "Residuals · Linear Fit 2"],
             )
 
+    def test_item_edits_keep_raw_data_and_analysis_dependencies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "edited.nigiro"
+
+            def edit(kind, item_id, name):
+                return {"action": "edit_item", "item": {"kind": kind, "id": item_id}, "name": name}
+
+            _, original, _, _, derived, renamed, _, raw_rejected, removed_source, removed_figure, _, _ = self.run_worker(
+                {"action": "sample"},
+                {
+                    "action": "run_plugin", "plugin_id": "nigiro.linear_fit", "version": "1",
+                    "checksum": None, "options": {"x": 0, "y": 1},
+                },
+                edit("source", None, "Measurements"),
+                {"action": "select_source", "source_id": "0:fitted"},
+                {
+                    "action": "run_plugin", "plugin_id": "nigiro.line", "version": "1",
+                    "checksum": None, "options": {"x": 0, "y": 2},
+                },
+                edit("figure", 0, "Calibration"),
+                edit("source", "0:coefficients", "Parameters"),
+                edit("source", None, None),
+                edit("source", "0:fitted", None),
+                edit("figure", 0, None),
+                {"action": "select_figure", "figure_id": 0},
+                {"action": "save", "path": str(path)},
+            )
+            original, derived, renamed, removed_source, removed_figure = (
+                reply["state"]["project"] for reply in (original, derived, renamed, removed_source, removed_figure)
+            )
+            self.assertIn("imported source", raw_rejected["error"])
+            self.assertEqual(renamed["figure_id"], derived["figure_id"])
+            self.assertEqual(renamed["figures"][0]["name"], "Calibration")
+            self.assertIsNone(removed_source["source_id"])
+            self.assertEqual(removed_figure["figures"][0]["name"], "Residuals · Calibration")
+            self.assertEqual(removed_figure["figure"]["traces"], derived["figure"]["traces"])
+            self.assertEqual([item["name"] for item in removed_figure["sources"]], ["Measurements", "Parameters"])
+            self.assertEqual(removed_figure["original_rows"], original["original_rows"])
+            self.assertEqual(load_project(path).source.name, original["source_name"])
+
+            reopened, unavailable, residual = self.run_worker(
+                {"action": "open", "path": str(path)},
+                {"action": "select_source", "source_id": "0:fitted"},
+                edit("figure", derived["figure_id"], None),
+            )
+            self.assertEqual(reopened["state"]["project"]["figure"]["traces"], derived["figure"]["traces"])
+            self.assertIn("available source", unavailable["error"])
+            self.assertEqual(residual["state"]["project"]["figure_id"], 1)
+            self.assertEqual(residual["state"]["project"]["figure"]["part"], "residual")
+
     def test_plot_replays_selected_columns_after_worksheet_edits(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "measurements.csv"

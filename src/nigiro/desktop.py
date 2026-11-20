@@ -21,8 +21,8 @@ from nigiro.figure_style import AxisStyle, FigureStyle
 from nigiro.plotting import draw_fit, draw_plot
 from nigiro.plugin_registry import PluginRegistry, plugin_step
 from nigiro.project import (
-    Correction, FigureAppearance, FigureColor, FigureRecord, LinearFit, Plot, PluginStep, Project, ResidualFigure,
-    Source, Worksheet,
+    Correction, FigureAppearance, FigureColor, FigureRecord, ItemEdit, LinearFit, Plot, PluginStep, Project,
+    ResidualFigure, Source, Worksheet,
 )
 from nigiro.source_tables import SourceTable, output_tables, source_origin
 from nigiro.storage import load_project, operation_record, save_project
@@ -136,7 +136,6 @@ class Workspace:
         legacy = result.legacy if result else None
         figure_error = result.error if result else None
         recipe = record.recipe if record else None
-        figures = []
         names = {}
         counts: dict[str, int] = {}
         for figure_id, entry in project.figures.items():
@@ -149,7 +148,7 @@ class Workspace:
                 number = counts.get(step.plugin_id, 0) + 1
                 counts[step.plugin_id] = number
                 names[figure_id] = f"{label} {number}"
-            figures.append({"id": figure_id, "name": names[figure_id]})
+            names[figure_id] = project.item_names.get(("figure", figure_id), names[figure_id])
         selected_table = self.sources.get(self.source_id)
         figure_input = self.sources.get(getattr(recipe, "source_id", None))
         state["project"] = {
@@ -160,12 +159,12 @@ class Workspace:
             "rows": project.worksheet.rows,
             "original_rows": project.source.worksheet.rows,
             "operations": [operation_record(op) for op in project.operations],
-            "figures": figures,
+            "figures": [{"id": key, "name": names[key]} for key in project.visible_figures],
             "figure_id": self.figure_id,
             "figure_input": asdict(figure_input) if figure_input else None,
-            "sources": [{"id": None, "name": project.source.name}] + [
-                {"id": key, "name": f"{names[source_origin(key)]} · {table.name}"}
-                for key, table in self.sources.items()
+            "sources": [{"id": None, "name": project.item_names.get(("source", None), project.source.name)}] + [
+                {"id": key, "name": project.item_names.get(("source", key), f"{names[source_origin(key)]} · {table.name}")}
+                for key, table in self.sources.items() if not project.item_deleted("source", key)
             ],
             "source_id": self.source_id,
             "source_table": asdict(selected_table) if selected_table else None,
@@ -222,14 +221,32 @@ class Workspace:
         match request["action"]:
             case "select_source":
                 source_id = request["source_id"]
-                if source_id is not None and source_id not in self.sources:
+                if source_id is not None and (source_id not in self.sources or project.item_deleted("source", source_id)):
                     raise ValueError("Select an available source.")
                 self.source_id = source_id
             case "select_figure":
                 figure_id = request["figure_id"]
-                if type(figure_id) is not int or figure_id not in project.figures:
+                if type(figure_id) is not int or figure_id not in project.visible_figures:
                     raise ValueError("Select an available figure.")
                 self.figure_id = figure_id
+            case "edit_item":
+                item = request["item"]
+                operation = ItemEdit(item["kind"], item["id"], request["name"])
+                key = (operation.target, operation.item_id)
+                if operation.target == "figure" and operation.item_id not in project.visible_figures:
+                    raise ValueError("Select an available figure.")
+                if operation.target == "source" and operation.item_id is not None and (
+                    operation.item_id not in self.sources or project.item_deleted(*key)
+                ):
+                    raise ValueError("Select an available source.")
+                if key in project.item_edits and project.item_edits[key] == operation.name:
+                    return
+                self.project = updated = project.apply(operation)
+                if self.figure_id not in updated.visible_figures:
+                    self.figure_id = updated.last_figure_id
+                if updated.item_deleted("source", self.source_id):
+                    self.source_id = None
+                self.dirty = True
             case "correct":
                 if self.source_id is not None:
                     raise ValueError("Select the imported source to correct its worksheet.")
@@ -246,7 +263,7 @@ class Workspace:
                     target = request.get("figure_id")
                     source_id = self.source_id
                     if target is not None:
-                        if type(target) is not int or target not in project.figures:
+                        if type(target) is not int or target not in project.visible_figures:
                             raise ValueError("Select an available figure.")
                         selection = target
                         entry = project.figures[target]
@@ -274,7 +291,7 @@ class Workspace:
                 self.dirty = True
             case "color" | "figure_style":
                 figure_id = request.get("figure_id", self.figure_id)
-                if type(figure_id) is not int or figure_id not in project.figures:
+                if type(figure_id) is not int or figure_id not in project.visible_figures:
                     raise ValueError("Select a figure first.")
                 record = project.figures[figure_id]
                 if request["action"] == "color":

@@ -1,9 +1,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import type { WorkspaceItem } from "./workspace";
 
-export function ViewTabs<T extends string | number | null>({ id, label, items, selected, busy, onSelect }: {
+export function ViewTabs<T extends string | number | null>({ id, label, kind, items, selected, busy, onSelect }: {
   id: string;
   label: string;
+  kind: WorkspaceItem["kind"];
   items: { id: T; name: string }[];
   selected: T;
   busy: boolean;
@@ -12,10 +14,11 @@ export function ViewTabs<T extends string | number | null>({ id, label, items, s
   const strip = useRef<HTMLDivElement>(null);
   const [overflow, setOverflow] = useState(false);
   const index = items.findIndex((item) => item.id === selected);
+  const selectedName = items[index]?.name;
 
   useLayoutEffect(() => {
     strip.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [index, items.length, overflow]);
+  }, [index, items.length, overflow, selectedName]);
 
   useLayoutEffect(() => {
     const element = strip.current;
@@ -32,6 +35,7 @@ export function ViewTabs<T extends string | number | null>({ id, label, items, s
     };
     const observer = new ResizeObserver(measure);
     observer.observe(element);
+    element.querySelectorAll("button").forEach((tab) => observer.observe(tab));
     element.addEventListener("wheel", onWheel, { passive: false });
     measure();
     return () => {
@@ -55,6 +59,7 @@ export function ViewTabs<T extends string | number | null>({ id, label, items, s
       <div className="view-tabs" ref={strip} role="tablist" aria-label={label}>
         {items.map((item, position) => (
           <button key={item.id ?? "raw"} id={viewTabId(id, item.id)} type="button" role="tab"
+            data-item-kind={kind} data-item-id={item.id ?? ""}
             aria-selected={position === index} aria-controls={id} aria-disabled={busy}
             tabIndex={position === Math.max(0, index) ? 0 : -1} title={item.name}
             onClick={() => { if (!busy && item.id !== selected) onSelect(item.id); }}

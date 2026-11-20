@@ -31,7 +31,10 @@ from matplotlib.figure import Figure
 from .analysis import run_linear_fit
 from .figure_style import FigureStyle
 from .plotting import draw_fit
-from .project import Correction, FigureAppearance, FigureColor, LinearFit, Plot, PluginStep, Project, ResidualFigure, Source, Worksheet
+from .project import (
+    Correction, FigureAppearance, FigureColor, ItemEdit, LinearFit, Plot, PluginStep, Project, ResidualFigure,
+    Source, Worksheet,
+)
 from .storage import load_project, save_project
 
 
@@ -205,6 +208,11 @@ class MainWindow(QMainWindow):
                     step = f"Run {operation.plugin_id} {operation.version}"
                 elif isinstance(operation, ResidualFigure):
                     step = "Create residual figure"
+                elif isinstance(operation, ItemEdit):
+                    step = (
+                        f"Delete {operation.target}" if operation.name is None
+                        else f"Rename {operation.target} to {operation.name}"
+                    )
                 self.history.addItem(step)
             self.history.scrollToBottom()
 

@@ -169,7 +169,30 @@ class ResidualFigure:
             raise ValueError("Invalid fit figure reference.")
 
 
-Operation = Correction | FigureRecipe | FigureColor | FigureStyle | FigureAppearance | ResidualFigure
+@dataclass(frozen=True)
+class ItemEdit:
+    target: Literal["source", "figure"]
+    item_id: str | int | None
+    name: str | None
+
+    def __post_init__(self) -> None:
+        if self.target == "figure":
+            if type(self.item_id) is not int or self.item_id < 0:
+                raise ValueError("Invalid figure reference.")
+        elif self.target == "source":
+            if self.item_id is not None:
+                source_origin(self.item_id)
+            elif self.name is None:
+                raise ValueError("The imported source is required for this project.")
+        else:
+            raise ValueError("Invalid project item type.")
+        if self.name is not None:
+            if not isinstance(self.name, str) or not self.name.strip():
+                raise ValueError("Enter a name.")
+            object.__setattr__(self, "name", self.name.strip())
+
+
+Operation = Correction | FigureRecipe | FigureColor | FigureStyle | FigureAppearance | ResidualFigure | ItemEdit
 DEFAULT_COLORS = {"observations": "#245e9b", "fit": "#be481f"}
 
 
@@ -209,6 +232,30 @@ class Project:
         for key in self.saved_sources:
             if source_origin(key) not in figures:
                 raise ValueError("A saved source refers to a missing figure.")
+        for target, item_id in self.item_edits:
+            if target == "figure" and item_id not in figures:
+                raise ValueError("A recorded edit refers to a missing figure.")
+            if target == "source" and item_id is not None and source_origin(item_id) not in figures:
+                raise ValueError("A recorded edit refers to a missing source.")
+
+    @cached_property
+    def item_edits(self) -> dict[tuple[str, str | int | None], str | None]:
+        return {(op.target, op.item_id): op.name for op in self.operations if isinstance(op, ItemEdit)}
+
+    @cached_property
+    def item_names(self) -> dict[tuple[str, str | int | None], str]:
+        return {
+            (op.target, op.item_id): op.name
+            for op in self.operations if isinstance(op, ItemEdit) and op.name is not None
+        }
+
+    def item_deleted(self, target: str, item_id: str | int | None) -> bool:
+        key = (target, item_id)
+        return key in self.item_edits and self.item_edits[key] is None
+
+    @cached_property
+    def visible_figures(self) -> dict[int, FigureRecord]:
+        return {key: figure for key, figure in self.figures.items() if not self.item_deleted("figure", key)}
 
     @cached_property
     def figures(self) -> dict[int, FigureRecord]:
@@ -264,18 +311,20 @@ class Project:
 
     @property
     def last_figure_id(self) -> int | None:
-        figure_id = next(reversed(self.figures), None)
-        if figure_id is not None and self.figures[figure_id].fit_id is not None:
-            return self.figures[figure_id].fit_id
+        figure_id = next(reversed(self.visible_figures), None)
+        if figure_id is not None:
+            fit_id = self.visible_figures[figure_id].fit_id
+            if fit_id in self.visible_figures:
+                return fit_id
         return figure_id
 
     @property
     def figure(self) -> FigureRecipe | None:
-        return self.figures[self.last_figure_id].recipe if self.figures else None
+        return self.figures[self.last_figure_id].recipe if self.visible_figures else None
 
     @property
     def figure_style(self) -> FigureStyle:
-        return self.figures[self.last_figure_id].style if self.figures else FigureStyle()
+        return self.figures[self.last_figure_id].style if self.visible_figures else FigureStyle()
 
     @cached_property
     def worksheet(self) -> Worksheet:
@@ -308,7 +357,7 @@ class Project:
 
     @cached_property
     def colors(self) -> dict[str, str]:
-        if self.figures:
+        if self.visible_figures:
             return self.figures[self.last_figure_id].colors
         return {**DEFAULT_COLORS, **{op.element: op.color for op in self.operations if isinstance(op, FigureColor)}}
 

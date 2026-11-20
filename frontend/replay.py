@@ -12,6 +12,7 @@ def replay_inputs(payload):
         "figure_style": FigureStyle,
         "figure_appearance": FigureAppearance,
         "residual_figure": ResidualFigure,
+        "item_edit": ItemEdit,
     }
     operations = []
     for record in payload["operations"]:

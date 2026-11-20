@@ -15,7 +15,10 @@ import numpy
 import scipy
 
 from .figure_style import FigureStyle
-from .project import Correction, FigureAppearance, FigureColor, LinearFit, Operation, Plot, PluginStep, Project, ResidualFigure, Source
+from .project import (
+    Correction, FigureAppearance, FigureColor, ItemEdit, LinearFit, Operation, Plot, PluginStep,
+    Project, ResidualFigure, Source,
+)
 from .source_tables import SourceTable
 
 
@@ -28,6 +31,7 @@ OPERATION_TYPES = {
     "figure_style": FigureStyle,
     "figure_appearance": FigureAppearance,
     "residual_figure": ResidualFigure,
+    "item_edit": ItemEdit,
 }
 OPERATION_NAMES = {cls: name for name, cls in OPERATION_TYPES.items()}
 

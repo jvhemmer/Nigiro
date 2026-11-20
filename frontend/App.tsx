@@ -10,6 +10,7 @@ import { ExportDialog } from "./ExportDialog";
 import { FigureSettings } from "./FigureSettings";
 import type { StyleSection } from "./figureStyle";
 import { FigurePlot, type CaptureFigure } from "./FitPlot";
+import { ItemDialog, type ItemAction } from "./ItemDialog";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
 import { MenuBar, type MenuCommand, type MenuRequest } from "./MenuBar";
 import { columnFields, PluginDialog } from "./PluginDialog";
@@ -17,7 +18,7 @@ import { ViewTabs, viewTabId } from "./ViewTabs";
 import { Worksheet } from "./Worksheet";
 import {
   elementNames, formatNumber, plotNames, workspace,
-  type FigureElement, type PluginDefinition, type PluginRun, type Project, type RecordedStep, type Request,
+  type FigureElement, type PluginDefinition, type PluginRun, type Project, type RecordedStep, type Request, type WorkspaceItem,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<void>;
@@ -61,6 +62,8 @@ function stepLabel(operation: RecordedStep, columns: string[], plugins: PluginDe
       return "Change figure settings";
     case "residual_figure":
       return "Create residual figure";
+    case "item_edit":
+      return operation.name === null ? `Delete ${operation.target}` : `Rename ${operation.target} to ${operation.name}`;
   }
 }
 
@@ -105,7 +108,7 @@ function FigurePanel({ project, onSelect, onEdit, busy, capture, run }: {
     <div className="figure-pane">
       {project.figures.length > 0 && (
         <div className="view-picker">
-          <ViewTabs id={panelId} label="Figures" items={project.figures} selected={figureId} busy={busy}
+          <ViewTabs id={panelId} label="Figures" kind="figure" items={project.figures} selected={figureId} busy={busy}
             onSelect={(id) => { if (id !== null) void run({ action: "select_figure", figure_id: id }); }} />
           {data && <button type="button" disabled={busy} onClick={() => onEdit("figure")}>Figure settings…</button>}
         </div>
@@ -198,7 +201,7 @@ function WorksheetPanel({ project, busy, run }: { project: Project; busy: boolea
   return (
     <div className="source-pane">
       <div className="view-picker">
-        <ViewTabs id={panelId} label="Worksheet sources" items={project.sources} selected={project.source_id}
+        <ViewTabs id={panelId} label="Worksheet sources" kind="source" items={project.sources} selected={project.source_id}
           busy={busy} onSelect={(id) => void run({ action: "select_source", source_id: id })} />
       </div>
       <div className="source-content" id={panelId} role="tabpanel" aria-labelledby={viewTabId(panelId, project.source_id)}>
@@ -220,6 +223,7 @@ function SourcesPanel({ project, busy, run }: { project: Project; busy: boolean;
       {project.sources.map((source) => (
         <li key={source.id ?? "raw"}>
           <button type="button" title={source.name} aria-current={source.id === project.source_id} disabled={busy}
+            data-item-kind="source" data-item-id={source.id ?? ""}
             onClick={async () => {
               if (source.id !== project.source_id) await run({ action: "select_source", source_id: source.id });
               reveal("worksheet");
@@ -293,6 +297,7 @@ export function App() {
   const [pluginDialog, setPluginDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | null>(null);
   const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
   const [exportDialog, setExportDialog] = useState<ExportTarget | null>(null);
+  const [itemDialog, setItemDialog] = useState<ItemAction | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
   const [exportSettings, setExportSettings] = useState<ExportSettings>({ format: "pdf", scale: 3 });
@@ -396,10 +401,11 @@ export function App() {
     if (request.action === "choose_plugin") setPluginDialog({ plugin: request.plugin });
     else if (request.action === "figure_settings") setFigureDialog("figure");
     else if (request.action === "choose_export") setExportDialog(request.target);
+    else if (request.action === "manage_item") setItemDialog(request.change);
     else void run(request);
   }
 
-  const menuBusy = busy || pluginDialog !== null || exportDialog !== null || figureDialog !== null;
+  const menuBusy = busy || pluginDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
   const openCommands: MenuCommand[] = [
     { label: "Import CSV…", request: { action: "import_csv" } },
     { label: "Open Project…", request: { action: "open" }, shortcut: "O" },
@@ -415,26 +421,48 @@ export function App() {
   const plotCommands = pluginCommands("plot");
   const analysisCommands = pluginCommands("analysis");
 
+  function itemCommands(item: WorkspaceItem, name: string): MenuCommand[] {
+    const imported = item.kind === "source" && item.id === null;
+    return [
+      { label: "Rename…", request: { action: "manage_item", change: { mode: "rename", item, name } } },
+      {
+        label: "Delete…",
+        request: imported ? null : { action: "manage_item", change: { mode: "delete", item, name } },
+        disabledReason: imported ? "The imported source is required for this project." : undefined,
+      },
+    ];
+  }
+
   function openContextMenu(event: MouseEvent<HTMLDivElement>) {
     if (!(event.target instanceof Element) || event.target.closest("input, textarea, select, [contenteditable]")) return;
     event.preventDefault();
     if (menuBusy || event.target.closest(".menu-popup")) return;
     let label = "Workspace actions";
     let groups = [openCommands];
-    if (event.target.closest(".figure-pane") && figure) {
+    const clicked = event.target.closest<HTMLElement>("[data-item-kind][data-item-id]");
+    const activeFigure = project?.figures.find(({ id }) => id === project.figure_id);
+    if (clicked?.dataset.itemKind === "source") {
+      const source = project?.sources.find(({ id }) => (id ?? "") === clicked.dataset.itemId);
+      if (!source) return;
+      label = "Source actions";
+      groups = [itemCommands({ kind: "source", id: source.id }, source.name)];
+    } else if (clicked?.dataset.itemKind === "figure" || (activeFigure && event.target.closest(".figure-pane"))) {
+      const target = clicked ? project?.figures.find(({ id }) => String(id) === clicked.dataset.itemId) : activeFigure;
+      if (!target) return;
       label = "Figure actions";
-      groups = [[figureSettings], exportCommands];
+      const commands = itemCommands({ kind: "figure", id: target.id }, target.name);
+      groups = figure && activeFigure?.id === target.id ? [[figureSettings], commands, exportCommands] : [commands];
     } else if (event.target.closest(".source-pane") && (plotCommands.length || analysisCommands.length)) {
       label = "Worksheet actions";
       groups = [plotCommands, analysisCommands].filter((group) => group.length);
     }
-    const anchor = event.target.getBoundingClientRect();
+    const anchor = (clicked ?? event.target).getBoundingClientRect();
     const useAnchor = event.clientX === 0 && event.clientY === 0;
     setContextMenu({
       label, groups,
       x: useAnchor ? anchor.left : event.clientX,
       y: useAnchor ? anchor.bottom : event.clientY,
-      returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+      returnFocus: clicked ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null),
     });
   }
 
@@ -489,6 +517,12 @@ export function App() {
         )}
       </header>
       {contextMenu && <ContextMenu menu={contextMenu} onClose={closeContextMenu} onRun={runMenu} />}
+      {itemDialog && (
+        <ItemDialog change={itemDialog} onClose={() => setItemDialog(null)} onApply={(name) => {
+          setItemDialog(null);
+          void run({ action: "edit_item", item: itemDialog.item, name });
+        }} />
+      )}
       {project && pluginDialog && (
         <PluginDialog plugin={pluginDialog.plugin}
           columns={configuring ? project.figure_input?.columns ?? project.columns : sourceColumns}
