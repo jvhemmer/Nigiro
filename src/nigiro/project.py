@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import Literal
 
-from .figure_style import FigureStyle
+from .figure_style import AxisStyle, FigureStyle
 from .source_tables import SourceTable, source_origin
 
 
@@ -158,7 +158,18 @@ class PluginStep:
 
 
 FigureRecipe = LinearFit | Plot | PluginStep
-Operation = Correction | FigureRecipe | FigureColor | FigureStyle | FigureAppearance
+
+
+@dataclass(frozen=True)
+class ResidualFigure:
+    fit_id: int
+
+    def __post_init__(self) -> None:
+        if type(self.fit_id) is not int or self.fit_id < 0:
+            raise ValueError("Invalid fit figure reference.")
+
+
+Operation = Correction | FigureRecipe | FigureColor | FigureStyle | FigureAppearance | ResidualFigure
 DEFAULT_COLORS = {"observations": "#245e9b", "fit": "#be481f"}
 
 
@@ -167,6 +178,8 @@ class FigureRecord:
     recipe: FigureRecipe
     style: FigureStyle
     colors: dict[str, str]
+    part: Literal["fit", "residual"] | None = None
+    fit_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -211,6 +224,9 @@ class Project:
                     if previous is None or op.source_id != getattr(previous.recipe, "source_id", None):
                         raise ValueError("A plugin update refers to an invalid figure or source.")
                     figures[current] = replace(previous, recipe=op)
+                    for key, record in figures.items():
+                        if record.fit_id == current:
+                            figures[key] = replace(record, recipe=op)
                     continue
                 if isinstance(op, PluginStep) and op.source_id is not None and source_origin(op.source_id) not in figures:
                     raise ValueError("A plugin refers to a missing input source.")
@@ -218,6 +234,17 @@ class Project:
                 style = previous.style if isinstance(op, PluginStep) and op.keep_style and previous else FigureStyle()
                 current = index
                 figures[current] = FigureRecord(op, style, legacy_colors.copy())
+            elif isinstance(op, ResidualFigure):
+                fit = figures.get(op.fit_id)
+                if fit is None or fit.part is not None or not (
+                    isinstance(fit.recipe, PluginStep) and fit.recipe.pin == ("nigiro.linear_fit", "1", None)
+                ):
+                    raise ValueError("A residual figure needs a linear fit.")
+                figures[op.fit_id] = replace(fit, part="fit")
+                figures[index] = FigureRecord(
+                    fit.recipe, FigureStyle(y=AxisStyle(zero_line=True)),
+                    legacy_colors.copy(), part="residual", fit_id=op.fit_id,
+                )
             elif isinstance(op, FigureColor):
                 target = op.figure_id if op.figure_id is not None else current
                 if op.figure_id is None:
@@ -236,12 +263,19 @@ class Project:
         return figures
 
     @property
+    def last_figure_id(self) -> int | None:
+        figure_id = next(reversed(self.figures), None)
+        if figure_id is not None and self.figures[figure_id].fit_id is not None:
+            return self.figures[figure_id].fit_id
+        return figure_id
+
+    @property
     def figure(self) -> FigureRecipe | None:
-        return self.figures[next(reversed(self.figures))].recipe if self.figures else None
+        return self.figures[self.last_figure_id].recipe if self.figures else None
 
     @property
     def figure_style(self) -> FigureStyle:
-        return self.figures[next(reversed(self.figures))].style if self.figures else FigureStyle()
+        return self.figures[self.last_figure_id].style if self.figures else FigureStyle()
 
     @cached_property
     def worksheet(self) -> Worksheet:
@@ -275,7 +309,7 @@ class Project:
     @cached_property
     def colors(self) -> dict[str, str]:
         if self.figures:
-            return self.figures[next(reversed(self.figures))].colors
+            return self.figures[self.last_figure_id].colors
         return {**DEFAULT_COLORS, **{op.element: op.color for op in self.operations if isinstance(op, FigureColor)}}
 
 

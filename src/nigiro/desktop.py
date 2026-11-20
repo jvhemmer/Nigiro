@@ -16,11 +16,13 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 from nigiro.analysis import FitResult, PlotResult
-from nigiro.figure_style import FigureStyle
+from nigiro.builtin_plugins import linear_fit_view
+from nigiro.figure_style import AxisStyle, FigureStyle
 from nigiro.plotting import draw_fit, draw_plot
 from nigiro.plugin_registry import PluginRegistry, plugin_step
 from nigiro.project import (
-    Correction, FigureAppearance, FigureColor, FigureRecord, LinearFit, Plot, PluginStep, Project, Source, Worksheet,
+    Correction, FigureAppearance, FigureColor, FigureRecord, LinearFit, Plot, PluginStep, Project, ResidualFigure,
+    Source, Worksheet,
 )
 from nigiro.source_tables import SourceTable, output_tables, source_origin
 from nigiro.storage import load_project, operation_record, save_project
@@ -44,6 +46,7 @@ class Execution:
     legacy: dict | None
     tables: dict[str, SourceTable]
     error: str | None = None
+    residual: dict | None = None
 
 
 class Workspace:
@@ -62,7 +65,7 @@ class Workspace:
         project.validate()
         self.render(project, fallback=project.saved_sources)
         self.project = project
-        self.figure_id = next(reversed(project.figures), None)
+        self.figure_id = project.last_figure_id
         self.source_id = None
         self.path = path
         self.dirty = path is None
@@ -83,6 +86,11 @@ class Workspace:
         figure["recipe"] = asdict(step)
         figure["definition"] = plugin.definition
         figure["source"] = plugin.source
+        if record.part == "fit":
+            return Execution(
+                {**linear_fit_view(figure, "fit"), "part": "fit"},
+                legacy, tables, residual={**linear_fit_view(figure, "residual"), "part": "residual"},
+            )
         return Execution(figure, legacy, tables)
 
     def render(self, project: Project, *, changed: int | None = None, fallback: dict[str, SourceTable] | None = None) -> None:
@@ -90,6 +98,10 @@ class Workspace:
         sources = {}
         refreshed = set()
         for figure_id, record in project.figures.items():
+            if record.fit_id is not None:
+                fit = results[record.fit_id]
+                results[figure_id] = Execution(fit.residual, None, {}, fit.error)
+                continue
             step = plugin_step(record.recipe)
             upstream = source_origin(step.source_id) if step.source_id is not None else None
             if changed is None or figure_id == changed or upstream in refreshed:
@@ -131,6 +143,8 @@ class Workspace:
             plugin = self.plugins.plugins.get(step.pin)
             label = plugin.manifest["name"] if plugin else step.plugin_id
             names[figure_id] = f"{label} {number}"
+            if entry.fit_id is not None:
+                names[figure_id] = f"Residuals · {names[entry.fit_id]}"
             figures.append({"id": figure_id, "name": names[figure_id]})
         selected_table = self.sources.get(self.source_id)
         figure_input = self.sources.get(getattr(recipe, "source_id", None))
@@ -159,7 +173,9 @@ class Workspace:
             "plot_error": figure_error if isinstance(recipe, Plot) else None,
             "colors": record.colors if record else project.colors,
             "figure_style": asdict(record.style if record else FigureStyle()),
-            "default_figure_style": asdict(FigureStyle()),
+            "default_figure_style": asdict(
+                FigureStyle(y=AxisStyle(zero_line=True)) if record and record.part == "residual" else FigureStyle()
+            ),
             "versions": {
                 "python": f"{sys.version_info.major}.{sys.version_info.minor}",
                 "numpy": numpy.__version__,
@@ -221,12 +237,17 @@ class Workspace:
                     self.dirty = True
             case "run_plugin" | "fit" | "plot":
                 figure_id = len(project.operations)
+                selection = figure_id
                 if request["action"] == "run_plugin":
                     target = request.get("figure_id")
                     source_id = self.source_id
                     if target is not None:
                         if type(target) is not int or target not in project.figures:
                             raise ValueError("Select an available figure.")
+                        selection = target
+                        entry = project.figures[target]
+                        if entry.fit_id is not None:
+                            target = entry.fit_id
                         previous = plugin_step(project.figures[target].recipe)
                         source_id = previous.source_id
                         figure_id = target
@@ -241,8 +262,10 @@ class Workspace:
                 else:
                     recipe = Plot(request["plot_type"], request["x"], request["y"])
                 updated = project.apply(recipe)
+                if isinstance(recipe, PluginStep) and recipe.figure_id is None and recipe.pin == ("nigiro.linear_fit", "1", None):
+                    updated = updated.apply(ResidualFigure(figure_id))
                 self.render(updated, changed=figure_id)
-                self.figure_id = figure_id
+                self.figure_id = selection
                 self.project = updated
                 self.dirty = True
             case "color" | "figure_style":

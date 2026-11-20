@@ -55,6 +55,7 @@ export interface PluginFigure {
   y_label?: string;
   categorical_x?: boolean;
   residual_panel?: boolean;
+  part?: "fit" | "residual";
   summary?: Record<string, number | string | boolean | null>;
 }
 
@@ -65,7 +66,8 @@ export type RecordedStep =
   | ({ kind: "plugin" } & PluginRun)
   | { kind: "figure_color"; element: FigureElement; color: string }
   | ({ kind: "figure_style" } & FigureStyle)
-  | { kind: "figure_appearance"; figure_id: number; style: FigureStyle };
+  | { kind: "figure_appearance"; figure_id: number; style: FigureStyle }
+  | { kind: "residual_figure"; fit_id: number };
 
 export interface SourceTable {
   name: string;

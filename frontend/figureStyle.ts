@@ -121,11 +121,11 @@ function legendLayout(style: FigureStyle, fit: boolean): Partial<Layout> {
   };
 }
 
-export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string, revision: number, fit: boolean, categorical = false): Partial<Layout> {
+export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string, revision: number, fit: boolean, categorical = false, fitLegend = false): Partial<Layout> {
   const x = axisLayout(style, style.x, xLabel, revision, categorical);
   const y = axisLayout(style, style.y, yLabel, revision);
   const font = style.font_family === figureFont ? figureFont : `"${style.font_family}", "${figureFont}"`;
-  const above = style.legend === "above" || (fit && style.legend === "auto");
+  const above = style.legend === "above" || ((fit || fitLegend) && style.legend === "auto");
   const top = style.title ? style.label_size + 25 + (above ? style.tick_size + 7 : 0) : 24;
   return {
     autosize: true,
@@ -137,7 +137,7 @@ export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string,
     plot_bgcolor: style.background,
     hovermode: "closest",
     dragmode: "zoom",
-    ...legendLayout(style, fit),
+    ...legendLayout(style, fit || fitLegend),
     ...(fit
       ? {
           xaxis: { ...x, matches: "x2", title: { text: "" }, showticklabels: false },

@@ -89,6 +89,19 @@ def linear_fit_figure(columns, rows, options):
     }
 
 
+def linear_fit_view(result, part):
+    if part is None:
+        return result
+    view = {**result, "residual_panel": False}
+    if part == "fit":
+        return {**view, "traces": result["traces"][:2], "elements": result["elements"][:2]}
+
+    residual = {**result["traces"][2]}
+    for key in ("xaxis", "yaxis", "showlegend"):
+        del residual[key]
+    return {**view, "traces": [residual], "elements": ["observations"], "y_label": "Residual", "summary": {}}
+
+
 BUILTINS = {
     f"nigiro.{name}": ({
         "api": 1, "id": f"nigiro.{name}", "version": "1", "name": label, "menu": menu,

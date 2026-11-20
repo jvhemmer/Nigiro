@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  DockviewReact, themeLightSpaced,
+  DockviewReact, themeLight,
   type AddPanelOptions, type DockviewApi, type DockviewReadyEvent,
   type IDockviewHeaderActionsProps, type IDockviewPanelHeaderProps, type IDockviewPanelProps,
   type SerializedDockview,
@@ -193,7 +193,7 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
         <div className="dock-area">
           <DockviewReact
             className="nigiro-dock"
-            theme={themeLightSpaced}
+            theme={themeLight}
             components={components}
             defaultTabComponent={DockTab}
             rightHeaderActionsComponent={DockActions}

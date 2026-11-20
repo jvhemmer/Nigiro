@@ -31,7 +31,7 @@ function script(project: Project, figure: FigureSnapshot, settings: ExportSettin
     rows: project.original_rows,
     operations: project.operations,
     figure_input: project.figure_input,
-    plugin: { ...plugin.recipe, source: plugin.source },
+    plugin: { ...plugin.recipe, source: plugin.source, part: plugin.part },
     figure,
     export_settings: settings,
   }, null, 2);

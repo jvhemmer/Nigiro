@@ -11,6 +11,7 @@ def replay_inputs(payload):
         "figure_color": FigureColor,
         "figure_style": FigureStyle,
         "figure_appearance": FigureAppearance,
+        "residual_figure": ResidualFigure,
     }
     operations = []
     for record in payload["operations"]:
@@ -41,6 +42,8 @@ def replay_figure(project, figure, plugin, source):
         if manifest["version"] != plugin["version"]:
             raise ValueError("The bundled plugin version does not match the saved recipe.")
         result = runner(*args)
+        if plugin.get("part"):
+            result = linear_fit_view(result, plugin["part"])
     else:
         result = run_plugin_source(plugin["source"], plugin["plugin_id"], *args)
 

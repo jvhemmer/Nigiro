@@ -47,7 +47,7 @@ Select **Plot → Scatter**, **Line**, or **Bar**. Choose one X column and one Y
 
 Use **Source** in the **Worksheet** panel to switch between the imported worksheet and analysis results. Linear Fit creates separate tables for coefficients and fitted values. The fitted values table includes X, observed Y, fitted Y, and residuals.
 
-Choose a source before you start a plot or analysis. Each new run adds a figure. Use the **Figure** selector to return to any earlier figure. **Plugin settings** updates the selected figure with the same input source.
+Choose a source before you start a plot or analysis. Linear Fit adds a fit figure and a separate residual figure. Use the **Figure** selector to switch between them or return to any earlier figure. Each figure has its own appearance settings. **Plugin settings** updates both figures from the same fit.
 
 Save the project to keep the figures, their settings, and the analysis tables. Nigiro recalculates linked results after a worksheet correction.
 

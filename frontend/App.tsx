@@ -57,6 +57,8 @@ function stepLabel(operation: RecordedStep, columns: string[], plugins: PluginDe
     case "figure_style":
     case "figure_appearance":
       return "Change figure settings";
+    case "residual_figure":
+      return "Create residual figure";
   }
 }
 

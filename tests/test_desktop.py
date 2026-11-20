@@ -209,6 +209,38 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertNotEqual(corrected["state"]["project"]["figure"]["traces"], derived["figure"]["traces"])
             self.assertEqual(earlier["state"]["project"]["figure_style"]["axes_height"], 250)
 
+    def test_linear_fit_plugin_creates_linked_figures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fit.nigiro"
+            fit = {
+                "action": "run_plugin", "plugin_id": "nigiro.linear_fit",
+                "version": "1", "checksum": None, "options": {"x": 0, "y": 1},
+            }
+            _, primary, residuals, _, updated, _ = self.run_worker(
+                {"action": "sample"}, fit,
+                {"action": "select_figure", "figure_id": 1},
+                {"action": "figure_style", "figure_id": 1, "style": {"title": "Fit error"}},
+                {**fit, "figure_id": 1, "options": {"x": 1, "y": 0}},
+                {"action": "save", "path": str(path)},
+            )
+            primary, residuals, updated = (reply["state"]["project"] for reply in (primary, residuals, updated))
+            self.assertEqual([entry["name"] for entry in primary["figures"]], ["Linear Fit 1", "Residuals · Linear Fit 1"])
+            self.assertEqual(len(primary["figure"]["traces"]), 2)
+            self.assertEqual(residuals["figure"]["y_label"], "Residual")
+            self.assertEqual(len(residuals["figure"]["traces"]), 1)
+            self.assertTrue(residuals["figure_style"]["y"]["zero_line"])
+            self.assertEqual(updated["figure_id"], 1)
+            self.assertEqual(updated["figure_style"]["title"], "Fit error")
+            self.assertNotEqual(updated["figure"]["traces"], residuals["figure"]["traces"])
+            self.assertEqual(len(updated["sources"]), 3)
+
+            reopened, selected = self.run_worker(
+                {"action": "open", "path": str(path)},
+                {"action": "select_figure", "figure_id": 1},
+            )
+            self.assertEqual(reopened["state"]["project"]["figure_id"], 0)
+            self.assertEqual(selected["state"]["project"]["figure"], updated["figure"])
+
     def test_plot_replays_selected_columns_after_worksheet_edits(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "measurements.csv"

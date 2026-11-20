@@ -148,7 +148,8 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
       const renderer = library.default ?? library;
       plotly.current = renderer;
       const layout = merge(
-        figureLayout(style, data.x_label ?? "", data.y_label ?? "", revision, !!data.residual_panel, !!data.categorical_x),
+        figureLayout(style, data.x_label ?? "", data.y_label ?? "", revision,
+          !!data.residual_panel, !!data.categorical_x, data.part === "fit"),
         structuredClone(data.layout ?? {}),
       );
       const margin = layout.margin;
