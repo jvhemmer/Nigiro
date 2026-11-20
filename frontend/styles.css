@@ -148,7 +148,11 @@ button.primary:hover:not(:disabled) { background: #372aba; }
   border-radius: 10px;
   background: var(--panel);
 }
-.data-pane { display: grid; grid-template-rows: minmax(190px, 3fr) minmax(128px, 1fr); }
+.data-pane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(190px, 3fr) minmax(128px, 1fr);
+}
 .figure-pane { display: flex; flex-direction: column; }
 .inspector { overflow: auto; }
 
