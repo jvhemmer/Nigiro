@@ -1,16 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   ChartNoAxesCombined, FileSpreadsheet, History, SlidersHorizontal, Table2,
 } from "lucide-react";
 import { DockWorkspace } from "./DockWorkspace";
-import { FitPlot } from "./FitPlot";
-import { MenuBar } from "./MenuBar";
+import { ExportDialog } from "./ExportDialog";
+import { FigureSettings } from "./FigureSettings";
+import type { StyleSection } from "./figureStyle";
+import { FigurePlot, type CaptureFigure } from "./FitPlot";
+import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
+import { MenuBar, type MenuRequest } from "./MenuBar";
+import { PlotDialog } from "./PlotDialog";
 import { Worksheet } from "./Worksheet";
 import {
-  elementNames, formatNumber, workspace,
-  type FigureElement, type Project, type RecordedStep, type Request,
+  elementNames, formatNumber, plotNames, workspace,
+  type FigureElement, type PlotKind, type Project, type RecordedStep, type Request,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<void>;
@@ -46,10 +51,14 @@ function stepLabel(operation: RecordedStep, columns: string[]) {
   switch (operation.kind) {
     case "correct_cell":
       return `Set row ${operation.row + 1}, ${columns[operation.column]} to ${JSON.stringify(operation.value)}`;
+    case "plot":
+      return `${plotNames[operation.plot_type]} plot of ${columns[operation.y]} against ${columns[operation.x]}`;
     case "linear_fit":
       return `Fit ${columns[operation.y]} against ${columns[operation.x]}`;
     case "figure_color":
       return `Change ${elementNames[operation.element].toLowerCase()} color to ${operation.color}`;
+    case "figure_style":
+      return "Change figure settings";
   }
 }
 
@@ -106,39 +115,55 @@ function ColorField({
   );
 }
 
-function FigurePanel({ project, onSelect }: {
+function FigurePanel({ project, onSelect, onEdit, busy, capture }: {
   project: Project;
   onSelect: (element: FigureElement) => void;
+  onEdit: (section: StyleSection) => void;
+  busy: boolean;
+  capture: Ref<CaptureFigure>;
 }) {
   const recipe = lastFit(project);
   const fit = project.fit;
+  const plot = project.plot;
+  const axes = plot ?? recipe;
+  const data = plot ?? fit;
+  const revision = project.operations.reduce((previous, step, index) =>
+    step.kind === "linear_fit" || step.kind === "plot" ? index : previous, 0);
 
   return (
     <div className="figure-pane">
-      {fit && recipe ? (
+      {data && axes ? (
         <>
-          <p className="figure-hint muted">Select a line or point to edit its color</p>
-          <FitPlot
-            fit={fit}
-            xLabel={project.columns[recipe.x]}
-            yLabel={project.columns[recipe.y]}
+          <div className="figure-toolbar">
+            <p className="figure-hint muted">Select a line or point to edit its color</p>
+            <button type="button" disabled={busy} onClick={() => onEdit("figure")}>Figure settings…</button>
+          </div>
+          <FigurePlot
+            capture={capture}
+            data={data}
+            xLabel={project.columns[axes.x]}
+            yLabel={project.columns[axes.y]}
             colors={project.colors}
+            style={project.figure_style}
+            revision={revision}
+            onEdit={onEdit}
             onSelect={onSelect}
           />
-          <dl className="fit-summary">
+          {fit && <dl className="fit-summary">
             <div><dt>Slope</dt><dd>{formatNumber(fit.slope)}</dd></div>
             <div><dt>Intercept</dt><dd>{formatNumber(fit.intercept)}</dd></div>
             <div><dt>R²</dt><dd>{formatNumber(fit.r_squared)}</dd></div>
             <div><dt>Observations</dt><dd>{fit.x.length.toLocaleString()}</dd></div>
             <div><dt>Omitted</dt><dd>{fit.omitted_rows.toLocaleString()}</dd></div>
-          </dl>
+          </dl>}
+          {plot && <p className="figure-hint muted">{plot.y_values.length} observations · {plot.omitted_rows} omitted</p>}
         </>
       ) : (
         <div className="empty-figure">
           <ChartNoAxesCombined size={36} strokeWidth={1.5} />
-          {project.fit_error
-            ? <p role="alert">{project.fit_error}</p>
-            : <p>Choose X and Y columns, then select <strong>Analysis → Linear Fit</strong>.</p>}
+          {project.plot_error || project.fit_error
+            ? <p role="alert">{project.plot_error || project.fit_error}</p>
+            : <p>Choose a plot type from <strong>Plot</strong> to create a figure.</p>}
         </div>
       )}
     </div>
@@ -154,6 +179,7 @@ function AnalysisPanel({ project, busy, run, element, onSelect, fitColumns, onFi
   fitColumns: FitColumns;
   onFitColumnsChange: (selection: FitColumns) => void;
 }) {
+  const selected = project.fit ? element : "observations";
   return (
     <div className="inspector">
       <FitSettings
@@ -162,14 +188,14 @@ function AnalysisPanel({ project, busy, run, element, onSelect, fitColumns, onFi
         busy={busy}
         onChange={onFitColumnsChange}
       />
-      {project.fit && (
+      {(project.fit || project.plot) && (
         <section className="element-settings" aria-labelledby="element-heading">
           <div className="section-header"><h2 id="element-heading">Figure element</h2></div>
           <div className="element-list">
-            {(["observations", "fit"] as const).map((item) => (
+            {(["observations", "fit"] as const).filter((item) => item !== "fit" || project.fit).map((item) => (
               <button
                 key={item}
-                aria-pressed={item === element}
+                aria-pressed={item === selected}
                 onClick={() => onSelect(item)}
               >
                 <span
@@ -181,9 +207,9 @@ function AnalysisPanel({ project, busy, run, element, onSelect, fitColumns, onFi
             ))}
           </div>
           <ColorField
-            key={`${element}:${project.colors[element]}`}
-            element={element}
-            color={project.colors[element]}
+            key={`${selected}:${project.colors[selected]}`}
+            element={selected}
+            color={project.colors[selected]}
             busy={busy}
             run={run}
           />
@@ -193,19 +219,21 @@ function AnalysisPanel({ project, busy, run, element, onSelect, fitColumns, onFi
   );
 }
 
-function ProjectEditor({ project, busy, run, fitColumns, onFitColumnsChange }: {
+function ProjectEditor({ project, busy, run, fitColumns, onFitColumnsChange, onEdit, capture }: {
   project: Project;
+  capture: Ref<CaptureFigure>;
   busy: boolean;
   run: Run;
   fitColumns: FitColumns;
   onFitColumnsChange: (selection: FitColumns) => void;
+  onEdit: (section: StyleSection) => void;
 }) {
   const [element, setElement] = useState<FigureElement>("fit");
   return (
     <DockWorkspace panels={[
       {
         id: "figure", title: "Figure", icon: ChartNoAxesCombined, minimumWidth: 210,
-        content: <FigurePanel project={project} onSelect={setElement} />,
+        content: <FigurePanel project={project} onSelect={setElement} onEdit={onEdit} busy={busy} capture={capture} />,
       },
       {
         id: "worksheet", title: "Worksheet", icon: Table2,
@@ -250,10 +278,15 @@ export function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [projectKey, setProjectKey] = useState(0);
   const [fitColumns, setFitColumns] = useState<FitColumns>({ x: 0, y: 0 });
+  const [plotDialog, setPlotDialog] = useState<PlotKind | null>(null);
+  const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
+  const [exportDialog, setExportDialog] = useState<ExportTarget | null>(null);
+  const [exportSettings, setExportSettings] = useState<ExportSettings>({ format: "pdf", scale: 3 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const projectRef = useRef(project);
   const inFlight = useRef(false);
+  const capture = useRef<CaptureFigure>(null);
 
   const run = useCallback<Run>(async (request) => {
     if (inFlight.current) return;
@@ -306,7 +339,32 @@ export function App() {
     return () => { void unlisten.then((stop) => stop(), () => {}); };
   }, [run]);
 
-  const exportName = project?.fit ? projectStem(project) : null;
+  const exportName = project && (project.fit || project.plot) ? projectStem(project) : null;
+  const currentRecipe = project && (project.plot ?? lastFit(project));
+  const previousPlot = project?.operations.slice().reverse().find((step) => step.kind === "plot");
+
+  async function exportCurrent(target: ExportTarget, settings: ExportSettings) {
+    if (!project || !exportName || inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      if (!capture.current) throw new Error("Open the Figure panel before exporting.");
+      await saveFigure(exportName, target, settings, capture.current, project);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+
+  function runMenu(request: MenuRequest) {
+    if (request.action === "choose_plot") setPlotDialog(request.plot_type);
+    else if (request.action === "figure_settings") setFigureDialog("figure");
+    else if (request.action === "choose_export") setExportDialog(request.target);
+    else void run(request);
+  }
   const canFit = project && fitColumns.x !== fitColumns.y;
 
   return (
@@ -314,8 +372,8 @@ export function App() {
       <header className="app-bar">
         <div className="brand"><ChartNoAxesCombined size={21} /><span>Nigiro</span></div>
         <MenuBar
-          busy={busy}
-          onRun={run}
+          busy={busy || plotDialog !== null || exportDialog !== null || figureDialog !== null}
+          onRun={runMenu}
           menus={[
             {
               label: "File",
@@ -334,9 +392,19 @@ export function App() {
                   },
                 ],
                 [
-                  { label: "Export SVG…", request: exportName ? { action: "export", name: exportName, format: "svg" } : null },
-                  { label: "Export PDF…", request: exportName ? { action: "export", name: exportName, format: "pdf" } : null },
+                  { label: "Export Figure…", request: exportName ? { action: "choose_export", target: "figure" } : null },
+                  { label: "Export Python Script…", request: exportName ? { action: "choose_export", target: "script" } : null },
                 ],
+              ],
+            },
+            {
+              label: "Plot",
+              groups: [
+                (Object.keys(plotNames) as PlotKind[]).map((plot_type) => ({
+                  label: `${plotNames[plot_type]}…`,
+                  request: project && project.columns.length >= 2 ? { action: "choose_plot", plot_type } as const : null,
+                })),
+                [{ label: "Figure Settings…", request: exportName ? { action: "figure_settings" } : null }],
               ],
             },
             {
@@ -355,9 +423,46 @@ export function App() {
           </div>
         )}
       </header>
+      {project && plotDialog && (
+        <PlotDialog kind={plotDialog} columns={project.columns}
+          initialX={previousPlot?.x ?? 0} initialY={previousPlot?.y ?? 1}
+          onClose={() => setPlotDialog(null)}
+          onPlot={(x, y) => {
+            setPlotDialog(null);
+            void run({ action: "plot", plot_type: plotDialog, x, y });
+          }}
+        />
+      )}
+      {exportDialog && (
+        <ExportDialog target={exportDialog} initial={exportSettings}
+          onClose={() => setExportDialog(null)}
+          onExport={(settings) => {
+            setExportSettings(settings);
+            setExportDialog(null);
+            void exportCurrent(exportDialog, settings);
+          }}
+        />
+      )}
+      {project && currentRecipe && figureDialog && (
+        <FigureSettings
+          initial={project.figure_style}
+          defaults={project.default_figure_style}
+          initialSection={figureDialog}
+          labels={{ x: project.columns[currentRecipe.x], y: project.columns[currentRecipe.y], residual: "Residual" }}
+          fit={!!project.fit}
+          bar={project.plot?.plot_type === "bar"}
+          line={!!project.fit || project.plot?.plot_type === "line"}
+          onClose={() => setFigureDialog(null)}
+          onApply={(style) => {
+            setFigureDialog(null);
+            void run({ action: "figure_style", style });
+          }}
+        />
+      )}
       {error && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
-        <ProjectEditor key={projectKey} {...{ project, busy, run, fitColumns }} onFitColumnsChange={setFitColumns} />
+        <ProjectEditor key={projectKey} {...{ project, busy, run, fitColumns, capture }}
+          onFitColumnsChange={setFitColumns} onEdit={setFigureDialog} />
       ) : (
         <main className="welcome">
           <div className="welcome-card">

@@ -1,12 +1,30 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { FigureStyle } from "./figureStyle";
 
 export type FigureElement = "fit" | "observations";
-export type ExportFormat = "svg" | "pdf";
+
+export const plotNames = { scatter: "Scatter", line: "Line", bar: "Bar" } as const;
+export type PlotKind = keyof typeof plotNames;
+
+interface PlotRecipe {
+  kind: "plot";
+  plot_type: PlotKind;
+  x: number;
+  y: number;
+}
+
+export interface Plot extends PlotRecipe {
+  x_values: (number | string)[];
+  y_values: number[];
+  omitted_rows: number;
+}
 
 export type RecordedStep =
   | { kind: "correct_cell"; row: number; column: number; value: string }
   | { kind: "linear_fit"; x: number; y: number; version: number }
-  | { kind: "figure_color"; element: FigureElement; color: string };
+  | PlotRecipe
+  | { kind: "figure_color"; element: FigureElement; color: string }
+  | ({ kind: "figure_style" } & FigureStyle);
 
 export interface Fit {
   slope: number;
@@ -29,16 +47,22 @@ export interface Project {
   operations: RecordedStep[];
   fit: Fit | null;
   fit_error: string | null;
+  plot: Plot | null;
+  plot_error: string | null;
   colors: Record<FigureElement, string>;
+  figure_style: FigureStyle;
+  default_figure_style: FigureStyle;
+  versions: { python: string; numpy: string; scipy: string };
 }
 
 export type Request =
   | { action: "state" | "sample" | "import_csv" | "open" | "save" }
   | { action: "correct"; row: number; column: number; value: string }
+  | { action: "plot"; plot_type: PlotKind; x: number; y: number }
   | { action: "fit"; x: number; y: number }
   | { action: "color"; element: FigureElement; color: string }
-  | { action: "save_as"; name: string }
-  | { action: "export"; name: string; format: ExportFormat };
+  | { action: "figure_style"; style: FigureStyle }
+  | { action: "save_as"; name: string };
 
 export const elementNames: Record<FigureElement, string> = {
   fit: "Linear fit",

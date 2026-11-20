@@ -1,9 +1,15 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { Request } from "./workspace";
+import type { ExportTarget } from "./exportFigure";
+import type { PlotKind, Request } from "./workspace";
+
+export type MenuRequest = Request
+  | { action: "choose_plot"; plot_type: PlotKind }
+  | { action: "figure_settings" }
+  | { action: "choose_export"; target: ExportTarget };
 
 interface MenuCommand {
   label: string;
-  request: Request | null;
+  request: MenuRequest | null;
   shortcut?: string;
 }
 
@@ -15,7 +21,7 @@ interface Menu {
 interface MenuBarProps {
   menus: Menu[];
   busy: boolean;
-  onRun: (request: Request) => Promise<void>;
+  onRun: (request: MenuRequest) => void;
 }
 
 export function MenuBar({ menus, busy, onRun }: MenuBarProps) {

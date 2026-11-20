@@ -10,6 +10,8 @@ from dataclasses import dataclass, replace
 from functools import cached_property
 from typing import Literal
 
+from .figure_style import FigureStyle
+
 
 @dataclass(frozen=True)
 class Source:
@@ -71,6 +73,24 @@ class LinearFit:
             raise ValueError("Unsupported linear fit version.")
 
 
+PlotKind = Literal["scatter", "line", "bar"]
+
+
+@dataclass(frozen=True)
+class Plot:
+    plot_type: PlotKind
+    x: int
+    y: int
+
+    def __post_init__(self) -> None:
+        if self.plot_type not in ("scatter", "line", "bar"):
+            raise ValueError("Unknown plot type.")
+        if type(self.x) is not int or type(self.y) is not int or min(self.x, self.y) < 0:
+            raise ValueError("Invalid plot columns.")
+        if self.x == self.y:
+            raise ValueError("Choose different X and Y columns.")
+
+
 @dataclass(frozen=True)
 class FigureColor:
     element: Literal["fit", "observations"]
@@ -83,7 +103,7 @@ class FigureColor:
             raise ValueError("Invalid figure color.")
 
 
-Operation = Correction | LinearFit | FigureColor
+Operation = Correction | LinearFit | Plot | FigureColor | FigureStyle
 
 
 @dataclass(frozen=True)
@@ -105,6 +125,22 @@ class Project:
                     raise ValueError("Correction refers to a missing worksheet cell.")
             if isinstance(operation, LinearFit) and max(operation.x, operation.y) >= column_count:
                 raise ValueError("Fit refers to a missing worksheet column.")
+
+            if isinstance(operation, Plot) and max(operation.x, operation.y) >= column_count:
+                raise ValueError("Plot refers to a missing worksheet column.")
+
+    @cached_property
+    def figure(self) -> LinearFit | Plot | None:
+        return next((op for op in reversed(self.operations) if isinstance(op, (LinearFit, Plot))), None)
+
+    @cached_property
+    def figure_style(self) -> FigureStyle:
+        for operation in reversed(self.operations):
+            if isinstance(operation, FigureStyle):
+                return operation
+            if isinstance(operation, (LinearFit, Plot)):
+                break
+        return FigureStyle()
 
     @cached_property
     def worksheet(self) -> Worksheet:

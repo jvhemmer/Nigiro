@@ -6,7 +6,8 @@ import numpy as np
 from matplotlib.artist import Artist
 from matplotlib.figure import Figure
 
-from .analysis import FitResult
+from .analysis import FitResult, PlotResult
+from .project import PlotKind
 
 
 def draw_fit(
@@ -40,3 +41,19 @@ def draw_fit(
     residual.set_xlabel(x_label, parse_math=False)
     residual.set_ylabel("Residual")
     return {observations: "observations", residual_points: "observations", line: "fit"}
+
+
+def draw_plot(
+    figure: Figure, plot_type: PlotKind, result: PlotResult, x_label: str, y_label: str, color: str
+) -> None:
+    axes = figure.subplots()
+    if plot_type == "bar":
+        positions = range(len(result.x))
+        axes.bar(positions, result.y, color=color)
+        axes.set_xticks(positions, result.x, parse_math=False)
+    elif plot_type == "line":
+        axes.plot(result.x, result.y, color=color, marker="o")
+    else:
+        axes.scatter(result.x, result.y, color=color)
+    axes.set_xlabel(x_label, parse_math=False)
+    axes.set_ylabel(y_label, parse_math=False)

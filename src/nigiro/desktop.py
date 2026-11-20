@@ -5,15 +5,19 @@ from __future__ import annotations
 import csv
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import matplotlib
+import numpy
+import scipy
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
-from nigiro.analysis import FitResult, run_linear_fit
-from nigiro.plotting import draw_fit
-from nigiro.project import Correction, FigureColor, LinearFit, Project, Source
+from nigiro.analysis import FitResult, PlotResult, run_linear_fit, run_plot
+from nigiro.figure_style import FigureStyle
+from nigiro.plotting import draw_fit, draw_plot
+from nigiro.project import Correction, FigureColor, LinearFit, Plot, Project, Source
 from nigiro.storage import load_project, operation_record, save_project
 
 
@@ -35,22 +39,30 @@ class Workspace:
         self.path: Path | None = None
         self.dirty = False
         self.fit: FitResult | None = None
-        self.fit_error: str | None = None
+        self.plot: PlotResult | None = None
+        self.figure_error: str | None = None
 
     def set_project(self, project: Project, path: Path | None) -> None:
         project.validate()
-        result = None
-        error = None
-        if project.fit is not None:
-            try:
-                result = run_linear_fit(project.worksheet, project.fit)
-            except ValueError as exc:
-                error = str(exc)
-        self.fit = result
-        self.fit_error = error
+        try:
+            self.render(project)
+        except ValueError as exc:
+            self.fit = self.plot = None
+            self.figure_error = str(exc)
         self.project = project
         self.path = path
         self.dirty = path is None
+
+    def render(self, project: Project) -> None:
+        recipe = project.figure
+        fit = plot = None
+        if isinstance(recipe, LinearFit):
+            fit = run_linear_fit(project.worksheet, recipe)
+        elif isinstance(recipe, Plot):
+            plot = run_plot(project.worksheet, recipe)
+        self.fit = fit
+        self.plot = plot
+        self.figure_error = None
 
     def snapshot(self) -> dict:
         project = self.project
@@ -80,8 +92,22 @@ class Workspace:
             "original_rows": project.source.worksheet.rows,
             "operations": [operation_record(op) for op in project.operations],
             "fit": result,
-            "fit_error": self.fit_error,
+            "fit_error": self.figure_error if isinstance(project.figure, LinearFit) else None,
+            "plot": {
+                **operation_record(project.figure),
+                "x_values": self.plot.x,
+                "y_values": self.plot.y,
+                "omitted_rows": self.plot.omitted_rows,
+            } if self.plot else None,
+            "plot_error": self.figure_error if isinstance(project.figure, Plot) else None,
             "colors": project.colors,
+            "figure_style": asdict(project.figure_style),
+            "default_figure_style": asdict(FigureStyle()),
+            "versions": {
+                "python": f"{sys.version_info.major}.{sys.version_info.minor}",
+                "numpy": numpy.__version__,
+                "scipy": scipy.__version__,
+            },
         }}
 
     def dispatch(self, request: dict) -> dict:
@@ -96,6 +122,12 @@ class Workspace:
             case "open":
                 path = Path(request["path"])
                 self.set_project(load_project(path), path)
+            case "export_rendered":
+                from nigiro.figure_export import write_figure
+
+                fonts = Path(__file__).with_name("fonts")
+                write_figure(Path(request["path"]), request["svg"], request["scale"], fonts)
+                return {}
             case _:
                 self.apply(request)
         return self.snapshot()
@@ -112,17 +144,26 @@ class Workspace:
                 if project.worksheet.rows[operation.row][operation.column] != operation.value:
                     self.set_project(updated, self.path)
                     self.dirty = True
-            case "fit":
-                recipe = LinearFit(request["x"], request["y"])
+            case "fit" | "plot":
+                if request["action"] == "fit":
+                    recipe = LinearFit(request["x"], request["y"])
+                else:
+                    recipe = Plot(request["plot_type"], request["x"], request["y"])
                 updated = project.apply(recipe)
-                self.fit = run_linear_fit(updated.worksheet, recipe)
+                self.render(updated)
                 self.project = updated
-                self.fit_error = None
                 self.dirty = True
             case "color":
                 operation = FigureColor(request["element"], request["color"])
                 if project.colors[operation.element] != operation.color:
                     self.project = project.apply(operation)
+                    self.dirty = True
+            case "figure_style":
+                if project.figure is None:
+                    raise ValueError("Create a figure first.")
+                style = FigureStyle(**request["style"])
+                if style != project.figure_style:
+                    self.project = project.apply(style)
                     self.dirty = True
             case "save":
                 path = Path(request["path"]) if "path" in request else self.path
@@ -140,12 +181,17 @@ class Workspace:
         if path.suffix.lower() not in (".svg", ".pdf"):
             raise ValueError("Choose a file name with the .svg or .pdf extension.")
         project = self.project
-        if project is None or project.fit is None or self.fit is None:
-            raise ValueError("Run a linear fit before you export the figure.")
+        if project is None or (self.fit is None and self.plot is None):
+            raise ValueError("Create a figure before you export it.")
+        recipe = project.figure
         columns = project.worksheet.columns
         figure = Figure(figsize=(8, 5.5), layout="constrained")
         FigureCanvasAgg(figure)
-        draw_fit(figure, self.fit, columns[project.fit.x], columns[project.fit.y], project.colors)
+        x_label, y_label = columns[recipe.x], columns[recipe.y]
+        if self.plot is not None:
+            draw_plot(figure, recipe.plot_type, self.plot, x_label, y_label, project.colors["observations"])
+        else:
+            draw_fit(figure, self.fit, x_label, y_label, project.colors)
         figure.savefig(path, format=path.suffix[1:].lower())
 
 

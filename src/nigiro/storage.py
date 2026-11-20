@@ -14,13 +14,16 @@ from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 import numpy
 import scipy
 
-from .project import Correction, FigureColor, LinearFit, Operation, Project, Source
+from .figure_style import FigureStyle
+from .project import Correction, FigureColor, LinearFit, Operation, Plot, Project, Source
 
 
 OPERATION_TYPES = {
     "correct_cell": Correction,
     "linear_fit": LinearFit,
+    "plot": Plot,
     "figure_color": FigureColor,
+    "figure_style": FigureStyle,
 }
 OPERATION_NAMES = {cls: name for name, cls in OPERATION_TYPES.items()}
 

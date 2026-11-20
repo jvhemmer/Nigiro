@@ -23,6 +23,7 @@ def main() -> None:
             "--specpath", str(build),
             "--exclude-module", "PyQt6",
             "--exclude-module", "tkinter",
+            "--add-data", f"{root / 'src' / 'nigiro' / 'fonts'}:nigiro/fonts",
             "--hidden-import", "matplotlib.backends.backend_svg",
             "--hidden-import", "matplotlib.backends.backend_pdf",
             str(root / "src" / "nigiro" / "desktop.py"),

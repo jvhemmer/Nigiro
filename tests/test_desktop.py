@@ -77,3 +77,75 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertEqual(exported_pdf["state"], opened["state"])
             self.assertIn("#9a1482", svg.read_text())
             self.assertTrue(pdf.read_bytes().startswith(b"%PDF-"))
+
+    def test_figure_settings_follow_the_saved_plot_recipe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "styled.nigiro"
+            style = {
+                "title": "Signal < 10 µV",
+                "line_width": 1.25,
+                "x": {"label": "Time (s)", "lower": 0, "upper": 6, "step": 2, "mirror": True},
+            }
+            _, original, styled, rejected, saved = self.run_worker(
+                {"action": "sample"},
+                {"action": "fit", "x": 0, "y": 1},
+                {"action": "figure_style", "style": style},
+                {"action": "figure_style", "style": {"x": {"scale": "log", "lower": -1}}},
+                {"action": "save", "path": str(path)},
+            )
+            original = original["state"]["project"]
+            styled = styled["state"]["project"]
+            self.assertIn("positive", rejected["error"])
+            self.assertEqual(styled["fit"], original["fit"])
+            self.assertEqual(styled["rows"], original["rows"])
+            self.assertEqual(styled["figure_style"]["x"]["step"], 2)
+            self.assertEqual(saved["state"]["project"]["figure_style"], styled["figure_style"])
+
+            reopened, new_plot = self.run_worker(
+                {"action": "open", "path": str(path)},
+                {"action": "plot", "plot_type": "line", "x": 0, "y": 1},
+            )
+            self.assertEqual(reopened["state"]["project"]["figure_style"], styled["figure_style"])
+            self.assertEqual(new_plot["state"]["project"]["figure_style"], original["figure_style"])
+
+    def test_plot_replays_selected_columns_after_worksheet_edits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "measurements.csv"
+            raw = b"Time,Signal,Group\n0,1,A\n1,3,A\n2,5,B\n3,,C\n"
+            source.write_bytes(raw)
+            project = source.with_suffix(".nigiro")
+            svg = source.with_suffix(".svg")
+            pdf = source.with_suffix(".pdf")
+            _, fitted, scatter, line, invalid, bar, edited, saved = self.run_worker(
+                {"action": "import_csv", "path": str(source)},
+                {"action": "fit", "x": 0, "y": 1},
+                {"action": "plot", "plot_type": "scatter", "x": 0, "y": 1},
+                {"action": "plot", "plot_type": "line", "x": 1, "y": 0},
+                {"action": "plot", "plot_type": "line", "x": 2, "y": 1},
+                {"action": "plot", "plot_type": "bar", "x": 2, "y": 1},
+                {"action": "correct", "row": 1, "column": 1, "value": "9"},
+                {"action": "save", "path": str(project)},
+            )
+            self.assertEqual(fitted["state"]["project"]["fit"]["slope"], 2)
+            self.assertIsNone(scatter["state"]["project"]["fit"])
+            self.assertEqual(scatter["state"]["project"]["plot"]["omitted_rows"], 1)
+            self.assertEqual(line["state"]["project"]["plot"]["x_values"], [1, 3, 5])
+            self.assertIn("row 1", invalid["error"])
+            self.assertEqual(bar["state"]["project"]["plot"]["x_values"], ["A", "A", "B"])
+            self.assertEqual(edited["state"]["project"]["plot"]["y_values"], [1, 9, 5])
+            self.assertFalse(saved["state"]["project"]["dirty"])
+            self.assertEqual(source.read_bytes(), raw)
+            source.unlink()
+
+            reopened, exported_svg, exported_pdf = self.run_worker(
+                {"action": "open", "path": str(project)},
+                {"action": "export", "path": str(svg)},
+                {"action": "export", "path": str(pdf)},
+            )
+            self.assertEqual(reopened["state"]["project"]["plot"], edited["state"]["project"]["plot"])
+            self.assertIn("state", exported_svg)
+            self.assertIn("state", exported_pdf)
+            self.assertIn("<svg", svg.read_text())
+            self.assertTrue(pdf.read_bytes().startswith(b"%PDF-"))
+            with ZipFile(project) as archive:
+                self.assertEqual(archive.read("source.csv"), raw)

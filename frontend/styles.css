@@ -350,7 +350,10 @@ td input {
 .inspector > * + * { border-top: 1px solid var(--line); }
 .fit-settings label { display: grid; gap: 5px; margin-bottom: 11px; color: #505a77; font-size: .85rem; }
 .fit-settings label:last-child { margin-bottom: 0; }
-.fit-settings select { min-width: 0; width: 100%; border: 1px solid #d9dced; border-radius: 6px; padding: 6px 8px; background: white; color: #232b47; }
+.fit-settings select, .figure-field input, .figure-field select {
+  min-width: 0; width: 100%; border: 1px solid #d9dced; border-radius: 6px;
+  padding: 6px 8px; background: white; color: #232b47;
+}
 .element-list { display: grid; gap: 5px; }
 .element-list button { justify-content: flex-start; padding-inline: 8px; border-color: transparent; }
 .element-list button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
@@ -365,3 +368,40 @@ td input {
   .workspace { gap: 8px; padding: 8px; }
   .fit-summary div { padding-inline: 7px; }
 }
+
+@font-face {
+  font-family: "DejaVu Sans";
+  src: url("../src/nigiro/fonts/DejaVuSans.ttf") format("truetype");
+}
+
+.settings-dialog {
+  width: min(360px, calc(100% - 32px));
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: inherit;
+}
+.settings-dialog::backdrop { background: #19213a55; }
+.settings-dialog h2 { margin-bottom: 16px; font-size: 1.15rem; }
+.settings-dialog .fit-settings { padding: 0; }
+.settings-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+.figure-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-right: 8px; }
+.figure-toolbar button { white-space: nowrap; }
+.plot :is(.xtitle, .x2title, .ytitle, .y2title, .gtitle) { pointer-events: auto; cursor: pointer; }
+
+.figure-settings { width: min(580px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; }
+.figure-settings-nav { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 15px; }
+.figure-settings-nav button[aria-pressed="true"] {
+  background: #eeecff;
+  border-color: #cbc4f8;
+  color: #3d31ad;
+}
+.figure-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 13px; }
+.figure-field { display: grid; gap: 4px; color: #505a77; font-size: .87rem; }
+.figure-field input[type="color"] { min-height: 32px; padding: 3px 5px; }
+.figure-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 14px; }
+.figure-toggles label { display: flex; align-items: center; gap: 5px; font-size: .87rem; }
+.figure-settings-error { color: #a21d33; margin-top: 10px; }
+.figure-reset { margin-right: auto; }
