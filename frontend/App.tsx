@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
-  ArrowDownToLine, ChartNoAxesCombined, FileSpreadsheet, FolderOpen,
-  History, Save, SlidersHorizontal, Table2, Upload,
+  ChartNoAxesCombined, FileSpreadsheet, History, SlidersHorizontal, Table2,
 } from "lucide-react";
 import { DockWorkspace } from "./DockWorkspace";
 import { FitPlot } from "./FitPlot";
+import { MenuBar } from "./MenuBar";
 import { Worksheet } from "./Worksheet";
 import {
   elementNames, formatNumber, workspace,
@@ -14,6 +14,15 @@ import {
 } from "./workspace";
 
 type Run = (request: Request) => Promise<void>;
+
+interface FitColumns {
+  x: number;
+  y: number;
+}
+
+function lastFit(project: Project) {
+  return [...project.operations].reverse().find((step) => step.kind === "linear_fit");
+}
 
 function projectStem(project: Project) {
   const fileName = (project.file_name ?? project.source_name).split(/[\\/]/).at(-1);
@@ -44,34 +53,32 @@ function stepLabel(operation: RecordedStep, columns: string[]) {
   }
 }
 
-function FitSettings({ project, busy, run }: { project: Project; busy: boolean; run: Run }) {
-  const recipe = [...project.operations].reverse().find((step) => step.kind === "linear_fit");
-  const [x, setX] = useState(recipe?.x ?? 0);
-  const [y, setY] = useState(recipe?.y ?? Math.min(1, project.columns.length - 1));
-  const options = project.columns.map((name, index) => (
+function FitSettings({ columns, selection, busy, onChange }: {
+  columns: string[];
+  selection: FitColumns;
+  busy: boolean;
+  onChange: (selection: FitColumns) => void;
+}) {
+  const options = columns.map((name, index) => (
     <option key={index} value={index}>{name || `Column ${index + 1}`}</option>
   ));
 
   return (
-    <form
-      className="fit-settings"
-      onSubmit={(event) => { event.preventDefault(); void run({ action: "fit", x, y }); }}
-    >
+    <section className="fit-settings">
       <div className="section-header"><h2>Linear fit</h2></div>
-      <label>
-        <span>X column</span>
-        <select value={x} onChange={(event) => setX(Number(event.target.value))} disabled={busy}>
-          {options}
-        </select>
-      </label>
-      <label>
-        <span>Y column</span>
-        <select value={y} onChange={(event) => setY(Number(event.target.value))} disabled={busy}>
-          {options}
-        </select>
-      </label>
-      <button className="primary" type="submit" disabled={busy || x === y}>Run linear fit</button>
-    </form>
+      {(["x", "y"] as const).map((axis) => (
+        <label key={axis}>
+          <span>{axis.toUpperCase()} column</span>
+          <select
+            value={selection[axis]}
+            disabled={busy}
+            onChange={(event) => onChange({ ...selection, [axis]: Number(event.target.value) })}
+          >
+            {options}
+          </select>
+        </label>
+      ))}
+    </section>
   );
 }
 
@@ -103,7 +110,7 @@ function FigurePanel({ project, onSelect }: {
   project: Project;
   onSelect: (element: FigureElement) => void;
 }) {
-  const recipe = [...project.operations].reverse().find((step) => step.kind === "linear_fit");
+  const recipe = lastFit(project);
   const fit = project.fit;
 
   return (
@@ -131,71 +138,68 @@ function FigurePanel({ project, onSelect }: {
           <ChartNoAxesCombined size={36} strokeWidth={1.5} />
           {project.fit_error
             ? <p role="alert">{project.fit_error}</p>
-            : <p>Choose X and Y columns, then run a linear fit.</p>}
+            : <p>Choose X and Y columns, then select <strong>Analysis → Linear Fit</strong>.</p>}
         </div>
       )}
     </div>
   );
 }
 
-function AnalysisPanel({ project, busy, run, element, onSelect }: {
+function AnalysisPanel({ project, busy, run, element, onSelect, fitColumns, onFitColumnsChange }: {
   project: Project;
   busy: boolean;
   run: Run;
   element: FigureElement;
   onSelect: (element: FigureElement) => void;
+  fitColumns: FitColumns;
+  onFitColumnsChange: (selection: FitColumns) => void;
 }) {
   return (
     <div className="inspector">
-      <FitSettings project={project} busy={busy} run={run} />
+      <FitSettings
+        columns={project.columns}
+        selection={fitColumns}
+        busy={busy}
+        onChange={onFitColumnsChange}
+      />
       {project.fit && (
-        <>
-          <section className="element-settings" aria-labelledby="element-heading">
-            <div className="section-header"><h2 id="element-heading">Figure element</h2></div>
-            <div className="element-list">
-              {(["observations", "fit"] as const).map((item) => (
-                <button
-                  key={item}
-                  aria-pressed={item === element}
-                  onClick={() => onSelect(item)}
-                >
-                  <span
-                    className={item === "fit" ? "swatch line-swatch" : "swatch"}
-                    style={{ backgroundColor: project.colors[item] }}
-                  />
-                  {elementNames[item]}
-                </button>
-              ))}
-            </div>
-            <ColorField
-              key={`${element}:${project.colors[element]}`}
-              element={element}
-              color={project.colors[element]}
-              busy={busy}
-              run={run}
-            />
-          </section>
-          <section className="export-settings" aria-labelledby="export-heading">
-            <div className="section-header">
-              <h2 id="export-heading"><ArrowDownToLine size={16} /> Export figure</h2>
-            </div>
-            <div className="export-buttons">
-              {(["svg", "pdf"] as const).map((format) => (
-                <button
-                  key={format}
-                  disabled={busy}
-                  onClick={() => void run({ action: "export", name: projectStem(project), format })}
-                >{format.toUpperCase()}</button>
-              ))}
-            </div>
-          </section>
-        </>
+        <section className="element-settings" aria-labelledby="element-heading">
+          <div className="section-header"><h2 id="element-heading">Figure element</h2></div>
+          <div className="element-list">
+            {(["observations", "fit"] as const).map((item) => (
+              <button
+                key={item}
+                aria-pressed={item === element}
+                onClick={() => onSelect(item)}
+              >
+                <span
+                  className={item === "fit" ? "swatch line-swatch" : "swatch"}
+                  style={{ backgroundColor: project.colors[item] }}
+                />
+                {elementNames[item]}
+              </button>
+            ))}
+          </div>
+          <ColorField
+            key={`${element}:${project.colors[element]}`}
+            element={element}
+            color={project.colors[element]}
+            busy={busy}
+            run={run}
+          />
+        </section>
       )}
     </div>
   );
 }
 
-function ProjectEditor({ project, busy, run }: { project: Project; busy: boolean; run: Run }) {
+function ProjectEditor({ project, busy, run, fitColumns, onFitColumnsChange }: {
+  project: Project;
+  busy: boolean;
+  run: Run;
+  fitColumns: FitColumns;
+  onFitColumnsChange: (selection: FitColumns) => void;
+}) {
   const [element, setElement] = useState<FigureElement>("fit");
   return (
     <DockWorkspace panels={[
@@ -235,7 +239,7 @@ function ProjectEditor({ project, busy, run }: { project: Project; busy: boolean
         position: { referencePanel: "figure", direction: "right" },
         initialWidth: 230, minimumWidth: 186,
         content: (
-          <AnalysisPanel project={project} busy={busy} run={run} element={element} onSelect={setElement} />
+          <AnalysisPanel {...{ project, busy, run, element, fitColumns, onFitColumnsChange }} onSelect={setElement} />
         ),
       },
     ]} />
@@ -245,6 +249,7 @@ function ProjectEditor({ project, busy, run }: { project: Project; busy: boolean
 export function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [projectKey, setProjectKey] = useState(0);
+  const [fitColumns, setFitColumns] = useState<FitColumns>({ x: 0, y: 0 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const projectRef = useRef(project);
@@ -260,6 +265,10 @@ export function App() {
       if (replace && projectRef.current?.dirty && !await confirmDiscard()) return;
       const response = await workspace(request);
       if (response) {
+        if (response.project && (replace || !projectRef.current)) {
+          const recipe = lastFit(response.project);
+          setFitColumns({ x: recipe?.x ?? 0, y: recipe?.y ?? Math.min(1, response.project.columns.length - 1) });
+        }
         projectRef.current = response.project;
         setProject(response.project);
         if (replace) setProjectKey((key) => key + 1);
@@ -294,30 +303,48 @@ export function App() {
       }
     });
     void unlisten.catch((reason: unknown) => setError(String(reason)));
-
-    function shortcuts(event: KeyboardEvent) {
-      if (event.repeat || !(event.metaKey || event.ctrlKey)) return;
-      if (event.key.toLowerCase() === "s" && projectRef.current) {
-        event.preventDefault();
-        void run(event.shiftKey
-          ? { action: "save_as", name: projectStem(projectRef.current) }
-          : saveRequest(projectRef.current));
-      } else if (event.key.toLowerCase() === "o") {
-        event.preventDefault();
-        void run({ action: "open" });
-      }
-    }
-    window.addEventListener("keydown", shortcuts);
-    return () => {
-      window.removeEventListener("keydown", shortcuts);
-      void unlisten.then((stop) => stop(), () => {});
-    };
+    return () => { void unlisten.then((stop) => stop(), () => {}); };
   }, [run]);
+
+  const exportName = project?.fit ? projectStem(project) : null;
+  const canFit = project && fitColumns.x !== fitColumns.y;
 
   return (
     <div className="app">
       <header className="app-bar">
         <div className="brand"><ChartNoAxesCombined size={21} /><span>Nigiro</span></div>
+        <MenuBar
+          busy={busy}
+          onRun={run}
+          menus={[
+            {
+              label: "File",
+              groups: [
+                [
+                  { label: "Import CSV…", request: { action: "import_csv" } },
+                  { label: "Open Project…", request: { action: "open" }, shortcut: "O" },
+                  { label: "Try Sample Data", request: { action: "sample" } },
+                ],
+                [
+                  { label: "Save", request: project ? saveRequest(project) : null, shortcut: "S" },
+                  {
+                    label: "Save As…",
+                    request: project ? { action: "save_as", name: projectStem(project) } : null,
+                    shortcut: "Shift+S",
+                  },
+                ],
+                [
+                  { label: "Export SVG…", request: exportName ? { action: "export", name: exportName, format: "svg" } : null },
+                  { label: "Export PDF…", request: exportName ? { action: "export", name: exportName, format: "pdf" } : null },
+                ],
+              ],
+            },
+            {
+              label: "Analysis",
+              groups: [[{ label: "Linear Fit", request: canFit ? { action: "fit", ...fitColumns } : null }]],
+            },
+          ]}
+        />
         {project && (
           <div className="project-name">
             <FileSpreadsheet size={17} />
@@ -327,42 +354,16 @@ export function App() {
             {project.dirty && <span className="dirty" title="Unsaved changes" aria-label="Unsaved changes" />}
           </div>
         )}
-        <nav aria-label="Project actions">
-          <button disabled={busy} onClick={() => void run({ action: "import_csv" })}>
-            <Upload size={16} /> Import CSV
-          </button>
-          <button disabled={busy} onClick={() => void run({ action: "open" })}>
-            <FolderOpen size={16} /> Open project
-          </button>
-          {project && (
-            <>
-              <button className="primary" disabled={busy} onClick={() => void run(saveRequest(project))}>
-                <Save size={16} /> Save
-              </button>
-              {project.file_name && (
-                <button disabled={busy} onClick={() => void run({ action: "save_as", name: projectStem(project) })}>
-                  Save As…
-                </button>
-              )}
-            </>
-          )}
-        </nav>
       </header>
       {error && <div className="error-banner" role="alert">{error}</div>}
-      {project ? <ProjectEditor key={projectKey} {...{ project, busy, run }} /> : (
+      {project ? (
+        <ProjectEditor key={projectKey} {...{ project, busy, run, fitColumns }} onFitColumnsChange={setFitColumns} />
+      ) : (
         <main className="welcome">
           <div className="welcome-card">
             <div className="welcome-mark"><ChartNoAxesCombined size={35} strokeWidth={1.7} /></div>
             <h1>Start an analysis</h1>
-            <p>Import a CSV to fit a line, save your analysis, and export a figure.</p>
-            <div className="welcome-actions">
-              <button className="primary" disabled={busy} onClick={() => void run({ action: "import_csv" })}>
-                <Upload size={17} /> Import CSV
-              </button>
-              <button disabled={busy} onClick={() => void run({ action: "sample" })}>
-                Try sample data
-              </button>
-            </div>
+            <p>Open <strong>File</strong> to import a CSV or try sample data.</p>
           </div>
         </main>
       )}

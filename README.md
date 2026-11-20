@@ -31,11 +31,11 @@ Find the package in `src-tauri/target/release/bundle/`. The bundle includes the 
 
 ## Try the editor
 
-1. Select **Try sample data** or import a comma-separated UTF-8 CSV with a header row.
-2. Choose the X and Y columns and run the linear fit.
+1. Select **File → Try Sample Data**. To import your own data, select **File → Import CSV**. Use a comma-separated UTF-8 file with a header row.
+2. Choose the X and Y columns in the **Analysis** panel. Select **Analysis → Linear Fit** in the menu bar.
 3. Select a point or the fit line, then apply a color in **Figure element**.
 4. Double-click a value in **Working data** and press Enter to apply the edit.
-5. Save the project or export the figure as SVG or PDF.
+5. Select **File → Save** to save the project. Select **File → Export SVG** or **File → Export PDF** to export the figure.
 
 The fit excludes rows with a blank X or Y value and reports how many it excluded. Other invalid values produce an error with the row number.
 

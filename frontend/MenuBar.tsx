@@ -1,0 +1,179 @@
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import type { Request } from "./workspace";
+
+interface MenuCommand {
+  label: string;
+  request: Request | null;
+  shortcut?: string;
+}
+
+interface Menu {
+  label: string;
+  groups: MenuCommand[][];
+}
+
+interface MenuBarProps {
+  menus: Menu[];
+  busy: boolean;
+  onRun: (request: Request) => Promise<void>;
+}
+
+export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
+  const id = useId();
+  const root = useRef<HTMLDivElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
+  const triggers = useRef<(HTMLButtonElement | null)[]>([]);
+  const [active, setActive] = useState(0);
+  const [open, setOpen] = useState<{ index: number; last: boolean } | null>(null);
+
+  function showMenu(index: number, last = false) {
+    setActive(index);
+    setOpen({ index, last });
+  }
+
+  const closeMenu = useCallback(() => {
+    if (open) triggers.current[open.index]?.focus();
+    setOpen(null);
+  }, [open]);
+
+  const runCommand = useCallback((command: MenuCommand) => {
+    if (busy || !command.request) return;
+    closeMenu();
+    void onRun(command.request);
+  }, [busy, closeMenu, onRun]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const items = popup.current?.querySelectorAll("button");
+    if (items?.length) items[open.last ? items.length - 1 : 0].focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function dismiss(event: PointerEvent) {
+      if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(null);
+    }
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [open]);
+
+  useEffect(() => {
+    function shortcut(event: globalThis.KeyboardEvent) {
+      if (event.repeat || event.altKey || !(event.ctrlKey || event.metaKey)) return;
+      const key = (event.shiftKey ? "Shift+" : "") + event.key.toUpperCase();
+      const command = menus.flatMap(({ groups }) => groups.flat()).find((item) => item.shortcut === key);
+      if (command) {
+        event.preventDefault();
+        runCommand(command);
+      }
+    }
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [menus, runCommand]);
+
+  function navigate(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const key = event.key;
+
+    if (key === "Tab") {
+      if (open) closeMenu();
+      return;
+    }
+    if (key === "Escape" && open) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMenu();
+      return;
+    }
+    if (key === "ArrowRight" || key === "ArrowLeft") {
+      event.preventDefault();
+      const direction = key === "ArrowRight" ? 1 : -1;
+      const next = (active + direction + menus.length) % menus.length;
+      if (open) showMenu(next);
+      else triggers.current[next]?.focus();
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(key)) return;
+    event.preventDefault();
+
+    if (!open) {
+      if (key === "Home" || key === "End") {
+        triggers.current[key === "Home" ? 0 : menus.length - 1]?.focus();
+      } else {
+        showMenu(active, key === "ArrowUp");
+      }
+      return;
+    }
+
+    const items = Array.from(popup.current?.querySelectorAll("button") ?? []);
+    if (items.length === 0) return;
+    const current = items.findIndex((item) => item === document.activeElement);
+    const direction = key === "ArrowDown" ? 1 : -1;
+    const next = key === "Home" ? 0 : key === "End" ? items.length - 1
+      : (current + direction + items.length) % items.length;
+    items[next].focus();
+  }
+
+  const shortcutPrefix = /Mac/.test(navigator.platform) ? "⌘" : "Ctrl+";
+
+  return (
+    <div
+      className="menu-bar"
+      ref={root}
+      role="menubar"
+      aria-label="Application menu"
+      onKeyDown={navigate}
+      onBlur={(event) => {
+        if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setOpen(null);
+      }}
+    >
+      {menus.map(({ label, groups }, index) => {
+        const expanded = open?.index === index;
+        const triggerId = `${id}-trigger-${index}`;
+        const menuId = `${id}-menu-${index}`;
+        return (
+          <div className="menu-group" role="none" key={label}>
+            <button
+              className="menu-trigger"
+              type="button"
+              id={triggerId}
+              ref={(button) => { triggers.current[index] = button; }}
+              role="menuitem"
+              tabIndex={active === index ? 0 : -1}
+              aria-haspopup="menu"
+              aria-expanded={expanded}
+              aria-controls={expanded ? menuId : undefined}
+              onFocus={() => setActive(index)}
+              onClick={() => expanded ? closeMenu() : showMenu(index)}
+            >
+              {label}
+            </button>
+            {expanded && (
+              <div className="menu-popup" id={menuId} ref={popup} role="menu" aria-labelledby={triggerId}>
+                {groups.map((group, groupIndex) => (
+                  <Fragment key={group[0].label}>
+                    {groupIndex > 0 && <div className="menu-separator" role="separator" />}
+                    {group.map((command) => (
+                      <button
+                        className="menu-command"
+                        type="button"
+                        key={command.label}
+                        role="menuitem"
+                        tabIndex={-1}
+                        aria-disabled={busy || !command.request}
+                        onClick={() => runCommand(command)}
+                      >
+                        <span>{command.label}</span>
+                        {command.shortcut && <kbd aria-hidden="true">{shortcutPrefix}{command.shortcut}</kbd>}
+                      </button>
+                    ))}
+                  </Fragment>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}

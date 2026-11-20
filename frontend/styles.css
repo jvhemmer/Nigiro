@@ -51,11 +51,14 @@ button.primary:hover:not(:disabled) { background: #372aba; }
 }
 
 .app-bar {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 19px;
-  min-height: 63px;
-  padding: 10px 20px;
+  flex: none;
+  gap: 16px;
+  min-height: 51px;
+  padding: 8px 20px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
@@ -80,8 +83,7 @@ button.primary:hover:not(:disabled) { background: #372aba; }
   display: flex;
   gap: 8px;
   align-items: center;
-  padding-left: 16px;
-  border-left: 1px solid var(--line);
+  margin-left: auto;
   min-width: 0;
   color: #4b5572;
 }
@@ -93,7 +95,55 @@ button.primary:hover:not(:disabled) { background: #372aba; }
 }
 .dirty { width: 7px; height: 7px; border-radius: 50%; background: #c37c0a; }
 
-.app-bar nav { display: flex; gap: 7px; margin-left: auto; }
+.menu-bar {
+  display: flex;
+  gap: 3px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+.menu-group { position: relative; }
+.menu-trigger {
+  min-height: 30px;
+  padding: 0 9px;
+  border-color: transparent;
+  background: transparent;
+}
+.menu-trigger:hover:not(:disabled),
+.menu-trigger[aria-expanded="true"] {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.menu-popup {
+  position: absolute;
+  display: grid;
+  inset: calc(100% + 4px) auto auto 0;
+  width: max-content;
+  min-width: 220px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 8px 22px #20244a21;
+}
+.menu-command {
+  justify-content: space-between;
+  width: 100%;
+  gap: 18px;
+  min-height: 31px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font-weight: 500;
+}
+.menu-command:hover:not(:disabled),
+.menu-command:focus { background: var(--accent-soft); }
+.menu-command:focus-visible { outline-offset: -2px; }
+.menu-command[aria-disabled="true"] { color: #68718a; opacity: .65; cursor: default; }
+.menu-command kbd { color: var(--muted); font-size: .8rem; }
+.menu-separator { border-top: 1px solid var(--line); margin: 4px 3px; }
+
 .error-banner {
   padding: 10px 20px;
   background: #fff0ec;
@@ -129,11 +179,11 @@ button.primary:hover:not(:disabled) { background: #372aba; }
   border-radius: 16px;
 }
 .welcome h1 { font-size: 1.8rem; letter-spacing: -.04em; }
-.welcome p { margin: 10px auto 23px; color: var(--muted); max-width: 320px; line-height: 1.55; }
-.welcome-actions { display: flex; justify-content: center; gap: 9px; }
+.welcome p { margin: 10px auto 0; color: var(--muted); max-width: 320px; line-height: 1.55; }
 
 .workspace {
   display: grid;
+  isolation: isolate;
   grid-template-columns: 42px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   gap: 10px;
@@ -295,12 +345,12 @@ td input {
 .fit-summary dt { color: var(--muted); font-size: .75rem; font-weight: 550; }
 .fit-summary dd { margin-top: 3px; font-size: 1.07rem; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 
-.fit-settings, .element-settings, .export-settings { padding: 0 13px 14px; }
+.fit-settings, .element-settings { padding: 0 13px 14px; }
 .inspector .section-header { padding-inline: 0; }
 .inspector > * + * { border-top: 1px solid var(--line); }
 .fit-settings label { display: grid; gap: 5px; margin-bottom: 11px; color: #505a77; font-size: .85rem; }
+.fit-settings label:last-child { margin-bottom: 0; }
 .fit-settings select { min-width: 0; width: 100%; border: 1px solid #d9dced; border-radius: 6px; padding: 6px 8px; background: white; color: #232b47; }
-.fit-settings button { width: 100%; }
 .element-list { display: grid; gap: 5px; }
 .element-list button { justify-content: flex-start; padding-inline: 8px; border-color: transparent; }
 .element-list button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
@@ -310,7 +360,6 @@ td input {
 .color-field label { display: flex; align-items: center; gap: 5px; color: #4b5572; font-family: ui-monospace, monospace; font-size: .82rem; }
 .color-field input { width: 28px; height: 27px; padding: 1px; border: 1px solid #d9dced; border-radius: 4px; background: white; cursor: pointer; }
 .color-field button { min-height: 29px; padding-inline: 7px; font-size: .82rem; }
-.export-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 
 @media (max-width: 930px) {
   .workspace { gap: 8px; padding: 8px; }
