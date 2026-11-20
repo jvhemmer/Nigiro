@@ -138,13 +138,17 @@ class Workspace:
         recipe = record.recipe if record else None
         figures = []
         names = {}
-        for number, (figure_id, entry) in enumerate(project.figures.items(), start=1):
-            step = plugin_step(entry.recipe)
-            plugin = self.plugins.plugins.get(step.pin)
-            label = plugin.manifest["name"] if plugin else step.plugin_id
-            names[figure_id] = f"{label} {number}"
+        counts: dict[str, int] = {}
+        for figure_id, entry in project.figures.items():
             if entry.fit_id is not None:
                 names[figure_id] = f"Residuals · {names[entry.fit_id]}"
+            else:
+                step = plugin_step(entry.recipe)
+                plugin = self.plugins.plugins.get(step.pin)
+                label = plugin.manifest["name"] if plugin else step.plugin_id
+                number = counts.get(step.plugin_id, 0) + 1
+                counts[step.plugin_id] = number
+                names[figure_id] = f"{label} {number}"
             figures.append({"id": figure_id, "name": names[figure_id]})
         selected_table = self.sources.get(self.source_id)
         figure_input = self.sources.get(getattr(recipe, "source_id", None))

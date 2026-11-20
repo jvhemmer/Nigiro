@@ -101,7 +101,6 @@ button.primary:hover:not(:disabled) { background: #1b4669; }
   padding-left: 5px;
   border-left: 1px solid var(--line);
 }
-.menu-group { position: relative; }
 .menu-trigger {
   min-height: 25px;
   padding: 0 7px;
@@ -115,12 +114,12 @@ button.primary:hover:not(:disabled) { background: #1b4669; }
   color: var(--accent);
 }
 .menu-popup {
-  position: absolute;
+  position: fixed;
+  z-index: 3;
   display: grid;
-  inset: calc(100% + 2px) auto auto 0;
   width: max-content;
-  min-width: 220px;
-  max-width: 350px;
+  min-width: min(220px, 100vw);
+  max-width: min(350px, 100vw);
   max-height: calc(100dvh - 34px);
   overflow: auto;
   padding: 2px;
@@ -147,6 +146,11 @@ button.primary:hover:not(:disabled) { background: #1b4669; }
 .menu-command[aria-disabled="true"] { color: #68718a; opacity: .65; cursor: default; }
 .menu-command kbd { color: var(--muted); font-size: .8rem; }
 .menu-separator { border-top: 1px solid var(--line); margin: 4px 3px; }
+
+.dock-resizing * {
+  -webkit-user-select: none;
+  user-select: none;
+}
 
 .error-banner {
   padding: 10px 20px;
@@ -267,8 +271,9 @@ button.primary:hover:not(:disabled) { background: #1b4669; }
 .tab-scroll { flex: none; width: 17px; min-height: 0; padding: 0; border-color: transparent; background: transparent; }
 .view-tabs {
   display: flex; flex: 1; min-width: 0; gap: 2px; overflow: auto hidden;
-  scrollbar-width: thin; padding-top: 2px;
+  scrollbar-width: none; padding-top: 2px;
 }
+.view-tabs::-webkit-scrollbar { display: none; }
 .view-tabs button {
   display: block; flex: none; min-height: 24px; max-width: min(240px, 100%);
   padding: 2px 7px; overflow: hidden; text-overflow: ellipsis;

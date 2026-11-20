@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import {
   DockviewReact, themeLight,
   type AddPanelOptions, type DockviewApi, type DockviewReadyEvent,
@@ -87,6 +87,27 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const defaultLayout = useRef<SerializedDockview | null>(null);
   const focusRestore = useRef<string | null>(null);
+
+  useEffect(() => {
+    function endResize() {
+      document.documentElement.classList.remove("dock-resizing");
+    }
+    window.addEventListener("pointerup", endResize, true);
+    window.addEventListener("pointercancel", endResize, true);
+    window.addEventListener("blur", endResize);
+    return () => {
+      window.removeEventListener("pointerup", endResize, true);
+      window.removeEventListener("pointercancel", endResize, true);
+      window.removeEventListener("blur", endResize);
+      endResize();
+    };
+  }, []);
+
+  function startResize(event: PointerEvent<HTMLElement>) {
+    if (event.button === 0 && event.target instanceof Element && event.target.closest(".dv-sash.dv-enabled")) {
+      document.documentElement.classList.add("dock-resizing");
+    }
+  }
 
   const syncLayout = useCallback((api: DockviewApi) => {
     const hidden = panels.map(({ id }) => id)
@@ -191,7 +212,7 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
 
   return (
     <Dock.Provider value={{ panels, collapse, reveal }}>
-      <main className="workspace">
+      <main className="workspace" onPointerDownCapture={startResize}>
         <aside className="dock-rail" aria-label="Panel sidebar">
           {panels.filter(({ id }) => collapsed.includes(id)).map(({ id, title, icon: Icon }) => (
             <button

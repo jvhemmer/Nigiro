@@ -188,6 +188,7 @@ class DesktopWorkerTest(unittest.TestCase):
             derived = derived["state"]["project"]
             earlier = earlier["state"]["project"]
             self.assertEqual(len(fit["figures"]), 2)
+            self.assertEqual([entry["name"] for entry in fit["figures"]], ["Scatter 1", "Linear Fit 1"])
             self.assertEqual(coefficients["source_table"]["columns"][:2], ["Slope", "Intercept"])
             self.assertAlmostEqual(float(coefficients["source_table"]["rows"][0][0]), fit["fit"]["slope"])
             self.assertEqual(derived["figure"]["recipe"]["source_id"], "2:fitted")
@@ -234,12 +235,17 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertNotEqual(updated["figure"]["traces"], residuals["figure"]["traces"])
             self.assertEqual(len(updated["sources"]), 3)
 
-            reopened, selected = self.run_worker(
+            reopened, selected, next_fit = self.run_worker(
                 {"action": "open", "path": str(path)},
                 {"action": "select_figure", "figure_id": 1},
+                fit,
             )
             self.assertEqual(reopened["state"]["project"]["figure_id"], 0)
             self.assertEqual(selected["state"]["project"]["figure"], updated["figure"])
+            self.assertEqual(
+                [entry["name"] for entry in next_fit["state"]["project"]["figures"]][-2:],
+                ["Linear Fit 2", "Residuals · Linear Fit 2"],
+            )
 
     def test_plot_replays_selected_columns_after_worksheet_edits(self):
         with tempfile.TemporaryDirectory() as directory:

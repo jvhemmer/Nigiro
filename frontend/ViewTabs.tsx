@@ -21,10 +21,23 @@ export function ViewTabs<T extends string | number | null>({ id, label, items, s
     const element = strip.current;
     if (!element) return;
     const measure = () => setOverflow(element.scrollWidth > element.clientWidth);
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey
+        || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+      const before = element.scrollLeft;
+      const unit = event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? element.clientWidth
+        : event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1;
+      element.scrollLeft += event.deltaY * unit;
+      if (element.scrollLeft !== before) event.preventDefault();
+    };
     const observer = new ResizeObserver(measure);
     observer.observe(element);
+    element.addEventListener("wheel", onWheel, { passive: false });
     measure();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      element.removeEventListener("wheel", onWheel);
+    };
   }, [items.length]);
 
   function scroll(direction: number) {

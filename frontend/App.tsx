@@ -1,16 +1,17 @@
-import { useCallback, useEffect, useId, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type MouseEvent, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   ChartNoAxesCombined, Database, FileSpreadsheet, History, SlidersHorizontal, Table2,
 } from "lucide-react";
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
+import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ExportDialog } from "./ExportDialog";
 import { FigureSettings } from "./FigureSettings";
 import type { StyleSection } from "./figureStyle";
 import { FigurePlot, type CaptureFigure } from "./FitPlot";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
-import { MenuBar, type MenuRequest } from "./MenuBar";
+import { MenuBar, type MenuCommand, type MenuRequest } from "./MenuBar";
 import { columnFields, PluginDialog } from "./PluginDialog";
 import { ViewTabs, viewTabId } from "./ViewTabs";
 import { Worksheet } from "./Worksheet";
@@ -292,6 +293,8 @@ export function App() {
   const [pluginDialog, setPluginDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | null>(null);
   const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
   const [exportDialog, setExportDialog] = useState<ExportTarget | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
   const [exportSettings, setExportSettings] = useState<ExportSettings>({ format: "pdf", scale: 3 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -389,28 +392,64 @@ export function App() {
   }
 
   function runMenu(request: MenuRequest) {
+    closeContextMenu();
     if (request.action === "choose_plugin") setPluginDialog({ plugin: request.plugin });
     else if (request.action === "figure_settings") setFigureDialog("figure");
     else if (request.action === "choose_export") setExportDialog(request.target);
     else void run(request);
   }
 
+  const menuBusy = busy || pluginDialog !== null || exportDialog !== null || figureDialog !== null;
+  const openCommands: MenuCommand[] = [
+    { label: "Import CSV…", request: { action: "import_csv" } },
+    { label: "Open Project…", request: { action: "open" }, shortcut: "O" },
+    { label: "Try Sample Data", request: { action: "sample" } },
+  ];
+  const exportCommands: MenuCommand[] = [
+    { label: "Export Figure…", request: exportName ? { action: "choose_export", target: "figure" } : null },
+    { label: "Export Python Script…", request: exportName ? { action: "choose_export", target: "script" } : null },
+  ];
+  const figureSettings: MenuCommand = {
+    label: "Figure Settings…", request: exportName ? { action: "figure_settings" } : null,
+  };
+  const plotCommands = pluginCommands("plot");
+  const analysisCommands = pluginCommands("analysis");
+
+  function openContextMenu(event: MouseEvent<HTMLDivElement>) {
+    if (!(event.target instanceof Element) || event.target.closest("input, textarea, select, [contenteditable]")) return;
+    event.preventDefault();
+    if (menuBusy || event.target.closest(".menu-popup")) return;
+    let label = "Workspace actions";
+    let groups = [openCommands];
+    if (event.target.closest(".figure-pane") && figure) {
+      label = "Figure actions";
+      groups = [[figureSettings], exportCommands];
+    } else if (event.target.closest(".source-pane") && (plotCommands.length || analysisCommands.length)) {
+      label = "Worksheet actions";
+      groups = [plotCommands, analysisCommands].filter((group) => group.length);
+    }
+    const anchor = event.target.getBoundingClientRect();
+    const useAnchor = event.clientX === 0 && event.clientY === 0;
+    setContextMenu({
+      label, groups,
+      x: useAnchor ? anchor.left : event.clientX,
+      y: useAnchor ? anchor.bottom : event.clientY,
+      returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+    });
+  }
+
   return (
-    <div className="app">
+    <div className="app" onContextMenu={openContextMenu}>
       <header className="app-bar">
         <div className="brand"><ChartNoAxesCombined size={21} /><span>Nigiro</span></div>
         <MenuBar
-          busy={busy || pluginDialog !== null || exportDialog !== null || figureDialog !== null}
+          busy={menuBusy}
           onRun={runMenu}
           menus={[
             {
               label: "File",
               groups: [
-                [
-                  { label: "Import CSV…", request: { action: "import_csv" } },
-                  { label: "Open Project…", request: { action: "open" }, shortcut: "O" },
-                  { label: "Try Sample Data", request: { action: "sample" } },
-                ],
+                openCommands,
                 [
                   { label: "Save", request: project ? saveRequest(project) : null, shortcut: "S" },
                   {
@@ -419,22 +458,19 @@ export function App() {
                     shortcut: "Shift+S",
                   },
                 ],
-                [
-                  { label: "Export Figure…", request: exportName ? { action: "choose_export", target: "figure" } : null },
-                  { label: "Export Python Script…", request: exportName ? { action: "choose_export", target: "script" } : null },
-                ],
+                exportCommands,
               ],
             },
             {
               label: "Plot",
               groups: [
-                pluginCommands("plot"),
-                [{ label: "Figure Settings…", request: exportName ? { action: "figure_settings" } : null }],
+                plotCommands,
+                [figureSettings],
               ],
             },
             {
               label: "Analysis",
-              groups: [pluginCommands("analysis")],
+              groups: [analysisCommands],
             },
             {
               label: "Plugins",
@@ -452,6 +488,7 @@ export function App() {
           </div>
         )}
       </header>
+      {contextMenu && <ContextMenu menu={contextMenu} onClose={closeContextMenu} onRun={runMenu} />}
       {project && pluginDialog && (
         <PluginDialog plugin={pluginDialog.plugin}
           columns={configuring ? project.figure_input?.columns ?? project.columns : sourceColumns}

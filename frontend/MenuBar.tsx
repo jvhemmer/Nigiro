@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import type { ExportTarget } from "./exportFigure";
 import type { PluginDefinition, Request } from "./workspace";
 
@@ -7,7 +8,7 @@ export type MenuRequest = Request
   | { action: "figure_settings" }
   | { action: "choose_export"; target: ExportTarget };
 
-interface MenuCommand {
+export interface MenuCommand {
   label: string;
   request: MenuRequest | null;
   shortcut?: string;
@@ -50,14 +51,27 @@ export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
 
   useLayoutEffect(() => {
     if (!open) return;
-    const items = popup.current?.querySelectorAll("button");
-    if (items?.length) items[open.last ? items.length - 1 : 0].focus();
+    const element = popup.current;
+    const trigger = triggers.current[open.index];
+    if (!element || !trigger) return;
+
+    const position = () => {
+      const rect = trigger.getBoundingClientRect();
+      element.style.top = `${rect.bottom + 2}px`;
+      element.style.left = `${Math.max(0, Math.min(rect.left, window.innerWidth - element.offsetWidth))}px`;
+    };
+    position();
+    const items = element.querySelectorAll("button");
+    if (items.length) items[open.last ? items.length - 1 : 0].focus();
+    window.addEventListener("resize", position);
+    return () => window.removeEventListener("resize", position);
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
     function dismiss(event: PointerEvent) {
-      if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(null);
+      if (event.target instanceof Node && !root.current?.contains(event.target)
+        && !popup.current?.contains(event.target)) setOpen(null);
     }
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
@@ -130,7 +144,8 @@ export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
       aria-label="Application menu"
       onKeyDown={navigate}
       onBlur={(event) => {
-        if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setOpen(null);
+        if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)
+          && !popup.current?.contains(event.relatedTarget)) setOpen(null);
       }}
     >
       {menus.map(({ label, groups }, index) => {
@@ -154,7 +169,7 @@ export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
             >
               {label}
             </button>
-            {expanded && (
+            {expanded && createPortal(
               <div className="menu-popup" id={menuId} ref={popup} role="menu" aria-labelledby={triggerId}>
                 {groups.filter((group) => group.length).map((group, groupIndex) => (
                   <Fragment key={group[0].label}>
@@ -175,7 +190,8 @@ export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
                     ))}
                   </Fragment>
                 ))}
-              </div>
+              </div>,
+              document.body,
             )}
           </div>
         );
