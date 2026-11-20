@@ -56,6 +56,8 @@ class AxisStyle:
 @dataclass(frozen=True)
 class FigureStyle:
     title: str = ""
+    axes_width: int | None = None
+    axes_height: int | None = None
     font_family: str = "DejaVu Sans"
     label_size: float = 13
     tick_size: float = 11
@@ -72,6 +74,9 @@ class FigureStyle:
     residual: AxisStyle = AxisStyle(zero_line=True)
 
     def __post_init__(self) -> None:
+        for size in (self.axes_width, self.axes_height):
+            if size is not None and (type(size) is not int or not 1 <= size <= 8000):
+                raise ValueError("Enter whole axes dimensions from 1 to 8000 pixels.")
         if not isinstance(self.title, str) or not (
             isinstance(self.font_family, str) and self.font_family.strip()
             and re.fullmatch(r"[\w .'-]+", self.font_family)

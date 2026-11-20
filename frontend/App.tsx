@@ -55,18 +55,19 @@ function stepLabel(operation: RecordedStep, columns: string[], plugins: PluginDe
     case "figure_color":
       return `Change ${elementNames[operation.element].toLowerCase()} color to ${operation.color}`;
     case "figure_style":
+    case "figure_appearance":
       return "Change figure settings";
   }
 }
 
 function ColorField({
-  element, color, busy, run,
-}: { element: FigureElement; color: string; busy: boolean; run: Run }) {
+  element, color, figureId, busy, run,
+}: { element: FigureElement; color: string; figureId: number; busy: boolean; run: Run }) {
   const [draft, setDraft] = useState(color);
   return (
     <form
       className="color-field"
-      onSubmit={(event) => { event.preventDefault(); void run({ action: "color", element, color: draft }); }}
+      onSubmit={(event) => { event.preventDefault(); void run({ action: "color", element, color: draft, figure_id: figureId }); }}
     >
       <label>
         <input
@@ -83,33 +84,41 @@ function ColorField({
   );
 }
 
-function FigurePanel({ project, onSelect, onEdit, busy, capture }: {
+function FigurePanel({ project, onSelect, onEdit, busy, capture, run }: {
   project: Project;
   onSelect: (element: FigureElement) => void;
   onEdit: (section: StyleSection) => void;
   busy: boolean;
+  run: Run;
   capture: Ref<CaptureFigure>;
 }) {
   const data = project.figure;
   const summary = Object.entries(data?.summary ?? {});
-  const canColor = data?.elements?.some(Boolean);
-  const revision = project.operations.reduce((previous, step, index) =>
-    step.kind === "linear_fit" || step.kind === "plot" || step.kind === "plugin" ? index : previous, 0);
+  const figureId = project.figure_id;
 
   return (
     <div className="figure-pane">
-      {data ? (
+      {project.figures.length > 0 && (
+        <div className="view-picker">
+          <label>
+            <span>Figure</span>
+            <select aria-label="Figure" value={figureId ?? ""} disabled={busy}
+              onChange={(event) => void run({ action: "select_figure", figure_id: Number(event.target.value) })}>
+              {project.figures.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          {data && <button type="button" disabled={busy} onClick={() => onEdit("figure")}>Figure settings…</button>}
+        </div>
+      )}
+      {data && figureId !== null ? (
         <>
-          <div className="figure-toolbar">
-            <p className="figure-hint muted">{canColor ? "Select a line or point to edit its color" : data.definition.name}</p>
-            <button type="button" disabled={busy} onClick={() => onEdit("figure")}>Figure settings…</button>
-          </div>
           <FigurePlot
+            key={figureId}
             capture={capture}
             data={data}
             colors={project.colors}
             style={project.figure_style}
-            revision={revision}
+            revision={figureId}
             onEdit={onEdit}
             onSelect={onSelect}
           />
@@ -141,13 +150,15 @@ function AnalysisPanel({ project, busy, run, element, onSelect, onConfigure }: {
 }) {
   const available = (["observations", "fit"] as const).filter((role) => project.figure?.elements?.includes(role));
   const selected = available.includes(element) ? element : available[0];
+  const input = project.sources.find((source) => source.id === (project.figure?.recipe.source_id ?? null));
   return (
     <div className="inspector">
       {project.figure && <section className="fit-settings">
         <div className="section-header"><h2>{project.figure.definition.name}</h2></div>
+        {input && <p className="figure-input muted">Input · {input.name}</p>}
         {onConfigure && <button type="button" disabled={busy} onClick={onConfigure}>Plugin settings…</button>}
       </section>}
-      {selected && (
+      {selected && project.figure_id !== null && (
         <section className="element-settings" aria-labelledby="element-heading">
           <div className="section-header"><h2 id="element-heading">Figure element</h2></div>
           <div className="element-list">
@@ -166,7 +177,8 @@ function AnalysisPanel({ project, busy, run, element, onSelect, onConfigure }: {
             ))}
           </div>
           <ColorField
-            key={`${selected}:${project.colors[selected]}`}
+            key={`${project.figure_id}:${selected}:${project.colors[selected]}`}
+            figureId={project.figure_id}
             element={selected}
             color={project.colors[selected]}
             busy={busy}
@@ -192,20 +204,32 @@ function ProjectEditor({ project, plugins, busy, run, onConfigure, onEdit, captu
     <DockWorkspace panels={[
       {
         id: "figure", title: "Figure", icon: ChartNoAxesCombined, minimumWidth: 210,
-        content: <FigurePanel project={project} onSelect={setElement} onEdit={onEdit} busy={busy} capture={capture} />,
+        content: <FigurePanel project={project} onSelect={setElement} onEdit={onEdit} busy={busy} capture={capture} run={run} />,
       },
       {
         id: "worksheet", title: "Worksheet", icon: Table2,
         position: { referencePanel: "figure", direction: "left" },
         initialWidth: 320, minimumWidth: 170, minimumHeight: 150,
         content: (
-          <Worksheet
-            columns={project.columns}
-            rows={project.rows}
-            originalRows={project.original_rows}
-            busy={busy}
-            onCorrect={(row, column, value) => void run({ action: "correct", row, column, value })}
-          />
+          <div className="source-pane">
+            <div className="view-picker">
+              <label>
+                <span>Source</span>
+                <select aria-label="Source" value={project.source_id ?? ""} disabled={busy}
+                  onChange={(event) => void run({ action: "select_source", source_id: event.target.value || null })}>
+                  {project.sources.map((item) => <option value={item.id ?? ""} key={item.id ?? "raw"}>{item.name}</option>)}
+                </select>
+              </label>
+            </div>
+            <Worksheet
+              key={project.source_id ?? "raw"}
+              columns={project.source_table?.columns ?? project.columns}
+              rows={project.source_table?.rows ?? project.rows}
+              originalRows={project.source_id === null ? project.original_rows : undefined}
+              busy={busy}
+              onCorrect={(row, column, value) => void run({ action: "correct", row, column, value })}
+            />
+          </div>
         ),
       },
       {
@@ -237,7 +261,7 @@ export function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [projectKey, setProjectKey] = useState(0);
   const [plugins, setPlugins] = useState<PluginDefinition[]>([]);
-  const [pluginDialog, setPluginDialog] = useState<PluginDefinition | null>(null);
+  const [pluginDialog, setPluginDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | null>(null);
   const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
   const [exportDialog, setExportDialog] = useState<ExportTarget | null>(null);
   const [exportSettings, setExportSettings] = useState<ExportSettings>({ format: "pdf", scale: 3 });
@@ -296,11 +320,17 @@ export function App() {
   }, [run]);
 
   const figure = project?.figure;
-  const exportName = project && figure ? projectStem(project) : null;
+  const figureNumber = project ? project.figures.findIndex((item) => item.id === project.figure_id) + 1 : 0;
+  const exportName = project && figure
+    ? projectStem(project) + (project.figures.length > 1 ? `-figure-${figureNumber}` : "") : null;
   const editableTraces = figure?.traces.filter((_, index) => figure.elements?.[index]) ?? [];
+  const sourceColumns = project?.source_table?.columns ?? project?.columns ?? [];
+  const inputId = pluginDialog?.figureId !== undefined ? figure?.recipe.source_id : project?.source_id;
+  const sourceName = project?.sources.find((source) => source.id === (inputId ?? null))?.name;
   const previous = project?.operations.slice().reverse().find((step) =>
-    step.kind === "plugin" && pluginDialog && matchesPlugin(step, pluginDialog));
-  const initialOptions = figure && pluginDialog && matchesPlugin(figure.recipe, pluginDialog)
+    step.kind === "plugin" && pluginDialog && matchesPlugin(step, pluginDialog.plugin));
+  const configuring = pluginDialog?.figureId !== undefined;
+  const initialOptions = figure && configuring
     ? figure.recipe.options : previous?.kind === "plugin" ? previous.options : undefined;
 
   function pluginCommands(menu: PluginDefinition["menu"]) {
@@ -309,7 +339,7 @@ export function App() {
       const required = plugin.distinct_columns ? columns : Math.min(columns, 1);
       return {
         label: `${plugin.name}…`,
-        request: project && project.columns.length >= required ? { action: "choose_plugin", plugin } as const : null,
+        request: project && sourceColumns.length >= required ? { action: "choose_plugin", plugin } as const : null,
       };
     });
   }
@@ -331,7 +361,7 @@ export function App() {
   }
 
   function runMenu(request: MenuRequest) {
-    if (request.action === "choose_plugin") setPluginDialog(request.plugin);
+    if (request.action === "choose_plugin") setPluginDialog({ plugin: request.plugin });
     else if (request.action === "figure_settings") setFigureDialog("figure");
     else if (request.action === "choose_export") setExportDialog(request.target);
     else void run(request);
@@ -395,13 +425,15 @@ export function App() {
         )}
       </header>
       {project && pluginDialog && (
-        <PluginDialog plugin={pluginDialog} columns={project.columns} previous={initialOptions}
+        <PluginDialog plugin={pluginDialog.plugin}
+          columns={configuring ? project.figure_input?.columns ?? project.columns : sourceColumns}
+          previous={initialOptions} configuring={configuring} sourceName={sourceName}
           onClose={() => setPluginDialog(null)}
           onRun={(options) => {
             setPluginDialog(null);
             void run({
-              action: "run_plugin", plugin_id: pluginDialog.id, version: pluginDialog.version,
-              checksum: pluginDialog.checksum, options,
+              action: "run_plugin", plugin_id: pluginDialog.plugin.id, version: pluginDialog.plugin.version,
+              checksum: pluginDialog.plugin.checksum, figure_id: pluginDialog.figureId, options,
             });
           }}
         />
@@ -416,7 +448,7 @@ export function App() {
           }}
         />
       )}
-      {project && figure && figureDialog && (
+      {project && figure && project.figure_id !== null && figureDialog && (
         <FigureSettings
           initial={project.figure_style}
           defaults={project.default_figure_style}
@@ -430,14 +462,15 @@ export function App() {
           onClose={() => setFigureDialog(null)}
           onApply={(style) => {
             setFigureDialog(null);
-            void run({ action: "figure_style", style });
+            if (project.figure_id !== null) void run({ action: "figure_style", style, figure_id: project.figure_id });
           }}
         />
       )}
       {error && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
         <ProjectEditor key={projectKey} {...{ project, plugins, busy, run, capture }}
-          onConfigure={figure ? () => setPluginDialog(figure.definition) : undefined} onEdit={setFigureDialog} />
+          onConfigure={figure && project.figure_id !== null
+            ? () => setPluginDialog({ plugin: figure.definition, figureId: project.figure_id ?? undefined }) : undefined} onEdit={setFigureDialog} />
       ) : (
         <main className="welcome">
           <div className="welcome-card">

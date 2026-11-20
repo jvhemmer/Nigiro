@@ -43,7 +43,13 @@ The fit excludes rows with a blank X or Y value and reports how many it excluded
 
 Select **Plot → Scatter**, **Line**, or **Bar**. Choose one X column and one Y column, then select **Create plot**. Scatter and line plots use numeric X and Y values. Bar plots use the X column as labels.
 
-The new plot becomes the active figure. Nigiro records the plot type and column choices in the project and redraws the figure after worksheet edits.
+## Switch sources and figures
+
+Use **Source** in the **Worksheet** panel to switch between the imported worksheet and analysis results. Linear Fit creates separate tables for coefficients and fitted values. The fitted values table includes X, observed Y, fitted Y, and residuals.
+
+Choose a source before you start a plot or analysis. Each new run adds a figure. Use the **Figure** selector to return to any earlier figure. **Plugin settings** updates the selected figure with the same input source.
+
+Save the project to keep the figures, their settings, and the analysis tables. Nigiro recalculates linked results after a worksheet correction.
 
 ## Install a plugin
 
@@ -61,6 +67,8 @@ Define the plugin's `fields` as a list of controls. Each control has a `key`, `l
 
 Define `run(columns, rows, options)`. Nigiro passes the column names, corrected worksheet rows, and selected options. Column indices start at zero. Return a dictionary with a `traces` list of Plotly trace dictionaries. The desktop renderer supports `scatter`, `bar`, and `pie`. You can also return `layout`, `x_label`, `y_label`, and a `summary` of name-value pairs. Use JSON-compatible values.
 
+Return `sources` to create output tables. Map each stable key, such as `fitted`, to a dictionary with `name`, `columns`, and `rows`. Nigiro makes the tables available as sources for later runs. An analysis plugin with a summary and no explicit tables supplies a results table.
+
 Use `elements` to give each trace a style role. Set each role to `"observations"`, `"fit"`, or `None`. Use `residual_panel: True` for a residual panel with traces on `x2` and `y2`. Use `categorical_x: True` for bar positions with labels supplied in `layout.xaxis`. Nigiro applies any plugin layout overrides to its figure layout.
 
 Install plugins as single files. The desktop worker supplies bundled modules such as NumPy and SciPy. A Python export includes the active plugin code and the current figure settings.
@@ -70,6 +78,7 @@ Install plugins as single files. The desktop worker supplies bundled modules suc
 Open **Plot → Figure Settings**. Double-click an axis label to open its settings. Choose **Figure**, **X axis**, **Y axis**, or **Residual Y axis** on a linear fit.
 
 - Set the title, font, legend position, and trace appearance in **Figure**.
+- Set **Axes width** and **Axes height** in **Figure**. Leave either field blank for **Auto**. A set dimension stays fixed when you resize the window. Labels and margins sit outside the axes area.
 - Set labels, scales, limits, ticks, axis lines, and hover rulers in the axis settings. Leave a limit blank for automatic scaling.
 - Select **Apply** to update the figure. Save the project to keep its settings.
 
@@ -84,6 +93,8 @@ Select **File → Export Figure** and choose PNG or PDF. PNG scale increases the
 Select **File → Export Python Script** and choose the default figure format. The script includes the original worksheet values, operations, and figure settings. Install Chromium once so the script can render the figure in the background.
 
 The script keeps its inputs and figure settings near the top. It loads Plotly and the default font from pinned Python packages.
+
+The Python export reruns the selected figure's plugin. If the figure uses a derived source, the script includes the values of that source.
 
 ```sh
 uvx --from playwright==1.65.1 playwright install chromium
@@ -102,7 +113,7 @@ Nigiro saves the layout on this machine. Use **Reset panel layout** at the botto
 
 ## Project files
 
-A `.nigiro` file is a ZIP archive with the original CSV bytes and a versioned JSON manifest. The manifest records corrections, figure settings, plugin IDs, versions, checksums, and options. Nigiro checks the CSV checksum and replays the operations when it opens a project.
+A `.nigiro` file is a ZIP archive with the original CSV bytes and a versioned JSON manifest. The manifest stores derived tables and records each figure's settings, source, plugin version, checksum, and options. Nigiro checks the CSV checksum and replays the operations when it opens a project.
 
 ## Tests and Qt editor
 

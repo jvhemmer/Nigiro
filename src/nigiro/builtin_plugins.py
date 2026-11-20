@@ -69,6 +69,18 @@ def linear_fit_figure(columns, rows, options):
             "Slope": result.slope, "Intercept": result.intercept, "R²": result.r_squared,
             "Observations": len(x), "Omitted": result.omitted_rows,
         },
+        "sources": {
+            "coefficients": {
+                "name": "Coefficients",
+                "columns": ["Slope", "Intercept", "R²", "Observations", "Omitted"],
+                "rows": [[result.slope, result.intercept, result.r_squared, len(x), result.omitted_rows]],
+            },
+            "fitted": {
+                "name": "Fitted values",
+                "columns": [columns[x_index], "Observed", "Fitted", "Residual"],
+                "rows": list(zip(x, y, fitted, residuals)),
+            },
+        },
         "legacy": {
             "x": x, "y": y, "fitted": fitted, "residuals": residuals,
             "slope": result.slope, "intercept": result.intercept, "r_squared": result.r_squared,

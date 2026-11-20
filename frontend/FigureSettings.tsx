@@ -97,6 +97,10 @@ function FigureFields({ style, bar, markers, line, onChange }: {
 
   return <div className="figure-fields">
     <Field label="Figure title"><input value={style.title} onChange={(event) => set("title", event.target.value)} /></Field>
+    <NumberField label="Axes width (px)" placeholder="Auto" value={style.axes_width}
+      onChange={(value) => set("axes_width", Number.isNaN(value) ? null : value)} />
+    <NumberField label="Axes height (px)" placeholder="Auto" value={style.axes_height}
+      onChange={(value) => set("axes_height", Number.isNaN(value) ? null : value)} />
     <Field label="Font family"><input value={style.font_family}
       onChange={(event) => set("font_family", event.target.value)} /></Field>
     <NumberField label="Axis label size (px)" value={style.label_size} onChange={(value) => set("label_size", value)} />
@@ -140,6 +144,9 @@ function axisError(style: AxisStyle) {
 }
 
 function figureError(style: FigureStyle) {
+  if ([style.axes_width, style.axes_height].some((size) => size !== null && (!Number.isInteger(size) || size < 1 || size > 8000))) {
+    return "Enter whole axes dimensions from 1 to 8000 px.";
+  }
   if (!/^[\p{L}\p{N}_ .'-]+$/u.test(style.font_family.trim())) return "Enter one font family name.";
   if (![style.label_size, style.tick_size].every((size) => size >= 6 && size <= 48)) return "Enter font sizes from 6 to 48 px.";
   if (!(style.line_width >= 0.1 && style.line_width <= 12)) return "Enter a trace line width from 0.1 to 12 px.";

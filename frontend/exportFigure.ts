@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import figureStyle from "../src/nigiro/figure_style.py?raw";
+import sourceTables from "../src/nigiro/source_tables.py?raw";
 import model from "../src/nigiro/project.py?raw";
 import analysis from "../src/nigiro/analysis.py?raw";
 import builtinPlugins from "../src/nigiro/builtin_plugins.py?raw";
@@ -29,6 +30,7 @@ function script(project: Project, figure: FigureSnapshot, settings: ExportSettin
     columns: project.columns,
     rows: project.original_rows,
     operations: project.operations,
+    figure_input: project.figure_input,
     plugin: { ...plugin.recipe, source: plugin.source },
     figure,
     export_settings: settings,
@@ -59,7 +61,8 @@ ${payload}
 """)
 
 ${sourceBody(figureStyle)}
-${sourceBody(model).replace(/^from \.figure_style import .*\n/m, "")}
+${sourceBody(sourceTables)}
+${sourceBody(model).replace(/^from \.(figure_style|source_tables) import .*\n/gm, "")}
 ${sourceBody(analysis).replace(/^from \.project import .*\n/m, "")}
 ${sourceBody(builtinPlugins).replace(/^from \.(analysis|project) import .*\n/gm, "")}
 ${sourceBody(pluginSource)}

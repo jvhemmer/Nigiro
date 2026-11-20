@@ -31,7 +31,7 @@ from matplotlib.figure import Figure
 from .analysis import run_linear_fit
 from .figure_style import FigureStyle
 from .plotting import draw_fit
-from .project import Correction, FigureColor, LinearFit, Plot, PluginStep, Project, Source, Worksheet
+from .project import Correction, FigureAppearance, FigureColor, LinearFit, Plot, PluginStep, Project, Source, Worksheet
 from .storage import load_project, save_project
 
 
@@ -197,7 +197,7 @@ class MainWindow(QMainWindow):
                     step = f"Linear fit: {columns[operation.y]} vs {columns[operation.x]}"
                 elif isinstance(operation, FigureColor):
                     step = f"Set {operation.element} color to {operation.color}"
-                elif isinstance(operation, FigureStyle):
+                elif isinstance(operation, (FigureStyle, FigureAppearance)):
                     step = "Change figure settings"
                 elif isinstance(operation, Plot):
                     step = f"Create {operation.plot_type} plot"

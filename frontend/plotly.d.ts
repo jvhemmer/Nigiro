@@ -1,3 +1,3 @@
 declare module "plotly.js-basic-dist-min" {
-  export { react, purge, Plots, toImage } from "plotly.js";
+  export { react, purge, relayout, toImage } from "plotly.js";
 }

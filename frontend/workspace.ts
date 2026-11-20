@@ -41,6 +41,7 @@ export interface PluginRun {
   version: string;
   checksum: string | null;
   options: PluginOptions;
+  source_id?: string | null;
 }
 
 export interface PluginFigure {
@@ -63,7 +64,14 @@ export type RecordedStep =
   | PlotRecipe
   | ({ kind: "plugin" } & PluginRun)
   | { kind: "figure_color"; element: FigureElement; color: string }
-  | ({ kind: "figure_style" } & FigureStyle);
+  | ({ kind: "figure_style" } & FigureStyle)
+  | { kind: "figure_appearance"; figure_id: number; style: FigureStyle };
+
+export interface SourceTable {
+  name: string;
+  columns: string[];
+  rows: string[][];
+}
 
 export interface Project {
   source_name: string;
@@ -73,6 +81,12 @@ export interface Project {
   rows: string[][];
   original_rows: string[][];
   operations: RecordedStep[];
+  figures: { id: number; name: string }[];
+  figure_id: number | null;
+  figure_input: SourceTable | null;
+  sources: { id: string | null; name: string }[];
+  source_id: string | null;
+  source_table: SourceTable | null;
   figure: PluginFigure | null;
   figure_error: string | null;
   colors: Record<FigureElement, string>;
@@ -84,9 +98,11 @@ export interface Project {
 export type Request =
   | { action: "state" | "sample" | "import_csv" | "open" | "save" | "install_plugin" }
   | { action: "correct"; row: number; column: number; value: string }
-  | ({ action: "run_plugin" } & PluginRun)
-  | { action: "color"; element: FigureElement; color: string }
-  | { action: "figure_style"; style: FigureStyle }
+  | ({ action: "run_plugin"; figure_id?: number } & PluginRun)
+  | { action: "select_source"; source_id: string | null }
+  | { action: "select_figure"; figure_id: number }
+  | { action: "color"; element: FigureElement; color: string; figure_id: number }
+  | { action: "figure_style"; style: FigureStyle; figure_id: number }
   | { action: "save_as"; name: string };
 
 export const elementNames: Record<FigureElement, string> = {

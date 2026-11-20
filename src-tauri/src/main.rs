@@ -27,13 +27,22 @@ enum Action {
         version: String,
         checksum: Option<String>,
         options: Value,
+        figure_id: Option<usize>,
+    },
+    SelectSource {
+        source_id: Option<String>,
+    },
+    SelectFigure {
+        figure_id: usize,
     },
     Color {
         element: String,
         color: String,
+        figure_id: usize,
     },
     FigureStyle {
         style: Value,
+        figure_id: usize,
     },
     Save,
     SaveAs {
@@ -122,14 +131,27 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             version,
             checksum,
             options,
+            figure_id,
         } => json!({
             "action": "run_plugin", "plugin_id": plugin_id, "version": version,
-            "checksum": checksum, "options": options
+            "checksum": checksum, "options": options, "figure_id": figure_id
         }),
-        Action::Color { element, color } => {
-            json!({ "action": "color", "element": element, "color": color })
+        Action::SelectSource { source_id } => {
+            json!({ "action": "select_source", "source_id": source_id })
         }
-        Action::FigureStyle { style } => json!({ "action": "figure_style", "style": style }),
+        Action::SelectFigure { figure_id } => {
+            json!({ "action": "select_figure", "figure_id": figure_id })
+        }
+        Action::Color {
+            element,
+            color,
+            figure_id,
+        } => {
+            json!({ "action": "color", "element": element, "color": color, "figure_id": figure_id })
+        }
+        Action::FigureStyle { style, figure_id } => {
+            json!({ "action": "figure_style", "style": style, "figure_id": figure_id })
+        }
         Action::Save => json!({ "action": "save" }),
         Action::ImportCsv => return pick_file(window, "import_csv", "Import CSV", "CSV", "csv"),
         Action::Open => return pick_file(window, "open", "Open project", "Nigiro", "nigiro"),

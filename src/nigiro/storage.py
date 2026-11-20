@@ -15,7 +15,8 @@ import numpy
 import scipy
 
 from .figure_style import FigureStyle
-from .project import Correction, FigureColor, LinearFit, Operation, Plot, PluginStep, Project, Source
+from .project import Correction, FigureAppearance, FigureColor, LinearFit, Operation, Plot, PluginStep, Project, Source
+from .source_tables import SourceTable
 
 
 OPERATION_TYPES = {
@@ -25,6 +26,7 @@ OPERATION_TYPES = {
     "plugin": PluginStep,
     "figure_color": FigureColor,
     "figure_style": FigureStyle,
+    "figure_appearance": FigureAppearance,
 }
 OPERATION_NAMES = {cls: name for name, cls in OPERATION_TYPES.items()}
 
@@ -51,6 +53,8 @@ def save_project(path: Path, project: Project) -> None:
             "scipy": scipy.__version__,
         },
     }
+    if project.saved_sources:
+        manifest["derived_sources"] = {key: asdict(table) for key, table in project.saved_sources.items()}
     with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
         temporary_path = Path(temporary.name)
     try:
@@ -81,7 +85,11 @@ def load_project(path: Path) -> Project:
             fields = dict(record)
             cls = OPERATION_TYPES[fields.pop("kind")]
             operations.append(cls(**fields))
-        project = Project(source, tuple(operations))
+        records = manifest.get("derived_sources", {})
+        if not isinstance(records, dict):
+            raise ValueError("Invalid saved sources.")
+        tables = {key: SourceTable.from_record(record) for key, record in records.items()}
+        project = Project(source, tuple(operations), tables)
         project.validate()
         return project
     except (BadZipFile, LookupError, RuntimeError, TypeError) as exc:

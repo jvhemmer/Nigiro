@@ -62,20 +62,29 @@ function styleTrace(trace: Data, style: FigureStyle, color: string): Data {
 }
 
 export function FigurePlot({ capture, data, colors, style, revision, onEdit, onSelect }: FigurePlotProps) {
+  const viewport = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
+  const [available, setAvailable] = useState({ width: 0, height: 0 });
   const [error, setError] = useState("");
   const plotly = useRef<typeof import("plotly.js-basic-dist-min") | null>(null);
   const rendered = useRef<PlotlyHTMLElement | null>(null);
-  const renderedData = useRef<PluginFigure | null>(null);
+  const drawing = useRef<Promise<void>>(Promise.resolve());
+  const lockedWidth = style.axes_width;
+  const lockedHeight = style.axes_height;
+  const width = lockedWidth ?? available.width;
+  const height = lockedHeight ?? available.height;
+  const visible = available.width > 0 && available.height > 0;
 
   useImperativeHandle(capture, () => {
     function currentFigure() {
       const graph = rendered.current;
       const renderer = plotly.current;
-      if (!graph || !renderer || !graph.clientWidth || !graph.clientHeight) {
+      if (!visible) {
         throw new Error("Open the Figure panel before exporting.");
       }
-      if (renderedData.current !== data) throw new Error("Wait for the figure to finish drawing.");
+      if (!graph || !renderer || !graph.clientWidth || !graph.clientHeight) {
+        throw new Error("Wait for the figure to finish drawing.");
+      }
       return { graph, renderer, width: graph.clientWidth, height: graph.clientHeight };
     }
 
@@ -91,16 +100,19 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
         return { traces, layout: differences(data.layout ?? {}, graph.layout), width, height };
       },
     };
-  }, [data]);
+  }, [data, visible]);
 
   useEffect(() => {
     const node = container.current!;
-    const observer = new ResizeObserver(() => {
-      if (node.clientWidth && node.clientHeight && rendered.current) {
-        void plotly.current?.Plots.resize(rendered.current);
-      }
-    });
-    observer.observe(node);
+    const view = viewport.current!;
+    function measure() {
+      const width = view.clientWidth;
+      const height = view.clientHeight;
+      setAvailable((previous) => previous.width === width && previous.height === height ? previous : { width, height });
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(view);
+    measure();
     return () => {
       observer.disconnect();
       plotly.current?.purge(node);
@@ -110,6 +122,8 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
 
   useEffect(() => {
     const node = container.current!;
+    if (!visible) return;
+    rendered.current = null;
     let active = true;
     let chart: PlotlyHTMLElement | undefined;
     const elements = data.elements ?? [];
@@ -123,10 +137,12 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
       return false;
     }
 
-    void Promise.all([
-      import("plotly.js-basic-dist-min"),
-      document.fonts.load(`12px "${figureFont}"`),
-    ]).then(async ([library]) => {
+    drawing.current = drawing.current.then(async () => {
+      if (!active) return;
+      const [library] = await Promise.all([
+        import("plotly.js-basic-dist-min"),
+        document.fonts.load(`12px "${figureFont}"`),
+      ]);
       if (!active) return;
       // The distribution exposes Plotly as its default export in Vite.
       const renderer = library.default ?? library;
@@ -135,19 +151,37 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
         figureLayout(style, data.x_label ?? "", data.y_label ?? "", revision, !!data.residual_panel, !!data.categorical_x),
         structuredClone(data.layout ?? {}),
       );
+      const margin = layout.margin;
+      let canvasWidth = Math.max(10, lockedWidth === null ? width : lockedWidth + (margin?.l ?? 0) + (margin?.r ?? 0));
+      let canvasHeight = Math.max(10, lockedHeight === null ? height : lockedHeight + (margin?.t ?? 0) + (margin?.b ?? 0));
+      function setCanvas() {
+        node.style.width = `${canvasWidth}px`;
+        node.style.height = `${canvasHeight}px`;
+        return { width: canvasWidth, height: canvasHeight };
+      }
       const series = structuredClone(data.traces).map((trace, index) => {
         const element = elements[index];
         return element ? styleTrace(trace, style, colors[element]) : trace;
       });
-      const next = await renderer.react(node, series, layout, {
+      const next = await renderer.react(node, series, { ...layout, ...setCanvas(), autosize: false }, {
         responsive: false,
         displayModeBar: false,
         doubleClick: "reset",
       });
+      // Adjust the canvas after Plotly measures the margins around the axes.
+      for (let attempt = 0; active && attempt < 5 && (lockedWidth !== null || lockedHeight !== null); attempt++) {
+        const actual = (next as PlotlyHTMLElement & { _fullLayout?: { _size?: { w: number; h: number } } })._fullLayout?._size;
+        if (!actual) break;
+        const nextWidth = lockedWidth === null ? canvasWidth : Math.max(10, Math.round(canvasWidth + lockedWidth - actual.w));
+        const nextHeight = lockedHeight === null ? canvasHeight : Math.max(10, Math.round(canvasHeight + lockedHeight - actual.h));
+        if (nextWidth === canvasWidth && nextHeight === canvasHeight) break;
+        canvasWidth = nextWidth;
+        canvasHeight = nextHeight;
+        await renderer.relayout(next, setCanvas());
+      }
       if (active) {
         chart = next;
         rendered.current = next;
-        renderedData.current = data;
         chart.on("plotly_click", selectPoint);
         chart.on("plotly_legendclick", selectLegend);
         setError("");
@@ -161,12 +195,13 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
       chart?.removeAllListeners?.("plotly_click");
       chart?.removeAllListeners?.("plotly_legendclick");
     };
-  }, [data, colors, style, revision, onSelect]);
+  }, [data, colors, style, revision, onSelect, width, height, lockedWidth, lockedHeight, visible]);
 
   return (
     <div className="chart-panel">
       {error && <p role="alert">Could not draw the figure. {error}</p>}
-      <div className="plot" ref={container} aria-label={data.definition.name}
+      <div className="plot-viewport" ref={viewport}>
+        <div className="plot" ref={container} aria-label={data.definition.name}
         onDoubleClick={(event) => {
           const target = event.target;
           if (!(target instanceof Element)) return;
@@ -175,7 +210,8 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
           else if (target.closest(".y2title")) onEdit("residual");
           else if (target.closest(".gtitle")) onEdit("figure");
         }}
-      />
+        />
+      </div>
     </div>
   );
 }

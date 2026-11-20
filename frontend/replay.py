@@ -10,6 +10,7 @@ def replay_inputs(payload):
         "plugin": PluginStep,
         "figure_color": FigureColor,
         "figure_style": FigureStyle,
+        "figure_appearance": FigureAppearance,
     }
     operations = []
     for record in payload["operations"]:
@@ -29,8 +30,11 @@ def merge_style(original, changes):
     return merged
 
 
-def replay_figure(project, figure, plugin):
-    worksheet = project.worksheet
+def replay_figure(project, figure, plugin, source):
+    worksheet = (
+        Worksheet(tuple(source["columns"]), tuple(map(tuple, source["rows"])))
+        if source is not None else project.worksheet
+    )
     args = worksheet.columns, worksheet.rows, plugin["options"].copy()
     if plugin["source"] is None:
         manifest, runner = BUILTINS[plugin["plugin_id"]]
@@ -98,7 +102,7 @@ def main():
         extension = args.format or settings["format"]
         output = Path(__file__).with_suffix(f".{extension}")
 
-    figure = replay_figure(replay_inputs(payload), payload["figure"], payload["plugin"])
+    figure = replay_figure(replay_inputs(payload), payload["figure"], payload["plugin"], payload["figure_input"])
     font = (Path(get_data_path()) / "fonts" / "ttf" / "DejaVuSans.ttf").read_bytes()
     svg = render_svg(figure, args.browser_executable, font)
     with TemporaryDirectory() as directory:

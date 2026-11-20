@@ -253,7 +253,21 @@ button.primary:hover:not(:disabled) { background: #372aba; }
 }
 .figure-pane, .inspector { height: 100%; overflow: auto; }
 .figure-pane { display: flex; flex-direction: column; }
-.figure-hint { flex: none; padding: 8px 14px 0; }
+.source-pane { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.source-pane .worksheet { flex: 1; height: auto; }
+.view-picker {
+  display: flex; align-items: center; flex: none; gap: 8px; min-width: 0;
+  padding: 7px 8px; border-bottom: 1px solid var(--line);
+}
+.view-picker label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.view-picker label span { font-size: .84rem; color: var(--muted); }
+.view-picker select {
+  min-width: 0; width: 100%; border: 1px solid #d9dced; border-radius: 6px;
+  padding: 6px; background: white; color: #232b47;
+}
+@media (max-width: 1000px) {
+  .view-picker { flex-wrap: wrap; }
+}
 
 .section-header {
   display: flex;
@@ -333,7 +347,8 @@ td input {
 
 .chart-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 230px; padding: 8px 7px 0; }
 .chart-panel [role=alert] { color: #903822; padding: 12px; }
-.plot { flex: 1 1 auto; min-height: 0; min-width: 0; }
+.plot-viewport { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; }
+.plot { min-height: 0; min-width: 0; }
 .empty-figure { flex: 1; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 17px; color: var(--muted); text-align: center; }
 .empty-figure svg { color: #8e85dd; }
 .fit-summary {
@@ -351,6 +366,7 @@ td input {
 
 .fit-settings, .element-settings { padding: 0 13px 14px; }
 .inspector .section-header { padding-inline: 0; }
+.figure-input { margin-bottom: 8px; overflow-wrap: anywhere; }
 .inspector > * + * { border-top: 1px solid var(--line); }
 .fit-settings label { display: grid; gap: 5px; margin-bottom: 11px; color: #505a77; font-size: .85rem; }
 .fit-settings label:last-child { margin-bottom: 0; }
@@ -397,8 +413,6 @@ td input {
 .plugin-fields + .muted { margin-top: 10px; }
 .settings-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
-.figure-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-right: 8px; }
-.figure-toolbar button { white-space: nowrap; }
 .plot :is(.xtitle, .x2title, .ytitle, .y2title, .gtitle) { pointer-events: auto; cursor: pointer; }
 
 .figure-settings { width: min(580px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; }

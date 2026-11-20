@@ -5,10 +5,12 @@ export function columnFields(plugin: PluginDefinition) {
   return plugin.fields.filter((field) => field.type === "column");
 }
 
-export function PluginDialog({ plugin, columns, previous, onClose, onRun }: {
+export function PluginDialog({ plugin, columns, previous, configuring, sourceName, onClose, onRun }: {
   plugin: PluginDefinition;
   columns: string[];
   previous?: PluginOptions;
+  configuring: boolean;
+  sourceName?: string;
   onClose: () => void;
   onRun: (options: PluginOptions) => void;
 }) {
@@ -34,6 +36,7 @@ export function PluginDialog({ plugin, columns, previous, onClose, onRun }: {
         if (!duplicates) onRun(options);
       }}>
         <h2 id="plugin-title">{plugin.menu === "plot" ? `${plugin.name} plot` : plugin.name}</h2>
+        {sourceName && <p className="figure-input muted">Input · {sourceName}</p>}
         <div className="fit-settings plugin-fields">
           {plugin.fields.map((field) => (
             <label key={field.key}>
@@ -70,7 +73,9 @@ export function PluginDialog({ plugin, columns, previous, onClose, onRun }: {
         {duplicates && <p className="muted">Choose different columns.</p>}
         <footer>
           <button type="button" onClick={onClose}>Cancel</button>
-          <button className="primary" type="submit" disabled={duplicates}>{plugin.menu === "plot" ? "Create plot" : "Run analysis"}</button>
+          <button className="primary" type="submit" disabled={duplicates}>
+            {configuring ? "Update figure" : plugin.menu === "plot" ? "Create plot" : "Run analysis"}
+          </button>
         </footer>
       </form>
     </dialog>

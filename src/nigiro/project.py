@@ -6,11 +6,12 @@ import csv
 import io
 import math
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import Literal
 
 from .figure_style import FigureStyle
+from .source_tables import SourceTable, source_origin
 
 
 @dataclass(frozen=True)
@@ -95,12 +96,29 @@ class Plot:
 class FigureColor:
     element: Literal["fit", "observations"]
     color: str
+    figure_id: int | None = None
 
     def __post_init__(self) -> None:
         if self.element not in ("fit", "observations") or not (
             isinstance(self.color, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", self.color)
         ):
             raise ValueError("Invalid figure color.")
+        if self.figure_id is not None and (type(self.figure_id) is not int or self.figure_id < 0):
+            raise ValueError("Invalid figure reference.")
+
+
+@dataclass(frozen=True)
+class FigureAppearance:
+    figure_id: int
+    style: FigureStyle
+
+    def __post_init__(self) -> None:
+        if type(self.figure_id) is not int or self.figure_id < 0:
+            raise ValueError("Invalid figure reference.")
+        if isinstance(self.style, dict):
+            object.__setattr__(self, "style", FigureStyle(**self.style))
+        elif not isinstance(self.style, FigureStyle):
+            raise ValueError("Invalid figure settings.")
 
 
 @dataclass(frozen=True)
@@ -110,6 +128,8 @@ class PluginStep:
     checksum: str | None
     options: dict[str, str | int | float | bool]
     keep_style: bool = False
+    source_id: str | None = None
+    figure_id: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.plugin_id, str) or not self.plugin_id or not isinstance(self.version, str) or not self.version:
@@ -120,6 +140,10 @@ class PluginStep:
             raise ValueError("Invalid plugin checksum.")
         if type(self.keep_style) is not bool:
             raise ValueError("Invalid plugin style setting.")
+        if self.source_id is not None:
+            source_origin(self.source_id)
+        if self.figure_id is not None and (type(self.figure_id) is not int or self.figure_id < 0):
+            raise ValueError("Invalid figure reference.")
         if not isinstance(self.options, dict) or any(
             not isinstance(key, str) or type(value) not in (str, int, float, bool)
             or (isinstance(value, float) and not math.isfinite(value))
@@ -133,13 +157,23 @@ class PluginStep:
         return self.plugin_id, self.version, self.checksum
 
 
-Operation = Correction | LinearFit | Plot | PluginStep | FigureColor | FigureStyle
+FigureRecipe = LinearFit | Plot | PluginStep
+Operation = Correction | FigureRecipe | FigureColor | FigureStyle | FigureAppearance
+DEFAULT_COLORS = {"observations": "#245e9b", "fit": "#be481f"}
+
+
+@dataclass(frozen=True)
+class FigureRecord:
+    recipe: FigureRecipe
+    style: FigureStyle
+    colors: dict[str, str]
 
 
 @dataclass(frozen=True)
 class Project:
     source: Source
     operations: tuple[Operation, ...] = ()
+    saved_sources: dict[str, SourceTable] = field(default_factory=dict)
 
     def apply(self, operation: Operation) -> Project:
         updated = replace(self, operations=(*self.operations, operation))
@@ -158,21 +192,56 @@ class Project:
 
             if isinstance(operation, Plot) and max(operation.x, operation.y) >= column_count:
                 raise ValueError("Plot refers to a missing worksheet column.")
+        figures = self.figures
+        for key in self.saved_sources:
+            if source_origin(key) not in figures:
+                raise ValueError("A saved source refers to a missing figure.")
 
     @cached_property
-    def figure(self) -> LinearFit | Plot | PluginStep | None:
-        return next((op for op in reversed(self.operations) if isinstance(op, (LinearFit, Plot, PluginStep))), None)
+    def figures(self) -> dict[int, FigureRecord]:
+        figures = {}
+        current = None
+        legacy_colors = DEFAULT_COLORS.copy()
+        for index, op in enumerate(self.operations):
+            if isinstance(op, (LinearFit, Plot, PluginStep)):
+                updating = isinstance(op, PluginStep) and op.figure_id is not None
+                if updating:
+                    current = op.figure_id
+                    previous = figures.get(current)
+                    if previous is None or op.source_id != getattr(previous.recipe, "source_id", None):
+                        raise ValueError("A plugin update refers to an invalid figure or source.")
+                    figures[current] = replace(previous, recipe=op)
+                    continue
+                if isinstance(op, PluginStep) and op.source_id is not None and source_origin(op.source_id) not in figures:
+                    raise ValueError("A plugin refers to a missing input source.")
+                previous = figures.get(current)
+                style = previous.style if isinstance(op, PluginStep) and op.keep_style and previous else FigureStyle()
+                current = index
+                figures[current] = FigureRecord(op, style, legacy_colors.copy())
+            elif isinstance(op, FigureColor):
+                target = op.figure_id if op.figure_id is not None else current
+                if op.figure_id is None:
+                    legacy_colors[op.element] = op.color
+                if target in figures:
+                    record = figures[target]
+                    figures[target] = replace(record, colors={**record.colors, op.element: op.color})
+                elif op.figure_id is not None:
+                    raise ValueError("A color change refers to a missing figure.")
+            elif isinstance(op, FigureAppearance):
+                if op.figure_id not in figures:
+                    raise ValueError("A settings change refers to a missing figure.")
+                figures[op.figure_id] = replace(figures[op.figure_id], style=op.style)
+            elif isinstance(op, FigureStyle) and current in figures:
+                figures[current] = replace(figures[current], style=op)
+        return figures
 
-    @cached_property
+    @property
+    def figure(self) -> FigureRecipe | None:
+        return self.figures[next(reversed(self.figures))].recipe if self.figures else None
+
+    @property
     def figure_style(self) -> FigureStyle:
-        for operation in reversed(self.operations):
-            if isinstance(operation, FigureStyle):
-                return operation
-            if isinstance(operation, PluginStep) and operation.keep_style:
-                continue
-            if isinstance(operation, (LinearFit, Plot, PluginStep)):
-                break
-        return FigureStyle()
+        return self.figures[next(reversed(self.figures))].style if self.figures else FigureStyle()
 
     @cached_property
     def worksheet(self) -> Worksheet:
@@ -197,7 +266,7 @@ class Project:
         for operation in reversed(self.operations):
             if isinstance(operation, LinearFit):
                 return operation
-            if isinstance(operation, PluginStep) and operation.pin == ("nigiro.linear_fit", "1", None):
+            if isinstance(operation, PluginStep) and operation.source_id is None and operation.pin == ("nigiro.linear_fit", "1", None):
                 x, y = operation.options.get("x"), operation.options.get("y")
                 if type(x) is int and type(y) is int and 0 <= min(x, y) <= max(x, y) < len(self.worksheet.columns):
                     return LinearFit(x, y)
@@ -205,11 +274,9 @@ class Project:
 
     @cached_property
     def colors(self) -> dict[str, str]:
-        return {
-            "observations": "#245e9b",
-            "fit": "#be481f",
-            **{op.element: op.color for op in self.operations if isinstance(op, FigureColor)},
-        }
+        if self.figures:
+            return self.figures[next(reversed(self.figures))].colors
+        return {**DEFAULT_COLORS, **{op.element: op.color for op in self.operations if isinstance(op, FigureColor)}}
 
 
 def numeric_value(text: str) -> float | None:

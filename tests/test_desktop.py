@@ -57,7 +57,7 @@ class DesktopWorkerTest(unittest.TestCase):
                 {"action": "sample"}, request,
                 {**request, "options": {**options, "factor": "two"}},
                 {"action": "figure_style", "style": {"title": "Scaled result"}},
-                {**request, "options": {**options, "factor": 3}},
+                {**request, "figure_id": 0, "options": {**options, "factor": 3}},
                 {"action": "save", "path": str(saved)},
                 plugins=plugins,
             )
@@ -164,6 +164,50 @@ class DesktopWorkerTest(unittest.TestCase):
             )
             self.assertEqual(reopened["state"]["project"]["figure_style"], styled["figure_style"])
             self.assertEqual(new_plot["state"]["project"]["figure_style"], original["figure_style"])
+
+    def test_figures_and_derived_sources_round_trip_independently(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "multiple.nigiro"
+            _, scatter, _, fit, coefficients, _, derived, earlier, saved = self.run_worker(
+                {"action": "sample"},
+                {"action": "plot", "plot_type": "scatter", "x": 0, "y": 1},
+                {"action": "figure_style", "figure_id": 0, "style": {"axes_width": 400, "axes_height": 250}},
+                {"action": "fit", "x": 0, "y": 1},
+                {"action": "select_source", "source_id": "2:coefficients"},
+                {"action": "select_source", "source_id": "2:fitted"},
+                {
+                    "action": "run_plugin", "plugin_id": "nigiro.line", "version": "1",
+                    "checksum": None, "options": {"x": 0, "y": 2},
+                },
+                {"action": "select_figure", "figure_id": 0},
+                {"action": "save", "path": str(path)},
+            )
+            scatter = scatter["state"]["project"]
+            fit = fit["state"]["project"]
+            coefficients = coefficients["state"]["project"]
+            derived = derived["state"]["project"]
+            earlier = earlier["state"]["project"]
+            self.assertEqual(len(fit["figures"]), 2)
+            self.assertEqual(coefficients["source_table"]["columns"][:2], ["Slope", "Intercept"])
+            self.assertAlmostEqual(float(coefficients["source_table"]["rows"][0][0]), fit["fit"]["slope"])
+            self.assertEqual(derived["figure"]["recipe"]["source_id"], "2:fitted")
+            self.assertEqual(derived["figure"]["traces"][0]["y"], fit["fit"]["fitted"])
+            self.assertEqual(earlier["figure"], scatter["figure"])
+            self.assertEqual(earlier["figure_style"]["axes_width"], 400)
+            self.assertEqual(earlier["source_id"], "2:fitted")
+            self.assertFalse(saved["state"]["project"]["dirty"])
+            with ZipFile(path) as archive:
+                manifest = json.loads(archive.read("manifest.json"))
+            self.assertIn("2:fitted", manifest["derived_sources"])
+            opened, corrected, earlier = self.run_worker(
+                {"action": "open", "path": str(path)},
+                {"action": "correct", "row": 0, "column": 1, "value": "12"},
+                {"action": "select_figure", "figure_id": 0},
+            )
+            self.assertEqual(opened["state"]["project"]["figures"], derived["figures"])
+            self.assertEqual(opened["state"]["project"]["figure"]["traces"], derived["figure"]["traces"])
+            self.assertNotEqual(corrected["state"]["project"]["figure"]["traces"], derived["figure"]["traces"])
+            self.assertEqual(earlier["state"]["project"]["figure_style"]["axes_height"], 250)
 
     def test_plot_replays_selected_columns_after_worksheet_edits(self):
         with tempfile.TemporaryDirectory() as directory:

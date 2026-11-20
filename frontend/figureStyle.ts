@@ -25,6 +25,8 @@ export interface AxisStyle {
 
 export interface FigureStyle {
   title: string;
+  axes_width: number | null;
+  axes_height: number | null;
   font_family: string;
   label_size: number;
   tick_size: number;
