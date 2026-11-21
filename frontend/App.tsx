@@ -253,7 +253,7 @@ function ProjectEditor({ project, busy, run, onConfigure, onEdit, capture }: {
 }) {
   const [element, setElement] = useState<FigureElement>("fit");
   return (
-    <DockWorkspace sourceCount={project.sources.length} panels={[
+    <DockWorkspace panels={[
       {
         id: "figure", title: "Figure", icon: ChartNoAxesCombined, minimumWidth: 210,
         content: <FigurePanel project={project} onSelect={setElement} onEdit={onEdit} busy={busy} capture={capture} run={run} />,
