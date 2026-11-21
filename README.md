@@ -99,10 +99,10 @@ Use **Figure settings** in the Figure panel. Double-click an axis label to open 
 
 Enter sizes with units, such as `9 pt`, `8 cm`, or `400 px`. Bare numbers use pixels. Supported lengths are `px`, `pt`, `cm`, `mm`, `in`, `pc`, and `q`, using 96 pixels per inch. Angles accept `deg`, `°`, `rad`, or `turn`, with degrees as the default. The selected units are saved with the figure and global defaults.
 
-- Set the title and canvas in **Figure**. Use **Legend** for position, background, and frame. Use **Traces** for markers, lines, and bars, and **Fonts** for text styles and color. Set **Text renderer** to **Plain text** to use the selected system font. In **Auto**, wrap math in dollar signs. For example, enter `$i$ (A)` to show italic i followed by the unit.
-- In **Fonts → MathJax**, choose a math alphabet or enter definitions in the **TeX preamble**. For example, define `\def\conc{c_{0}}`, then use `$\conc$` in a label.
+- Set the title and canvas in **Figure**. Use **Legend** for position, background, and frame. Use **Traces** for markers, lines, and bars, and **Figure** for title typography and the default text color. Set **Text renderer** to **Plain text** to use the selected system font. In **Auto**, wrap math in dollar signs. For example, enter `$i$ (A)` to show italic i followed by the unit.
+- In **Text**, choose a TeX font or enter definitions in the **TeX preamble**. For example, define `\def\conc{c_{0}}`, then use `$\conc$` in a label.
 - Set **Axes width** and **Axes height** in **Figure**. Leave either field blank for **Auto**. A set dimension stays fixed when you resize the window. Labels and margins sit outside the axes area.
-- Set labels, scales, limits, ticks, axis line width, and hover rulers in **Axes**. Use **Configure axes separately** to edit each axis. Otherwise, **Global** applies to every axis in the figure. Choose plain numbers, SI prefixes, or a shared scientific exponent for numeric ticks. Leave a limit blank for automatic scaling.
+- Set labels, scales, limits, ticks, axis line width, and hover rulers in **Axes**. The **Label** and **Ticks** groups each have their own font and text renderer. The tick renderer applies to custom tick text, such as bar categories. Use **Configure axes separately** to edit each axis. Otherwise, **Global** applies to every axis in the figure. Choose plain numbers, SI prefixes, or a shared scientific exponent for numeric ticks. Leave a limit blank for automatic scaling.
 - Select **Apply** to update the figure. Save the project to keep its settings.
 
 The defaults use a white background, dark axes, outward ticks, and no grid. Nigiro supplies DejaVu Sans. For another font, install the same font on each machine that renders the figure.

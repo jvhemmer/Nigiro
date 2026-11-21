@@ -6,26 +6,28 @@ import type { Appearance } from "./workspace";
 import { Save, RotateCcw } from "lucide-react";
 import type { AxisKey, AxisSettingsKey, AxisStyle, FigureStyle, StyleSection, TextRenderer } from "./figureStyle";
 
-type FigureTab = "figure" | "traces" | "legend" | "fonts";
+type FigureTab = "figure" | "traces" | "legend" | "text";
 type SettingsTab = FigureTab | "axes";
 export type SettingsSection = "figure" | AxisSettingsKey;
 
 const sectionNames: Record<SettingsTab, string> = {
-  figure: "Figure", traces: "Traces", legend: "Legend", fonts: "Fonts", axes: "Axes",
+  figure: "Figure", traces: "Traces", legend: "Legend", text: "Text", axes: "Axes",
 };
 
 const figureTabFields: Record<FigureTab, (keyof FigureStyle)[]> = {
-  figure: ["title", "title_renderer", "axes_width", "axes_height", "background"],
+  figure: ["title", "title_renderer", "axes_width", "axes_height", "background", "text_color",
+    "font_family", "font_face", "font_bold", "font_italic", "title_family", "title_face", "title_size", "title_bold", "title_italic"],
   traces: ["bar_width", "show_markers", "marker_size", "marker_symbol", "show_lines", "line_width", "line_dash", "marker_color", "line_color"],
-  legend: ["legend", "legend_frame", "legend_border_color", "legend_border_width", "legend_background"],
-  fonts: ["text_color", "font_family", "font_face", "font_bold", "font_italic", "label_size", "tick_size", "math_alphabet", "math_preamble",
-    ...(Object.keys(textRoles) as TextRole[]).flatMap((role) =>
-      (["family", "face", "size", "bold", "italic"] as const).map((field) => `${role}_${field}` as const))],
+  legend: ["legend", "legend_frame", "legend_border_color", "legend_border_width", "legend_background",
+    "legend_family", "legend_face", "legend_size", "legend_bold", "legend_italic"],
+  text: ["math_alphabet", "math_preamble"],
 };
 
 const fieldKeys: Record<string, string> = {
+  "Label font family": "label_family", "Label font style": "label_face", "Label size (px)": "label_size",
+  "Tick font family": "tick_family", "Tick font style": "tick_face", "Tick size (px)": "tick_size", "Tick text renderer": "tick_renderer",
   "Title text renderer": "title_renderer", "Axis label text renderer": "label_renderer",
-  "Math alphabet": "math_alphabet", "TeX preamble": "math_preamble",
+  "TeX font": "math_alphabet", "TeX preamble": "math_preamble",
   "Figure title": "title", "Axes width (px)": "axes_width", "Axes height (px)": "axes_height",
   "Show markers": "show_markers", "Show trace lines": "show_lines", "Number notation": "notation", "Font family": "font_family", "Font style": "font_face", "Axis label size (px)": "label_size", "Tick and legend size (px)": "tick_size",
   "Text color": "text_color", "Background": "background", "Position": "legend",
@@ -222,7 +224,8 @@ function FontField({ value, onChange, label = "Font family", styleLabel = "Font 
   </div>;
 }
 
-function AxisFields({ style, fallback, categorical, onChange }: {
+function AxisFields({ style, fallback, categorical, inheritedFamily, onChange }: {
+  inheritedFamily: string;
   style: AxisStyle;
   fallback: string;
   categorical: boolean;
@@ -232,10 +235,24 @@ function AxisFields({ style, fallback, categorical, onChange }: {
     onChange({ ...style, [key]: value });
   }
 
+  function typography(kind: "label" | "tick") {
+    const name = kind === "label" ? "Label" : "Tick";
+    return <>
+      <FontField label={`${name} font family`} styleLabel={`${name} font style`} inheritedFamily={inheritedFamily}
+        value={style[`${kind}_family`] ?? ""} face={style[`${kind}_face`]}
+        onChange={(value) => set(`${kind}_family`, value.trim() || null)} onFace={(value) => set(`${kind}_face`, value)} />
+      <NumberField label={`${name} size (px)`} placeholder="Auto" value={style[`${kind}_size`]}
+        onChange={(value) => set(`${kind}_size`, Number.isNaN(value) ? null : value)} />
+    </>;
+  }
+
   return <>
-    <SettingsGroup title="Label and range">
+    <SettingsGroup title="Label">
       <TextField label="Axis label" value={style.label ?? fallback} onChange={(value) => set("label", value)}
         rendererLabel="Axis label text renderer" renderer={style.label_renderer} onRenderer={(value) => set("label_renderer", value)} />
+      {typography("label")}
+    </SettingsGroup>
+    <SettingsGroup title="Range">
       {!categorical && <Choice label="Scale" value={style.scale} onChange={(value) => set("scale", value)}
         options={[["linear", "Linear"], ["log", "Logarithmic"]]} />}
       <NumberField label="Lower limit" placeholder="Auto" value={style.lower}
@@ -244,6 +261,9 @@ function AxisFields({ style, fallback, categorical, onChange }: {
         onChange={(value) => set("upper", Number.isNaN(value) ? null : value)} />
     </SettingsGroup>
     <SettingsGroup title="Ticks">
+      {typography("tick")}
+      <Choice label="Tick text renderer" value={style.tick_renderer} onChange={(value) => set("tick_renderer", value)}
+        options={[["auto", "Auto"], ["plain", "Plain text"], ["latex", "LaTeX (MathJax)"]]} />
       {!categorical && <>
         <NumberField label={style.scale === "log" ? "Tick interval (decades)" : "Tick interval"}
           placeholder="Auto" value={style.step} onChange={(value) => set("step", Number.isNaN(value) ? null : value)} />
@@ -286,13 +306,9 @@ function AxisFields({ style, fallback, categorical, onChange }: {
   </>;
 }
 
-function TextOverrides({ style, onChange }: { style: FigureStyle; onChange: (style: FigureStyle) => void }) {
-  const [role, setRole] = useState<TextRole>("title");
+function TextOverrides({ role, style, onChange }: { role: "title" | "legend"; style: FigureStyle; onChange: (style: FigureStyle) => void }) {
   const label = textRoles[role];
-  return <SettingsGroup title="Text styles">
-    <Field label="Text element"><select value={role} onChange={(event) => setRole(event.target.value as TextRole)}>
-      {(Object.keys(textRoles) as TextRole[]).map((key) => <option key={key} value={key}>{textRoles[key]}</option>)}
-    </select></Field>
+  return <>
     <FontField label={`${label} font family`} styleLabel={`${label} font style`} inheritedFamily={style.font_family}
       face={style[`${role}_face`]} value={style[`${role}_family`] ?? ""}
       legacyFace={style[`${role}_bold`] == null && style[`${role}_italic`] == null ? undefined
@@ -301,7 +317,7 @@ function TextOverrides({ style, onChange }: { style: FigureStyle; onChange: (sty
       onChange={(value) => onChange({ ...style, [`${role}_family`]: value.trim() ? value : null })} />
     <NumberField key={role} label={`${label} size (px)`} placeholder="Auto" value={style[`${role}_size`]}
       onChange={(value) => onChange({ ...style, [`${role}_size`]: Number.isNaN(value) ? null : value })} />
-  </SettingsGroup>;
+  </>;
 }
 
 function OptionalColor({ label, value, fallback, onChange }: {
@@ -344,21 +360,19 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
     <Field label="Background"><input type="color" value={style.background}
       onChange={(event) => set("background", event.target.value)} /></Field>
     </SettingsGroup>
-    </>}
-    {tab === "fonts" && <>
-    <SettingsGroup title="Typography">
-    <Field label="Text color"><input type="color" value={style.text_color}
-      onChange={(event) => set("text_color", event.target.value)} /></Field>
-    <FontField value={style.font_family} onChange={(value) => set("font_family", value)} face={style.font_face}
-      legacyFace={style.font_bold || style.font_italic ? `${style.font_bold ? 700 : 400}:${style.font_italic ? "italic" : "normal"}` : undefined}
-      onFace={(face) => onChange({ ...style, font_face: face, font_bold: false, font_italic: false })} />
-    <NumberField label="Axis label size (px)" value={style.label_size} onChange={(value) => set("label_size", value)} />
-    <NumberField label="Tick and legend size (px)" value={style.tick_size} onChange={(value) => set("tick_size", value)} />
+    <SettingsGroup title="Default text">
+      <Field label="Text color"><input type="color" value={style.text_color}
+        onChange={(event) => set("text_color", event.target.value)} /></Field>
+      <FontField value={style.font_family} onChange={(value) => set("font_family", value)} face={style.font_face}
+        legacyFace={style.font_bold || style.font_italic ? `${style.font_bold ? 700 : 400}:${style.font_italic ? "italic" : "normal"}` : undefined}
+        onFace={(face) => onChange({ ...style, font_face: face, font_bold: false, font_italic: false })} />
     </SettingsGroup>
-    <TextOverrides style={style} onChange={onChange} />
+    <SettingsGroup title="Title font"><TextOverrides role="title" style={style} onChange={onChange} /></SettingsGroup>
+    </>}
+    {tab === "text" && <>
     <SettingsGroup title="MathJax">
       <div className="math-settings">
-        <Choice label="Math alphabet" value={style.math_alphabet} onChange={(value) => set("math_alphabet", value)}
+        <Choice label="TeX font" value={style.math_alphabet} onChange={(value) => set("math_alphabet", value)}
           options={[["default", "TeX default"], ["roman", "Roman"], ["sans", "Sans serif"], ["mono", "Monospace"]]} />
         <Field label="TeX preamble">
           <textarea rows={4} spellCheck={false} value={style.math_preamble} placeholder={"\\def\\conc{c_{0}}"}
@@ -375,6 +389,7 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
         ["top_left", "Top left"], ["top_right", "Top right"],
         ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"],
       ]} />
+    <TextOverrides role="legend" style={style} onChange={onChange} />
     <OptionalColor label="Legend background" value={style.legend_background} fallback={style.background}
       onChange={(value) => set("legend_background", value)} />
     <Field label="Show frame" checkbox><input type="checkbox" checked={style.legend_frame}
@@ -421,8 +436,8 @@ function figureError(style: FigureStyle) {
   if ([style.axes_width, style.axes_height].some((size) => size !== null && (!Number.isFinite(size) || size < 1 || size > 8000))) {
     return { tab: "figure" as const, message: "Enter axes dimensions from 1 to 8000 px." };
   }
-  if (!/^[\p{L}\p{N}_ .'-]+$/u.test(style.font_family.trim())) return { tab: "fonts" as const, message: "Enter one font family name." };
-  if (![style.label_size, style.tick_size].every((size) => size >= 6 && size <= 48)) return { tab: "fonts" as const, message: "Enter font sizes from 6 to 48 px." };
+  if (!/^[\p{L}\p{N}_ .'-]+$/u.test(style.font_family.trim())) return { tab: "figure" as const, message: "Enter one font family name." };
+  if (![style.label_size, style.tick_size].every((size) => size >= 6 && size <= 48)) return { tab: "figure" as const, message: "Enter font sizes from 6 to 48 px." };
   if (!(style.legend_border_width >= 0 && style.legend_border_width <= 12)) return { tab: "legend" as const, message: "Enter a frame width from 0 to 12 px." };
   if (!(style.line_width >= 0.1 && style.line_width <= 12)) return { tab: "traces" as const, message: "Enter a trace line width from 0.1 to 12 px." };
   if (!(style.marker_size >= 1 && style.marker_size <= 30)) return { tab: "traces" as const, message: "Enter a marker size from 1 to 30 px." };
@@ -608,7 +623,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
 
   const sectionTabs = (
           <div className="figure-settings-nav">
-            {(["figure", "traces", "legend", "fonts", "axes"] as const)
+            {(["figure", "traces", "legend", "text", "axes"] as const)
               .filter((item) => (item !== "traces" || bar || markers || line) && (item !== "axes" || availableAxes.length > 0)).map((item) => (
               <button key={item} type="button" role="tab" aria-selected={page === "figures" && tab === item}
                 id={`settings-tab-${item}`} aria-controls="settings-options" tabIndex={page === "figures" && tab === item ? 0 : -1}
@@ -701,7 +716,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
               </Field>
               {axisGroups.map((key) => <fieldset key={key} className="settings-category axis-group">
                 <legend>{key === "global_axis" ? "Global" : key.toUpperCase()}</legend>
-                {withControls(key, <AxisFields style={axisSettings(style, key)}
+                {withControls(key, <AxisFields style={axisSettings(style, key)} inheritedFamily={style.font_family}
                   fallback={key === "global_axis" ? "" : labels[key]} categorical={key === "x" && categoricalX}
                   onChange={(value) => setStyle({ ...style, [key]: value })} />)}
               </fieldset>)}

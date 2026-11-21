@@ -1,7 +1,7 @@
 import { loadMathJax } from "./mathText";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Data, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
-import { figureFont, figureLayout, plotText, type FigureStyle, type StyleSection } from "./figureStyle";
+import { applyTickRenderers, figureFont, figureLayout, plotText, type FigureStyle, type StyleSection } from "./figureStyle";
 import type { FigureElement, PluginFigure } from "./workspace";
 
 type Colors = Record<FigureElement, string>;
@@ -194,6 +194,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
           !!data.residual_panel, !!data.categorical_x, data.part === "fit" || !!data.overlay_inputs),
         structuredClone(data.layout ?? {}),
       );
+      applyTickRenderers(layout, style);
       const margin = layout.margin;
       let canvasWidth = Math.max(10, lockedWidth === null ? width : lockedWidth + (margin?.l ?? 0) + (margin?.r ?? 0));
       let canvasHeight = Math.max(10, lockedHeight === null ? height : lockedHeight + (margin?.t ?? 0) + (margin?.b ?? 0));

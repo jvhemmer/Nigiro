@@ -476,6 +476,7 @@ class Workspace:
                     raise ValueError("Choose a figure to export.")
                 style = record.style
                 faces = set()
+                separate = style.axes_separate if style.axes_separate is not None else style.x != style.y
                 for role in ("font", "title", "x_label", "y_label", "x_tick", "y_tick", "legend"):
                     family = getattr(style, f"{role}_family") or style.font_family
                     face = getattr(style, f"{role}_face")
@@ -487,6 +488,11 @@ class Workspace:
                         bold = style.font_bold if bold is None else bold
                         italic = style.font_italic if italic is None else italic
                         face = f"{700 if bold else 400}:{'italic' if italic else 'normal'}"
+                    if role.startswith(("x_", "y_")):
+                        side, kind = role.split("_")
+                        axis = getattr(style, side) if separate else style.global_axis or style.x
+                        family = getattr(axis, f"{kind}_family") or family
+                        face = getattr(axis, f"{kind}_face") or face
                     weight, slant = face.split(":")
                     faces.add((family, int(weight), slant))
                 return {"fonts": [self.fonts.export(*face) for face in sorted(faces)]}

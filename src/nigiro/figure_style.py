@@ -42,6 +42,13 @@ def normalize_units(style, lengths, angles=()):
 class AxisStyle:
     label: str | None = None
     label_renderer: str = "auto"
+    tick_renderer: str = "auto"
+    label_family: str | None = None
+    label_face: str | None = None
+    label_size: float | None = None
+    tick_family: str | None = None
+    tick_face: str | None = None
+    tick_size: float | None = None
     scale: str = "linear"
     lower: float | None = None
     upper: float | None = None
@@ -64,9 +71,18 @@ class AxisStyle:
     units: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.label_renderer not in ("auto", "plain", "latex"):
-            raise ValueError("Choose a text renderer for the axis label.")
-        normalize_units(self, ("tick_length", "line_width"), ("angle",))
+        if any(renderer not in ("auto", "plain", "latex") for renderer in (self.label_renderer, self.tick_renderer)):
+            raise ValueError("Choose an axis text renderer.")
+        normalize_units(self, ("tick_length", "line_width", "label_size", "tick_size"), ("angle",))
+        for family in (self.label_family, self.tick_family):
+            if family is not None and (not isinstance(family, str) or not re.fullmatch(r"[\w .'-]+", family)):
+                raise ValueError("Enter a valid font family.")
+        for face in (self.label_face, self.tick_face):
+            if face is not None and (not isinstance(face, str) or not re.fullmatch(r"(?:[1-9]\d{0,2}|1000):(normal|italic|oblique)", face)):
+                raise ValueError("Choose a valid font style.")
+        for size in (self.label_size, self.tick_size):
+            if size is not None and (not _finite(size) or not 6 <= size <= 48):
+                raise ValueError("Enter an axis font size from 6 to 48 px.")
         if self.label is not None and not isinstance(self.label, str):
             raise ValueError("Enter text for the axis label.")
         if self.scale not in ("linear", "log"):

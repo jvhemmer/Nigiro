@@ -9,6 +9,13 @@ export interface AxisStyle {
   units?: Record<string, string>;
   label: string | null;
   label_renderer: TextRenderer;
+  tick_renderer: TextRenderer;
+  label_family: string | null;
+  label_face: string | null;
+  label_size: number | null;
+  tick_family: string | null;
+  tick_face: string | null;
+  tick_size: number | null;
   scale: "linear" | "log";
   lower: number | null;
   upper: number | null;
@@ -125,6 +132,31 @@ function textFont(style: FigureStyle, role: TextRole, defaultSize: number) {
   };
 }
 
+function axisFont(style: FigureStyle, axis: AxisStyle, side: AxisKey, kind: "label" | "tick") {
+  const font = textFont(style, `${side}_${kind}`, style[`${kind}_size`]);
+  const family = axis[`${kind}_family`];
+  const face = axis[`${kind}_face`];
+  return {
+    ...font,
+    ...(family && { family: `"${family}", "${figureFont}"` }),
+    ...(face && fontFace(face, false, false)),
+    size: axis[`${kind}_size`] ?? font.size,
+  };
+}
+
+export function applyTickRenderers(layout: Partial<Layout>, style: FigureStyle) {
+  for (const [key, axis] of Object.entries(layout)) {
+    if (!/^[xy]axis\d*$/.test(key) || !axis || typeof axis !== "object" || !("ticktext" in axis) || !Array.isArray(axis.ticktext)) continue;
+    const side = key[0] === "x" ? "x" : "y";
+    const { tick_renderer } = axisSettings(style, separateAxes(style) ? side : "global_axis");
+    axis.ticktext = axis.ticktext.map((text: string) => {
+      if ((tick_renderer === "auto" && !/\$[^$]+\$/.test(text))) return text;
+      const label = text.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+      return plotText(label, tick_renderer, style);
+    });
+  }
+}
+
 function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision: number, side: AxisKey, categorical = false): Partial<LayoutAxis> {
   const scale = categorical ? "linear" : axis.scale;
   const { lower, upper, step, format } = axis;
@@ -140,8 +172,8 @@ function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision
     ...(autorange && (lower !== null || upper !== null) && {
       autorangeoptions: { minallowed: limits[0] ?? undefined, maxallowed: limits[1] ?? undefined },
     }),
-    title: { text: plotText(axis.label ?? label, axis.label_renderer, style), font: textFont(style, `${side}_label`, style.label_size), standoff: 8 },
-    tickfont: textFont(style, `${side}_tick`, style.tick_size),
+    title: { text: plotText(axis.label ?? label, axis.label_renderer, style), font: axisFont(style, axis, side, "label"), standoff: 8 },
+    tickfont: axisFont(style, axis, side, "tick"),
     ticks,
     ticklen: axis.tick_length,
     tickwidth: axis.line_width,
