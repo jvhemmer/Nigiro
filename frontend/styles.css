@@ -157,6 +157,8 @@ button.primary:hover:not(:disabled), .run-split summary:hover { background: var(
   background: var(--panel);
   box-shadow: 0 3px 9px var(--menu-shadow);
 }
+.menu-command-label { display: inline-flex; align-items: center; gap: 6px; }
+.menu-command-label svg { flex: none; }
 .menu-command span { overflow: hidden; text-overflow: ellipsis; }
 .menu-command {
   justify-content: space-between;

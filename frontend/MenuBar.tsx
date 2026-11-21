@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import type { LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { ExportTarget } from "./exportFigure";
 import type { ItemAction } from "./ItemDialog";
@@ -18,6 +19,7 @@ export interface MenuCommand {
   label: string;
   request: MenuRequest | null;
   shortcut?: string;
+  icon?: LucideIcon;
   disabledReason?: string;
   submenu?: MenuCommand[];
 }
@@ -194,7 +196,10 @@ export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
                       <div className="menu-submenu" key={command.label}>
                         <button className="menu-command" type="button" role="menuitem" tabIndex={-1}
                           aria-haspopup="menu" onClick={(event) => event.currentTarget.nextElementSibling?.querySelector("button")?.focus()}>
-                          <span>{command.label}</span><span aria-hidden="true">›</span>
+                          <span className="menu-command-label">
+                          {command.icon && <command.icon size={14} aria-hidden="true" />}
+                          <span>{command.label}</span>
+                        </span><span aria-hidden="true">›</span>
                         </button>
                         <div className="menu-popup menu-submenu-popup" role="menu" aria-label={command.label}>
                           {command.submenu.map((item) => <button className="menu-command" type="button"
@@ -212,7 +217,10 @@ export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
                         aria-disabled={busy || !command.request}
                         onClick={() => runCommand(command)}
                       >
-                        <span>{command.label}</span>
+                        <span className="menu-command-label">
+                          {command.icon && <command.icon size={14} aria-hidden="true" />}
+                          <span>{command.label}</span>
+                        </span>
                         {command.shortcut && <kbd aria-hidden="true">{shortcutPrefix}{command.shortcut}</kbd>}
                       </button>
                     ))}

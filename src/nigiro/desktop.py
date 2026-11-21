@@ -334,6 +334,8 @@ class Workspace:
                 return "Remove item" if request["name"] is None else "Rename item"
             case "fit":
                 return "Analysis: Linear Fit"
+            case "add_scalar":
+                return f"Add variable {request['name']}"
             case "apply_formula":
                 return "Analysis: Column Formula"
             case "plot":
@@ -579,7 +581,7 @@ class Workspace:
                 self.enqueue({**request, "references": references}, "Column Formula")
             case "add_scalar":
                 scalar = Source.scalar(request["name"], request["value"])
-                self.enqueue({**request, "name": scalar.name}, f"Add scalar source {scalar.name}")
+                self.enqueue({**request, "name": scalar.name}, f"Add variable {scalar.name}")
             case "execute_plugin" | "run_plugin":
                 self.enqueue(request, request["plugin_id"])
             case "scale_column":

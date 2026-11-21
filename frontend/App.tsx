@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState, type MouseEvent, type 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
-  ChartNoAxesCombined, Database, FileSpreadsheet, History, ScanSearch, Table2,
+  ChartNoAxesCombined, Database, FileSpreadsheet, History, ScanSearch, Table2, Variable,
 } from "lucide-react";
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
@@ -166,7 +166,7 @@ function InspectPanel({ project, inspection, busy, run, onConfigure }: {
     return <div className="inspector inspect-details">
       <h2>{source.name}</h2>
       <dl>
-        <dt>Type</dt><dd>{source.scalar ? "Scalar source" : source.kind === "raw" ? "Imported data" : "Derived data"}</dd>
+        <dt>Type</dt><dd>{source.scalar ? "Variable" : source.kind === "raw" ? "Imported data" : "Derived data"}</dd>
         <dt>Original path</dt><dd>{source.original_path ?? "Unavailable"}</dd>
         <dt>Rows</dt><dd>{source.row_count.toLocaleString()}</dd>
         <dt>Columns</dt><dd>{source.columns.join(", ")}</dd>
@@ -255,7 +255,7 @@ function SourcesPanel({ project, busy, run, onInspect }: { project: Project; bus
               if (source.id !== project.source_id) await run({ action: "select_source", source_id: source.id });
               reveal("worksheet");
             }}>
-            <Table2 size={13} aria-hidden="true" />
+            {source.scalar ? <Variable size={13} aria-hidden="true" /> : <Table2 size={13} aria-hidden="true" />}
             <span>{source.name}</span>
           </button>
         </li>
@@ -460,7 +460,7 @@ export function App() {
   const openCommands: MenuCommand[] = [
     { label: "New…", request: { action: "new" }, shortcut: "N" },
     { label: "Import Data…", request: { action: "import_data" } },
-    { label: "Add Scalar Source…", request: { action: "choose_scalar" } },
+    { label: "Add Variable…", icon: Variable, request: { action: "choose_scalar" } },
     { label: "Open Project…", request: { action: "open" }, shortcut: "O" },
     { label: "Try Sample Data", request: { action: "sample" } },
   ];
