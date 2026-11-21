@@ -19,7 +19,7 @@ def write_figure(path: Path, svg: str, scale: int, font_directory: Path) -> None
         (root / "figure.svg").write_text(svg, encoding="utf-8")
         document = root / "figure.typ"
         document.write_text(
-            '#set page(width: auto, height: auto, margin: 0pt)\n'
+            '#set page(width: auto, height: auto, margin: 0pt, fill: none)\n'
             '#set text(font: "DejaVu Sans")\n'
             '#image("figure.svg")\n',
             encoding="utf-8",

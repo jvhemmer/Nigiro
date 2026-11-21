@@ -62,6 +62,7 @@ export interface FigureStyle extends Typography {
   tick_size: number;
   text_color: string;
   background: string;
+  plot_background: string | null;
   legend: "auto" | "none" | "above" | "top_left" | "top_right" | "bottom_left" | "bottom_right";
   line_width: number;
   legend_frame: boolean;
@@ -190,6 +191,10 @@ function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision
   };
 }
 
+function plotlyBackground(color: string) {
+  return color === "transparent" ? "rgba(0,0,0,0)" : color;
+}
+
 function legendLayout(style: FigureStyle, fit: boolean): Partial<Layout> {
   const position = style.legend === "auto" ? (fit ? "above" : "none") : style.legend;
   if (position === "none") return { showlegend: false };
@@ -199,7 +204,7 @@ function legendLayout(style: FigureStyle, fit: boolean): Partial<Layout> {
     showlegend: true,
     legend: {
       font: textFont(style, "legend", style.tick_size),
-      bgcolor: style.legend_background ?? style.background,
+      bgcolor: plotlyBackground(style.legend_background ?? style.background),
       bordercolor: style.legend_border_color,
       borderwidth: style.legend_frame ? style.legend_border_width : 0,
       itemdoubleclick: false,
@@ -227,8 +232,8 @@ export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string,
     title: { text: plotText(style.title, style.title_renderer, style), font: titleFont, x: 0.5, y: 0.98, yanchor: "top" },
     font: { family: font, size: style.label_size, color: style.text_color,
       ...fontFace(style.font_face, style.font_bold, style.font_italic) },
-    paper_bgcolor: style.background,
-    plot_bgcolor: style.background,
+    paper_bgcolor: plotlyBackground(style.background),
+    plot_bgcolor: plotlyBackground(style.plot_background ?? style.background),
     hovermode: "closest",
     dragmode: "zoom",
     ...legendLayout(style, fit || fitLegend),

@@ -15,7 +15,7 @@ const sectionNames: Record<SettingsTab, string> = {
 };
 
 const figureTabFields: Record<FigureTab, (keyof FigureStyle)[]> = {
-  figure: ["title", "title_renderer", "axes_width", "axes_height", "background", "text_color",
+  figure: ["title", "title_renderer", "axes_width", "axes_height", "background", "plot_background", "text_color",
     "font_family", "font_face", "font_bold", "font_italic", "title_family", "title_face", "title_size", "title_bold", "title_italic"],
   traces: ["color_cycle", "bar_width", "show_markers", "marker_size", "marker_symbol", "show_lines", "line_width", "line_dash", "marker_color", "line_color"],
   legend: ["legend", "legend_frame", "legend_border_color", "legend_border_width", "legend_background",
@@ -30,7 +30,8 @@ const fieldKeys: Record<string, string> = {
   "TeX font": "math_alphabet", "TeX preamble": "math_preamble",
   "Figure title": "title", "Axes width (px)": "axes_width", "Axes height (px)": "axes_height",
   "Show markers": "show_markers", "Show trace lines": "show_lines", "Number notation": "notation", "Font family": "font_family", "Font style": "font_face", "Axis label size (px)": "label_size", "Tick and legend size (px)": "tick_size",
-  "Text color": "text_color", "Background": "background", "Position": "legend",
+  "Text color": "text_color", "Figure background": "background", "Figure background color": "background",
+  "Plot area background": "plot_background", "Plot area background color": "plot_background", "Position": "legend",
   "Show frame": "legend_frame", "Frame color": "legend_border_color", "Frame width (px)": "legend_border_width",
   "Color cycle": "color_cycle", "Legend background": "legend_background", "Marker color": "marker_color", "Line color": "line_color",
   "Bar width (fraction)": "bar_width", "Marker size (px)": "marker_size", "Marker shape": "marker_symbol",
@@ -383,9 +384,21 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
     <NumberField label="Axes height (px)" placeholder="Auto" value={style.axes_height}
       onChange={(value) => set("axes_height", Number.isNaN(value) ? null : value)} />
     </SettingsGroup>
-    <SettingsGroup title="Colors">
-    <Field label="Background"><input type="color" value={style.background}
-      onChange={(event) => set("background", event.target.value)} /></Field>
+    <SettingsGroup title="Backgrounds">
+      <Choice label="Figure background" value={style.background === "transparent" ? "transparent" : "color"}
+        options={[["color", "Color"], ["transparent", "Transparent"]]}
+        onChange={(mode) => set("background", mode === "transparent" ? "transparent" : "#ffffff")} />
+      {style.background !== "transparent" && <Field label="Figure background color">
+        <input type="color" value={style.background} onChange={(event) => set("background", event.target.value)} />
+      </Field>}
+      <Choice label="Plot area background"
+        value={style.plot_background == null ? "match" : style.plot_background === "transparent" ? "transparent" : "color"}
+        options={[["match", "Match figure"], ["color", "Color"], ["transparent", "Transparent"]]}
+        onChange={(mode) => set("plot_background", mode === "match" ? null : mode === "transparent" ? "transparent" :
+          style.background === "transparent" ? "#ffffff" : style.background)} />
+      {style.plot_background && style.plot_background !== "transparent" && <Field label="Plot area background color">
+        <input type="color" value={style.plot_background} onChange={(event) => set("plot_background", event.target.value)} />
+      </Field>}
     </SettingsGroup>
     <SettingsGroup title="Default text">
       <Field label="Text color"><input type="color" value={style.text_color}
@@ -417,7 +430,7 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
         ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"],
       ]} />
     <TextOverrides role="legend" style={style} onChange={onChange} />
-    <OptionalColor label="Legend background" value={style.legend_background} fallback={style.background}
+    <OptionalColor label="Legend background" value={style.legend_background} fallback={style.background === "transparent" ? "#ffffff" : style.background}
       onChange={(value) => set("legend_background", value)} />
     <Field label="Show frame" checkbox><input type="checkbox" checked={style.legend_frame}
       onChange={(event) => set("legend_frame", event.target.checked)} /></Field>

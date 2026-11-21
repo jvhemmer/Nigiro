@@ -154,6 +154,7 @@ class FigureStyle:
     legend_size: float | None = None
     text_color: str = "#181818"
     background: str = "#ffffff"
+    plot_background: str | None = None
     legend: str = "auto"
     legend_frame: bool = False
     legend_border_color: str = "#444444"
@@ -215,8 +216,13 @@ class FigureStyle:
         if not isinstance(self.color_cycle, (tuple, list)) or len(self.color_cycle) > 24:
             raise ValueError("Choose up to 24 cycle colors.")
         object.__setattr__(self, "color_cycle", tuple(self.color_cycle))
+        for color in (self.background, self.plot_background):
+            if color is not None and (not isinstance(color, str) or (color != "transparent" and not re.fullmatch(r"#[0-9a-fA-F]{6}", color))):
+                raise ValueError("Choose a valid background color or Transparent.")
+        if self.background is None:
+            raise ValueError("Choose a figure background.")
         optional_colors = (self.legend_background, self.marker_color, self.line_color)
-        for color in (self.text_color, self.background, self.legend_border_color, *self.color_cycle,
+        for color in (self.text_color, self.legend_border_color, *self.color_cycle,
                       *(color for color in optional_colors if color is not None)):
             if not isinstance(color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
                 raise ValueError("Choose a valid figure color.")

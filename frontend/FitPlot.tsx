@@ -227,6 +227,17 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
           !!data.residual_panel, !!data.categorical_x, data.part === "fit" || !!data.overlay_inputs),
         structuredClone(data.layout ?? {}),
       );
+      if (style.plot_background === "transparent" && style.background !== "transparent"
+        && traces.some((trace) => trace.type == null || ["scatter", "scattergl", "bar"].includes(trace.type))) {
+        // Plotly paints paper behind the axes. Leave a hole in that paper
+        // so a transparent plot area also stays transparent in an export.
+        layout.shapes = [{
+          type: "path", xref: "paper", yref: "paper", layer: "below",
+          path: "M -100,-100 L 100,-100 L 100,100 L -100,100 Z M 0,0 L 0,1 L 1,1 L 1,0 Z",
+          fillcolor: style.background, line: { width: 0 },
+        }, ...(layout.shapes ?? [])];
+        layout.paper_bgcolor = "rgba(0,0,0,0)";
+      }
       formatPlotTicks(layout, tickRenderers(layout, style), style);
       const margin = layout.margin;
       let canvasWidth = Math.max(10, lockedWidth === null ? width : lockedWidth + (margin?.l ?? 0) + (margin?.r ?? 0));
