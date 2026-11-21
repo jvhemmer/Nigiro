@@ -9,7 +9,7 @@ import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ExportDialog } from "./ExportDialog";
 import { applyAppearance, cacheAppearance } from "./appearance";
 import { FigureSettings } from "./FigureSettings";
-import { axisSettings, type StyleSection } from "./figureStyle";
+import { axisSettings, cycleColor, type StyleSection } from "./figureStyle";
 import { FigurePlot, type CaptureFigure } from "./FitPlot";
 import { ItemDialog, type ItemAction } from "./ItemDialog";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
@@ -178,7 +178,7 @@ function InspectPanel({ project, inspection, busy, run, onConfigure }: {
   const index = inspection.trace;
   const trace = index === undefined ? undefined : figure.traces[index];
   const role = index === undefined ? undefined : figure.elements?.[index];
-  const seriesColor = index === undefined ? undefined : figure.series_colors?.[index];
+  const seriesColor = index === undefined ? undefined : cycleColor(project.figure_style, figure.series_cycle?.[index]) ?? figure.series_colors?.[index];
   const line = trace && "line" in trace ? trace.line : undefined;
   const marker = trace && "marker" in trace ? trace.marker : undefined;
   const traceColor = (line && "color" in line ? line.color : undefined)

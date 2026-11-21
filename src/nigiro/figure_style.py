@@ -159,6 +159,7 @@ class FigureStyle:
     legend_border_color: str = "#444444"
     legend_border_width: float = 1
     legend_background: str | None = None
+    color_cycle: tuple[str, ...] = ()
     marker_color: str | None = None
     line_color: str | None = None
     line_width: float = 1.5
@@ -211,8 +212,11 @@ class FigureStyle:
             raise ValueError("Enter one font family name and a text title.")
         if type(self.font_bold) is not bool or type(self.font_italic) is not bool:
             raise ValueError("Choose a valid font style.")
+        if not isinstance(self.color_cycle, (tuple, list)) or len(self.color_cycle) > 24:
+            raise ValueError("Choose up to 24 cycle colors.")
+        object.__setattr__(self, "color_cycle", tuple(self.color_cycle))
         optional_colors = (self.legend_background, self.marker_color, self.line_color)
-        for color in (self.text_color, self.background, self.legend_border_color,
+        for color in (self.text_color, self.background, self.legend_border_color, *self.color_cycle,
                       *(color for color in optional_colors if color is not None)):
             if not isinstance(color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
                 raise ValueError("Choose a valid figure color.")

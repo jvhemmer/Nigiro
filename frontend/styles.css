@@ -630,3 +630,7 @@ td input {
 
 .axis-group { margin-top: 9px; }
 .axis-group > .settings-category:last-child { margin-bottom: 0; }
+
+.cycle-colors { margin: 0; padding-inline-start: 25px; }
+.cycle-colors li { padding: 2px 0; }
+.cycle-colors input { vertical-align: middle; margin-inline-end: 6px; }

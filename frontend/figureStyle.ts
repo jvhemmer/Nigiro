@@ -67,6 +67,7 @@ export interface FigureStyle extends Typography {
   legend_border_color: string;
   legend_border_width: number;
   legend_background: string | null;
+  color_cycle: string[];
   marker_color: string | null;
   line_color: string | null;
   line_dash: "solid" | "dash" | "dot" | "dashdot";
@@ -79,6 +80,11 @@ export interface FigureStyle extends Typography {
   global_axis: AxisStyle | null;
   x: AxisStyle;
   y: AxisStyle;
+}
+
+export function cycleColor(style: FigureStyle, index: number | null | undefined) {
+  return index == null || !style.color_cycle.length ? undefined
+    : style.color_cycle[index % style.color_cycle.length];
 }
 
 export function separateAxes(style: FigureStyle) {

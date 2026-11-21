@@ -1,7 +1,7 @@
 import { loadMathJax } from "./mathText";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Data, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
-import { applyTickRenderers, figureFont, figureLayout, plotText, type FigureStyle, type StyleSection } from "./figureStyle";
+import { applyTickRenderers, cycleColor, figureFont, figureLayout, plotText, type FigureStyle, type StyleSection } from "./figureStyle";
 import type { FigureElement, PluginFigure } from "./workspace";
 
 type Colors = Record<FigureElement, string>;
@@ -205,7 +205,11 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
       }
       const series = traces.map((trace, index) => {
         const element = elements[index];
-        const series = element ? styleTrace(trace, style, data.series_colors?.[index] ?? colors[element]) : trace;
+        const custom = cycleColor(style, data.series_cycle?.[index]);
+        const series = element ? styleTrace(trace, style, custom ?? data.series_colors?.[index] ?? colors[element])
+          : custom && (trace.type === "scatter" || trace.type === "scattergl" || trace.type === "bar")
+            ? merge(trace, { marker: { color: custom }, ...(trace.type !== "bar" && { line: { color: custom } }) })
+            : trace;
         return typeof series.name === "string" && /\$[^$]+\$/.test(series.name)
           ? { ...series, name: plotText(series.name, "auto", style) } : series;
       });

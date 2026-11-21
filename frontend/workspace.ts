@@ -71,6 +71,7 @@ export interface PluginFigure {
   part?: "fit" | "residual";
   summary?: Record<string, number | string | boolean | null>;
   series_colors?: (string | null)[];
+  series_cycle?: (number | null)[];
   overlay_inputs?: OverlayInput[];
   preserve_first?: boolean;
 }

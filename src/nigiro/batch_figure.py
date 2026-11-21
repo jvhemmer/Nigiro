@@ -10,7 +10,7 @@ BATCH_COLORS = ("#245e9b", "#be481f", "#297d65", "#7655a6", "#a37513", "#a33f72"
 def overlay_figures(figures, labels, preserve_first=False):
     first = figures[0]
     combined = deepcopy(first)
-    combined.update(traces=[], elements=[], series_colors=[], summary=first.get("summary", {}) if preserve_first else {})
+    combined.update(traces=[], elements=[], series_colors=[], series_cycle=[], summary=first.get("summary", {}) if preserve_first else {})
     layout = combined.setdefault("layout", {})
     axes = first.get("layout", {}).get("xaxis", {})
     bar_ticks = first.get("categorical_x") and axes.get("tickmode") == "array"
@@ -56,6 +56,7 @@ def overlay_figures(figures, labels, preserve_first=False):
         combined["elements"].extend(roles)
         color = None if index == 0 and preserve_first else BATCH_COLORS[index % len(BATCH_COLORS)]
         combined["series_colors"].extend([color] * len(traces))
+        combined["series_cycle"].extend([index] * len(traces))
     if bar_ticks:
         layout["xaxis"].update(tickvals=list(categories.values()), ticktext=[name for name, _ in categories])
         layout.setdefault("barmode", "group")

@@ -17,7 +17,7 @@ const sectionNames: Record<SettingsTab, string> = {
 const figureTabFields: Record<FigureTab, (keyof FigureStyle)[]> = {
   figure: ["title", "title_renderer", "axes_width", "axes_height", "background", "text_color",
     "font_family", "font_face", "font_bold", "font_italic", "title_family", "title_face", "title_size", "title_bold", "title_italic"],
-  traces: ["bar_width", "show_markers", "marker_size", "marker_symbol", "show_lines", "line_width", "line_dash", "marker_color", "line_color"],
+  traces: ["color_cycle", "bar_width", "show_markers", "marker_size", "marker_symbol", "show_lines", "line_width", "line_dash", "marker_color", "line_color"],
   legend: ["legend", "legend_frame", "legend_border_color", "legend_border_width", "legend_background",
     "legend_family", "legend_face", "legend_size", "legend_bold", "legend_italic"],
   text: ["math_alphabet", "math_preamble"],
@@ -32,7 +32,7 @@ const fieldKeys: Record<string, string> = {
   "Show markers": "show_markers", "Show trace lines": "show_lines", "Number notation": "notation", "Font family": "font_family", "Font style": "font_face", "Axis label size (px)": "label_size", "Tick and legend size (px)": "tick_size",
   "Text color": "text_color", "Background": "background", "Position": "legend",
   "Show frame": "legend_frame", "Frame color": "legend_border_color", "Frame width (px)": "legend_border_width",
-  "Legend background": "legend_background", "Marker color": "marker_color", "Line color": "line_color",
+  "Color cycle": "color_cycle", "Legend background": "legend_background", "Marker color": "marker_color", "Line color": "line_color",
   "Bar width (fraction)": "bar_width", "Marker size (px)": "marker_size", "Marker shape": "marker_symbol",
   "Trace line width (px)": "line_width", "Trace line style": "line_dash",
   "Axis label": "label", "Scale": "scale", "Lower limit": "lower", "Upper limit": "upper",
@@ -334,6 +334,33 @@ function OptionalColor({ label, value, fallback, onChange }: {
   </>;
 }
 
+const cyclePresets = {
+  default: [],
+  categorical: ["#0072b2", "#e69f00", "#009e73", "#cc79a7", "#56b4e9", "#d55e00"],
+  grayscale: ["#222222", "#555555", "#828282", "#aaaaaa"],
+};
+
+function ColorCycle({ colors, onChange }: { colors: string[]; onChange: (colors: string[]) => void }) {
+  const preset = Object.entries(cyclePresets).find(([, palette]) => palette.join() === colors.join())?.[0] ?? "custom";
+  return <SettingsGroup title="Cycler">
+    <Choice label="Color cycle" value={preset} onChange={(value) => {
+      onChange(value === "custom" ? ["#245e9b"] : cyclePresets[value as keyof typeof cyclePresets]);
+    }} options={[
+      ["default", "Nigiro default"], ["categorical", "Colorblind-friendly"], ["grayscale", "Grayscale"], ["custom", "Custom"],
+    ]} />
+    {colors.length > 0 && <ol className="cycle-colors">
+      {colors.map((color, index) => <li key={index}>
+        <input type="color" aria-label={`Cycle color ${index + 1}`} value={color}
+          onChange={(event) => onChange(colors.map((item, i) => i === index ? event.target.value : item))} />
+        <button type="button" aria-label={`Remove cycle color ${index + 1}`}
+          onClick={() => onChange(colors.filter((_, i) => i !== index))}>Remove</button>
+      </li>)}
+    </ol>}
+    {colors.length > 0 && <button type="button" disabled={colors.length >= 24}
+      onClick={() => onChange([...colors, "#245e9b"])}>Add color</button>}
+  </SettingsGroup>;
+}
+
 function FigureFields({ tab, style, bar, markers, line, onChange }: {
   tab: FigureTab;
   style: FigureStyle;
@@ -399,6 +426,7 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
     <NumberField label="Frame width (px)" value={style.legend_border_width} onChange={(value) => set("legend_border_width", value)} />
     </SettingsGroup>}
     {tab === "traces" && <>
+    <ColorCycle colors={style.color_cycle} onChange={(value) => set("color_cycle", value)} />
     {bar && <SettingsGroup title="Bars"><NumberField label="Bar width (fraction)" value={style.bar_width} onChange={(value) => set("bar_width", value)} /></SettingsGroup>}
     {markers && <SettingsGroup title="Markers">
           <Field label="Show markers" checkbox><input type="checkbox" checked={style.show_markers} onChange={(event) => set("show_markers", event.target.checked)} /></Field>
