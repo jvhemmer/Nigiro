@@ -406,7 +406,7 @@ export function App() {
     ? figure.recipe.options : previous?.kind === "plugin" ? previous.options : undefined;
 
   function pluginCommands(menu: PluginDefinition["menu"]) {
-    return plugins.filter((plugin) => plugin.menu === menu && plugin.id !== "nigiro.filter").map((plugin) => {
+    return plugins.filter((plugin) => plugin.menu === menu && plugin.id !== "nigiro.filter" && plugin.id !== "example.scaled_xy").map((plugin) => {
       const columns = columnFields(plugin).length;
       const required = plugin.distinct_columns ? columns : Math.min(columns, 1);
       return {
@@ -564,10 +564,7 @@ export function App() {
             },
             {
               label: "Plot",
-              groups: [
-                plotCommands,
-                [figureSettings],
-              ],
+              groups: [plotCommands],
             },
             {
               label: "Analysis",

@@ -71,7 +71,7 @@ When you edit or move a step, Nigiro marks affected results as stale. If a step 
 
 ## Install a plugin
 
-1. Download a Nigiro plugin as a `.py` file. You can try [Scaled XY](examples/plugins/scaled_xy.py).
+1. Download a Nigiro plugin as a `.py` file.
 2. Select **Plugins → Install Python Plugin**. Select the downloaded file and check the trust prompt.
 3. Open a worksheet. Select the plugin from **Plot** or **Analysis** and set its options.
 
@@ -95,7 +95,7 @@ Install plugins as single files. The desktop worker supplies bundled modules suc
 
 ## Edit the figure
 
-Open **Plot → Figure Settings**. Double-click an axis label to open its settings. Choose **Figure**, **X axis**, or **Y axis**. Residual figures use the regular Y-axis settings.
+Use **Figure settings** in the Figure panel. Double-click an axis label to open its settings. Choose **Figure**, **X axis**, or **Y axis**. Residual figures use the regular Y-axis settings.
 
 Enter sizes with units, such as `9 pt`, `8 cm`, or `400 px`. Bare numbers use pixels. Supported lengths are `px`, `pt`, `cm`, `mm`, `in`, `pc`, and `q`, using 96 pixels per inch. Angles accept `deg`, `°`, `rad`, or `turn`, with degrees as the default. The selected units are saved with the figure and global defaults.
 
