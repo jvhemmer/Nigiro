@@ -7,6 +7,7 @@ import {
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ExportDialog } from "./ExportDialog";
+import { applyAppearance, cacheAppearance } from "./appearance";
 import { FigureSettings } from "./FigureSettings";
 import type { StyleSection } from "./figureStyle";
 import { FigurePlot, type CaptureFigure } from "./FitPlot";
@@ -387,6 +388,17 @@ export function App() {
     return () => { void unlisten.then((stop) => stop(), () => {}); };
   }, [run]);
 
+  useEffect(() => {
+    if (!project?.appearance) return;
+    const appearance = project.appearance;
+    applyAppearance(appearance);
+    cacheAppearance(appearance);
+    const system = matchMedia("(prefers-color-scheme: dark)");
+    const update = () => applyAppearance(appearance);
+    system.addEventListener("change", update);
+    return () => system.removeEventListener("change", update);
+  }, [project?.appearance.theme, project?.appearance.accent]);
+
   const figure = project?.figure;
   const figureNumber = project ? project.figures.findIndex((item) => item.id === project.figure_id) + 1 : 0;
   const exportName = project && figure
@@ -593,12 +605,12 @@ export function App() {
         />
       )}
       {project && settingsDialog && (
-        <FigureSettings global initial={project.global_figure_style} defaults={project.factory_figure_style}
+        <FigureSettings global appearance={project.appearance} initial={project.global_figure_style} defaults={project.factory_figure_style}
           initialSection="figure" labels={{ x: "", y: "" }}
           categoricalX={false} bar markers line busy={busy} saveError={error}
           onClose={() => { setSettingsDialog(false); setError(""); }}
-          onApply={async (style) => {
-            if (await run({ action: "set_global_style", style })) setSettingsDialog(false);
+          onApply={async (style, appearance) => {
+            if (appearance && await run({ action: "set_preferences", style, appearance })) setSettingsDialog(false);
           }} />
       )}
       {project && figure && project.figure_id !== null && figureDialog && (

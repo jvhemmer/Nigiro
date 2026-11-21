@@ -51,6 +51,8 @@ The **Configuration** tab contains the plugin's settings. The **Output** tab lis
 
 Open **Edit → Settings → Global Figure Settings** to set defaults for new figures. Settings persist across app restarts. Each value in an individual figure's settings has a save icon to make it the global default and a restore icon to copy the current global default into that figure. Select **Apply** to save changes to the figure.
 
+In **Edit → Settings → Appearance**, choose **System**, **Light**, or **Dark** and an accent color, then select **Save settings**. System follows the operating system's color scheme. Expand or collapse **Global Figure Settings** in the left sidebar to show its figure and axis sections.
+
 Use the tabs in **Worksheet** to switch between imported data and analysis results. The dockable **Sources** panel lists all sources. Select an entry to open it in **Worksheet**. Linear Fit creates separate tables for coefficients and fitted values. The fitted values table includes X, observed Y, fitted Y, and residuals.
 
 Linear Fit produces a fit and a separate residual figure. Use the tabs in **Figure** to switch between them or return to any earlier figure. Each figure has its own appearance settings. For a fit from one source, **Plugin settings** updates its fit and residual figures.

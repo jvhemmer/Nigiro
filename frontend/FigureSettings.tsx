@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { formatMeasurement, parseMeasurement } from "./units";
+import type { Appearance } from "./workspace";
 import { Save, RotateCcw } from "lucide-react";
 import type { AxisKey, AxisStyle, FigureStyle, StyleSection } from "./figureStyle";
 
@@ -244,8 +245,9 @@ function figureError(style: FigureStyle) {
   return "";
 }
 
-export function FigureSettings({ initial, defaults, initialSection, labels, categoricalX, bar, markers, line, onClose, onApply, global = false, busy = false, saveError = "", onSaveGlobal }: {
+export function FigureSettings({ initial, defaults, initialSection, labels, categoricalX, bar, markers, line, onClose, onApply, global = false, appearance, busy = false, saveError = "", onSaveGlobal }: {
   global?: boolean;
+  appearance?: Appearance;
   busy?: boolean;
   saveError?: string;
   onSaveGlobal?: (section: StyleSection, key: string, value: unknown, unit?: string) => Promise<boolean>;
@@ -258,20 +260,23 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
   markers: boolean;
   line: boolean;
   onClose: () => void;
-  onApply: (style: FigureStyle) => void;
+  onApply: (style: FigureStyle, appearance?: Appearance) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const [style, setStyle] = useState(initial);
+  const [page, setPage] = useState<"appearance" | "figures">(global ? "appearance" : "figures");
+  const [expanded, setExpanded] = useState(true);
+  const [appearanceDraft, setAppearanceDraft] = useState<Appearance>(appearance ?? { theme: "system", accent: "#245883" });
   const [section, setSection] = useState(initialSection);
   const [error, setError] = useState("");
   const [invalidMeasurements, setInvalidMeasurements] = useState<Record<string, StyleSection>>({});
   const axes: AxisKey[] = ["x", "y"];
 
   useEffect(() => { dialog.current?.showModal(); }, []);
-  useEffect(() => { content.current?.scrollTo(0, 0); }, [section]);
+  useEffect(() => { content.current?.scrollTo(0, 0); }, [section, page]);
 
   function move(left: number, top: number) {
     const bounds = dialog.current?.getBoundingClientRect();
@@ -300,9 +305,11 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
   }
 
   function apply() {
-    if (busy || !dialog.current?.querySelector("form")?.reportValidity()) return;
+    if (busy) return;
     const invalidSection = Object.values(invalidMeasurements)[0];
     if (invalidSection) {
+      setPage("figures");
+      setExpanded(true);
       setSection(invalidSection);
       setError("Enter valid measurement units.");
       return;
@@ -310,12 +317,14 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
     for (const item of ["figure", ...axes] as const) {
       const message = item === "figure" ? figureError(style) : axisError(style[item]);
       if (message) {
+        setPage("figures");
+        setExpanded(true);
         setSection(item);
         setError(message);
         return;
       }
     }
-    onApply({ ...style, font_family: style.font_family.trim() });
+    onApply({ ...style, font_family: style.font_family.trim() }, global ? appearanceDraft : undefined);
   }
 
   async function saveField(key: string) {
@@ -351,6 +360,10 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
   }
 
   function resetSection() {
+    if (page === "appearance") {
+      setAppearanceDraft({ theme: "system", accent: "#245883" });
+      return;
+    }
     setInvalidMeasurements((current) => Object.fromEntries(Object.entries(current).filter(([, value]) => value !== section)));
     setError("");
     setStyle(section === "figure"
@@ -358,10 +371,22 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
       : { ...style, [section]: defaults[section] });
   }
 
+  const sectionTabs = (
+          <div className="figure-settings-nav">
+            {(["figure", ...axes] as const).map((item) => (
+              <button key={item} type="button" role="tab" aria-selected={page === "figures" && section === item}
+                id={`settings-tab-${item}`} aria-controls="settings-options" tabIndex={page === "figures" && section === item ? 0 : -1}
+                onClick={() => { setPage("figures"); setSection(item); setError(""); }}>
+                {sectionNames[item]}
+              </button>
+            ))}
+          </div>
+  );
+
   return <dialog ref={dialog} className="settings-dialog figure-settings" aria-labelledby="figure-settings-title"
     style={position ? { left: position.left, top: position.top, margin: 0 } : undefined}
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
-    <form onSubmit={(event) => { event.preventDefault(); apply(); }}>
+    <form noValidate onSubmit={(event) => { event.preventDefault(); apply(); }}>
       <header className="settings-title" tabIndex={0} title="Drag to move. Alt + arrow keys also move the window."
         onPointerDown={startDrag}
         onPointerMove={(event) => {
@@ -384,28 +409,46 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
       </header>
       <div className="settings-body">
         <nav className="settings-sidebar" aria-label="Settings categories">
-          {global && <p className="settings-sidebar-heading">Global Figure Settings</p>}
-          <div className="figure-settings-nav" role="tablist" aria-label="Settings section" aria-orientation="vertical">
-            {(["figure", ...axes] as const).map((item, index, items) => (
-              <button key={item} type="button" role="tab" aria-selected={section === item}
-                id={`settings-tab-${item}`} aria-controls="settings-options" tabIndex={section === item ? 0 : -1}
-                onClick={() => { setSection(item); setError(""); }}
-                onKeyDown={(event) => {
-                  const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
-                    : event.key === "ArrowDown" ? (index + 1) % items.length
-                    : event.key === "ArrowUp" ? (index + items.length - 1) % items.length : -1;
-                  if (next < 0) return;
-                  event.preventDefault();
-                  setSection(items[next]);
-                  setError("");
-                  event.currentTarget.parentElement?.querySelectorAll("button")[next]?.focus();
-                }}>
-                {sectionNames[item]}
-              </button>
-            ))}
+          <div role="tablist" aria-label="Settings section" aria-orientation="vertical"
+            onKeyDown={(event) => {
+              const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+                .filter((item) => item.offsetParent !== null);
+              const index = items.indexOf(event.target as HTMLButtonElement);
+              if (index < 0) return;
+              const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+                : event.key === "ArrowDown" ? (index + 1) % items.length
+                : event.key === "ArrowUp" ? (index + items.length - 1) % items.length : -1;
+              if (next < 0) return;
+              event.preventDefault();
+              items[next].click();
+              items[next].focus();
+            }}>
+            {global && <button className="settings-page-tab" type="button" role="tab" id="settings-tab-appearance"
+              aria-controls="settings-options" aria-selected={page === "appearance"} tabIndex={page === "appearance" ? 0 : -1}
+              onClick={() => { setPage("appearance"); setError(""); }}>Appearance</button>}
+            {global ? <details className="settings-nav-group" open={expanded}
+              onToggle={(event) => setExpanded(event.currentTarget.open)}>
+              <summary>Global Figure Settings</summary>
+              {sectionTabs}
+            </details> : sectionTabs}
           </div>
         </nav>
-        <div ref={content} className="settings-content" id="settings-options" role="tabpanel" aria-labelledby={`settings-tab-${section}`}>
+        <div ref={content} className="settings-content" id="settings-options" role="tabpanel" aria-labelledby={page === "appearance" ? "settings-tab-appearance" : `settings-tab-${section}`}>
+          {page === "appearance" && <SettingsGroup title="Interface">
+            <Field label="Theme">
+              <select aria-label="Theme" value={appearanceDraft.theme} onChange={(event) => setAppearanceDraft({
+                ...appearanceDraft, theme: event.target.value as Appearance["theme"],
+              })}>
+                <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
+              </select>
+            </Field>
+            <Field label="Accent color">
+              <input aria-label="Accent color" type="color" value={appearanceDraft.accent} onChange={(event) => setAppearanceDraft({
+                ...appearanceDraft, accent: event.target.value,
+              })} />
+            </Field>
+          </SettingsGroup>}
+          <div hidden={page !== "figures"}>
           {global && <p className="global-settings-note muted">Defaults for new figures.</p>}
       <GlobalControls.Provider value={onSaveGlobal ? { busy, save: (key) => { void saveField(key); }, reset: resetField } : null}>
       <MeasurementControls.Provider value={{
@@ -425,13 +468,14 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
             onChange={(value) => setStyle({ ...style, [section]: value })} />}
       </MeasurementControls.Provider>
       </GlobalControls.Provider>
+          </div>
         </div>
       </div>
       <div className="settings-feedback">
         {(error || saveError) && <p className="figure-settings-error" role="alert">{error || saveError}</p>}
       </div>
       <footer>
-        <button type="button" className="figure-reset" onClick={resetSection}>Reset section</button>
+        <button type="button" className="figure-reset" onClick={resetSection}>{page === "appearance" ? "Reset appearance" : "Reset section"}</button>
         <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
         <button type="submit" className="primary" disabled={busy}>{global ? "Save settings" : "Apply"}</button>
       </footer>

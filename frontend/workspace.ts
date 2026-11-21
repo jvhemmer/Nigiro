@@ -104,7 +104,13 @@ export interface ProjectSource {
   columns: string[];
 }
 
+export interface Appearance {
+  theme: "system" | "light" | "dark";
+  accent: string;
+}
+
 export interface Project {
+  appearance: Appearance;
   row_count: number;
   row_offset: number;
   figure_token: string | null;
@@ -143,6 +149,7 @@ export type Request =
   | { action: "select_figure"; figure_id: number }
   | { action: "edit_item"; item: WorkspaceItem; name: string | null }
   | { action: "color"; element: FigureElement; color: string; figure_id: number }
+  | { action: "set_preferences"; style: FigureStyle; appearance: Appearance }
   | { action: "set_global_style"; style: FigureStyle }
   | { action: "figure_style"; style: FigureStyle; figure_id: number }
   | { action: "save_as"; name: string };

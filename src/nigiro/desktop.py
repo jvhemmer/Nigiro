@@ -26,7 +26,7 @@ from nigiro.project import (
     ResidualFigure, Source, Worksheet,
 )
 from nigiro.source_tables import SourceTable, output_tables, source_origin
-from nigiro.settings import Settings
+from nigiro.settings import Appearance, Settings
 from nigiro.storage import load_project, operation_record, save_project
 
 
@@ -280,6 +280,7 @@ class Workspace:
             "plot_error": figure_error if isinstance(recipe, Plot) else None,
             "colors": record.colors if record else project.colors,
             "figure_style": asdict(record.style if record else FigureStyle()),
+            "appearance": asdict(self.settings.appearance),
             "global_figure_style": asdict(self.settings.figure_style),
             "factory_figure_style": asdict(FigureStyle()),
             "default_figure_style": asdict(self.settings.figure_style),
@@ -303,6 +304,8 @@ class Workspace:
                 if type(offset) is not int or offset < 0:
                     raise ValueError("Choose a valid worksheet page.")
                 self.row_offset = (offset // 100) * 100
+            case "set_preferences":
+                self.settings.save_preferences(FigureStyle(**request["style"]), Appearance(**request["appearance"]))
             case "set_global_style":
                 self.settings.save(FigureStyle(**request["style"]))
             case "state":
