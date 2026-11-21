@@ -586,3 +586,17 @@ td input {
   width: 100%; resize: vertical; padding: 5px; font-family: monospace;
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
 }
+
+.run-split { display: inline-flex; align-items: stretch; }
+.run-split > button { border-radius: 3px 0 0 3px; }
+.run-split > details { position: relative; display: flex; }
+.run-split summary {
+  display: grid; place-items: center; height: 100%; min-width: 24px; cursor: pointer;
+  list-style: none; border: 1px solid var(--line); border-radius: 0 3px 3px 0;
+}
+.run-split summary::-webkit-details-marker { display: none; }
+.run-modes {
+  position: absolute; z-index: 2; top: 100%; right: 0; min-width: max-content;
+  display: grid; padding: 2px; background: var(--panel); border: 1px solid var(--line);
+}
+.run-modes button[aria-pressed="true"] { background: var(--accent-soft); }

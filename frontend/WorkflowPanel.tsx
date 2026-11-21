@@ -8,19 +8,36 @@ export function WorkflowPanel({ workflow, busy, run }: {
   busy: boolean;
   run: (request: Request) => Promise<boolean>;
 }) {
+  const modes = useRef<HTMLDetailsElement>(null);
   const [action, setAction] = useState<"run_all" | "run_next">("run_all");
   const disabled = busy || !workflow.steps.length
     || (action === "run_next" && workflow.completed === workflow.steps.length);
   return <div className="history">
     <div className="history-actions">
-      <button type="button" className="primary" disabled={disabled} onClick={() => { void run({ action }); }}>
-        {action === "run_all" ? "Run all" : "Run next"}
-      </button>
-      <select aria-label="Workflow run mode" value={action}
-        onChange={(event) => setAction(event.target.value as typeof action)}>
-        <option value="run_all">Run all</option>
-        <option value="run_next">Run next</option>
-      </select>
+      <div className="run-split">
+        <button type="button" className="primary" disabled={disabled} onClick={() => {
+          if (modes.current) modes.current.open = false;
+          void run({ action });
+        }}>{action === "run_all" ? "Run all" : "Run next"}</button>
+        <details ref={modes} onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+        }} onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.currentTarget.open = false;
+            event.currentTarget.querySelector("summary")?.focus();
+          }
+        }}>
+          <summary aria-label="Choose run mode" title="Choose run mode">▾</summary>
+          <div className="run-modes">
+            {(["run_all", "run_next"] as const).map((mode) => <button type="button" key={mode}
+              aria-pressed={action === mode} onClick={() => {
+                setAction(mode);
+                if (modes.current) modes.current.open = false;
+                modes.current?.querySelector("summary")?.focus();
+              }}>{mode === "run_all" ? "Run all" : "Run next"}</button>)}
+          </div>
+        </details>
+      </div>
     </div>
     {workflow.error && <p className="workflow-error" role="alert">{workflow.error}</p>}
     {!workflow.error && workflow.steps.some((step) => step.status === "stale")
