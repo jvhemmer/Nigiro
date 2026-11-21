@@ -102,6 +102,8 @@ class FigureStyle:
     font_bold: bool = False
     font_italic: bool = False
     font_face: str | None = None
+    math_alphabet: str = "default"
+    math_preamble: str = ""
     label_size: float = 13
     tick_size: float = 11
     title_family: str | None = None
@@ -153,6 +155,10 @@ class FigureStyle:
     def __post_init__(self, residual=None) -> None:
         if self.title_renderer not in ("auto", "plain", "latex"):
             raise ValueError("Choose a text renderer for the title.")
+        if self.math_alphabet not in ("default", "roman", "sans", "mono"):
+            raise ValueError("Choose a MathJax alphabet.")
+        if not isinstance(self.math_preamble, str):
+            raise ValueError("Enter the MathJax preamble as text.")
         roles = ("title", "x_label", "y_label", "x_tick", "y_tick", "legend")
         faces = (self.font_face, *(getattr(self, f"{role}_face") for role in roles))
         if any(face is not None and (not isinstance(face, str) or not re.fullmatch(

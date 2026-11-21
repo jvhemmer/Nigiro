@@ -1,7 +1,7 @@
 import { loadMathJax } from "./mathText";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Data, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
-import { figureFont, figureLayout, type FigureStyle, type StyleSection } from "./figureStyle";
+import { figureFont, figureLayout, plotText, type FigureStyle, type StyleSection } from "./figureStyle";
 import type { FigureElement, PluginFigure } from "./workspace";
 
 type Colors = Record<FigureElement, string>;
@@ -205,7 +205,9 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
       }
       const series = traces.map((trace, index) => {
         const element = elements[index];
-        return element ? styleTrace(trace, style, data.series_colors?.[index] ?? colors[element]) : trace;
+        const series = element ? styleTrace(trace, style, data.series_colors?.[index] ?? colors[element]) : trace;
+        return typeof series.name === "string" && /\$[^$]+\$/.test(series.name)
+          ? { ...series, name: plotText(series.name, "auto", style) } : series;
       });
       const options = { ...layout, ...setCanvas(), autosize: false };
       if (plotly.current && plotly.current !== renderer) plotly.current.purge(node);

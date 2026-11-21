@@ -17,13 +17,14 @@ const figureTabFields: Record<FigureTab, (keyof FigureStyle)[]> = {
   figure: ["title", "title_renderer", "axes_width", "axes_height", "text_color", "background"],
   traces: ["bar_width", "show_markers", "marker_size", "marker_symbol", "show_lines", "line_width", "line_dash"],
   legend: ["legend"],
-  fonts: ["font_family", "font_face", "font_bold", "font_italic", "label_size", "tick_size",
+  fonts: ["font_family", "font_face", "font_bold", "font_italic", "label_size", "tick_size", "math_alphabet", "math_preamble",
     ...(Object.keys(textRoles) as TextRole[]).flatMap((role) =>
       (["family", "face", "size", "bold", "italic"] as const).map((field) => `${role}_${field}` as const))],
 };
 
 const fieldKeys: Record<string, string> = {
   "Title text renderer": "title_renderer", "Axis label text renderer": "label_renderer",
+  "Math alphabet": "math_alphabet", "TeX preamble": "math_preamble",
   "Figure title": "title", "Axes width (px)": "axes_width", "Axes height (px)": "axes_height",
   "Show markers": "show_markers", "Show trace lines": "show_lines", "Number notation": "notation", "Font family": "font_family", "Font style": "font_face", "Axis label size (px)": "label_size", "Tick and legend size (px)": "tick_size",
   "Text and axis color": "text_color", "Background": "background", "Legend": "legend",
@@ -340,6 +341,17 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
     <NumberField label="Tick and legend size (px)" value={style.tick_size} onChange={(value) => set("tick_size", value)} />
     </SettingsGroup>
     <TextOverrides style={style} onChange={onChange} />
+    <SettingsGroup title="MathJax">
+      <div className="math-settings">
+        <Choice label="Math alphabet" value={style.math_alphabet} onChange={(value) => set("math_alphabet", value)}
+          options={[["default", "TeX default"], ["roman", "Roman"], ["sans", "Sans serif"], ["mono", "Monospace"]]} />
+        <Field label="TeX preamble">
+          <textarea rows={4} spellCheck={false} value={style.math_preamble} placeholder={"\\def\\conc{c_{0}}"}
+            onChange={(event) => set("math_preamble", event.target.value)} />
+        </Field>
+        <p className="muted">Use TeX definitions such as {"\\def\\conc{c_{0}}"}. The alphabet uses MathJax’s bundled glyphs.</p>
+      </div>
+    </SettingsGroup>
     </>}
     {tab === "legend" && <SettingsGroup title="Legend">
     <Choice label="Legend" value={style.legend} onChange={(value) => set("legend", value)}

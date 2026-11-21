@@ -47,6 +47,8 @@ export interface FigureStyle extends Typography {
   font_bold: boolean;
   font_italic: boolean;
   font_face: string | null;
+  math_alphabet: "default" | "roman" | "sans" | "mono";
+  math_preamble: string;
   label_size: number;
   tick_size: number;
   text_color: string;
@@ -70,16 +72,22 @@ const latexEscapes: Record<string, string> = {
   "&": "\\&", "#": "\\#", "_": "\\_", "^": "\\textasciicircum{}", "~": "\\textasciitilde{}",
 };
 
-export function plotText(text: string, renderer: TextRenderer = "auto") {
+export function plotText(text: string, renderer: TextRenderer = "auto", math?: Pick<FigureStyle, "math_alphabet" | "math_preamble">) {
+  function formatMath(expression: string) {
+    const command = { default: "", roman: "mathrm", sans: "mathsf", mono: "mathtt" }[math?.math_alphabet ?? "default"];
+    const body = command ? `\\${command}{${expression}}` : expression;
+    const preamble = math?.math_preamble.trim();
+    return preamble ? "$" + `{${preamble}\n${body}}$` : `$${body}$`;
+  }
   if (!text) return text;
   if (renderer !== "plain") {
     const parts = text.split(/(?<!\\)\$([^$]+)(?<!\\)\$/g);
     if (parts.length > 1) {
       const expression = parts.map((part, index) => index % 2 || !part ? part
         : `\\text{${part.replace(/[\\{}%$&#_^~]/g, (character) => latexEscapes[character])}}`).join("");
-      return `$${expression}$`;
+      return formatMath(expression);
     }
-    if (renderer === "latex") return `$${text}$`;
+    if (renderer === "latex") return formatMath(text);
   }
   return text.replaceAll("&", "&amp;").replaceAll("$", "&#36;")
     .replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>");
@@ -115,7 +123,7 @@ function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision
     ...(autorange && (lower !== null || upper !== null) && {
       autorangeoptions: { minallowed: limits[0] ?? undefined, maxallowed: limits[1] ?? undefined },
     }),
-    title: { text: plotText(axis.label ?? label, axis.label_renderer), font: textFont(style, `${side}_label`, style.label_size), standoff: 8 },
+    title: { text: plotText(axis.label ?? label, axis.label_renderer, style), font: textFont(style, `${side}_label`, style.label_size), standoff: 8 },
     tickfont: textFont(style, `${side}_tick`, style.tick_size),
     ticks,
     ticklen: axis.tick_length,
@@ -185,7 +193,7 @@ export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string,
     autosize: true,
     uirevision: revision,
     margin: { l: 54, r: 16, t: top, b: 50 },
-    title: { text: plotText(style.title, style.title_renderer), font: titleFont, x: 0.5, y: 0.98, yanchor: "top" },
+    title: { text: plotText(style.title, style.title_renderer, style), font: titleFont, x: 0.5, y: 0.98, yanchor: "top" },
     font: { family: font, size: style.label_size, color: style.text_color,
       ...fontFace(style.font_face, style.font_bold, style.font_italic) },
     paper_bgcolor: style.background,
