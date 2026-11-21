@@ -13,7 +13,7 @@ const sectionNames: Record<StyleSection, string> = {
 const fieldKeys: Record<string, string> = {
   "Title text renderer": "title_renderer", "Axis label text renderer": "label_renderer",
   "Figure title": "title", "Axes width (px)": "axes_width", "Axes height (px)": "axes_height",
-  "Show markers": "show_markers", "Show trace lines": "show_lines", "Number notation": "notation", "Font family": "font_family", "Axis label size (px)": "label_size", "Tick and legend size (px)": "tick_size",
+  "Show markers": "show_markers", "Show trace lines": "show_lines", "Number notation": "notation", "Font family": "font_family", "Font style": "font_face", "Axis label size (px)": "label_size", "Tick and legend size (px)": "tick_size",
   "Text and axis color": "text_color", "Background": "background", "Legend": "legend",
   "Bar width (fraction)": "bar_width", "Marker size (px)": "marker_size", "Marker shape": "marker_symbol",
   "Trace line width (px)": "line_width", "Trace line style": "line_dash",
@@ -32,6 +32,7 @@ for (const role of Object.keys(textRoles) as TextRole[]) {
   fieldKeys[`${label} font family`] = `${role}_family`;
   fieldKeys[`${label} bold`] = `${role}_bold`;
   fieldKeys[`${label} italic`] = `${role}_italic`;
+  fieldKeys[`${label} font style`] = `${role}_face`;
   fieldKeys[`${label} size (px)`] = `${role}_size`;
 }
 
@@ -51,11 +52,11 @@ const GlobalControls = createContext<{
   describe: (key: string) => string;
 } | null>(null);
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, children, checkbox = false }: { label: string; children: ReactNode; checkbox?: boolean }) {
   const controls = useContext(GlobalControls);
   const key = fieldKeys[label];
   return <div className="figure-field-row">
-    <label className="figure-field"><span>{label}</span>{children}</label>
+    <label className={checkbox ? "figure-field figure-checkbox" : "figure-field"}>{checkbox && children}<span>{label}</span>{!checkbox && children}</label>
     {controls && key && <div className="global-field-actions">
       <button type="button" disabled={controls.busy} title="Save as global value"
         aria-label={`Save ${label.toLowerCase()} as global`} onClick={() => controls.save(key)}><Save size={10} /></button>
@@ -141,17 +142,42 @@ function TextField({ label, value, renderer, rendererLabel, onChange, onRenderer
   </>;
 }
 
-function FontField({ value, onChange, label = "Font family" }: { value: string; onChange: (value: string) => void; label?: string }) {
+function faceLabel(face: string) {
+  const weights: Record<string, string> = {
+    100: "Thin", 200: "Extra Light", 300: "Light", 400: "Regular", 500: "Medium",
+    600: "Semibold", 700: "Bold", 800: "Extra Bold", 900: "Black",
+  };
+  const [weight, slant] = face.split(":");
+  if (slant === "normal") return weights[weight] ?? weight;
+  const name = slant === "italic" ? "Italic" : "Oblique";
+  return weight === "400" ? name : `${weights[weight] ?? weight} ${name}`;
+}
+
+function FontField({ value, onChange, label = "Font family", styleLabel = "Font style", inheritedFamily,
+  face, legacyFace, onFace }: {
+  value: string;
+  onChange: (value: string) => void;
+  label?: string;
+  styleLabel?: string;
+  inheritedFamily?: string;
+  face: string | null;
+  legacyFace?: string;
+  onFace: (face: string | null) => void;
+}) {
   const id = useId();
   const [families, setFamilies] = useState<string[]>([]);
+  const [styles, setStyles] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const load = async (refresh: boolean) => {
     setBusy(true);
     setError("");
     try {
-      const response = await invoke<{ fonts: string[] }>("workspace", { request: { action: "system_fonts", refresh } });
+      const response = await invoke<{ fonts: string[]; styles: Record<string, string[]> }>("workspace", {
+        request: { action: "system_fonts", refresh },
+      });
       setFamilies(response.fonts);
+      setStyles(response.styles);
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -159,11 +185,22 @@ function FontField({ value, onChange, label = "Font family" }: { value: string; 
     }
   };
   useEffect(() => { void load(false); }, []);
+  const selected = face ?? legacyFace ?? "";
+  const family = value.trim() || inheritedFamily;
+  const installedFamily = families.find((name) => name.toLowerCase() === family?.toLowerCase());
+  const options = installedFamily ? styles[installedFamily] ?? [] : [];
+  const faces = [...new Set([...options, ...(selected ? [selected] : [])])];
   return <div>
     <Field label={label}>
       <input list={id} value={value} placeholder="Inherit figure font" onChange={(event) => onChange(event.target.value)} />
     </Field>
     <datalist id={id}>{families.map((family) => <option key={family} value={family} />)}</datalist>
+    <Field label={styleLabel}>
+      <select aria-label={styleLabel} value={selected} onChange={(event) => onFace(event.target.value || null)}>
+        <option value="">{inheritedFamily ? "Inherit figure style" : "Regular (default)"}</option>
+        {faces.map((face) => <option key={face} value={face}>{faceLabel(face)}</option>)}
+      </select>
+    </Field>
     <button className="refresh-fonts" type="button" disabled={busy} onClick={() => { void load(true); }}>Refresh system fonts</button>
     {error && <p className="figure-settings-error" role="alert">{error}</p>}
   </div>;
@@ -242,17 +279,14 @@ function TextOverrides({ style, onChange }: { style: FigureStyle; onChange: (sty
     <Field label="Text element"><select value={role} onChange={(event) => setRole(event.target.value as TextRole)}>
       {(Object.keys(textRoles) as TextRole[]).map((key) => <option key={key} value={key}>{textRoles[key]}</option>)}
     </select></Field>
-    <FontField label={`${label} font family`} value={style[`${role}_family`] ?? ""}
+    <FontField label={`${label} font family`} styleLabel={`${label} font style`} inheritedFamily={style.font_family}
+      face={style[`${role}_face`]} value={style[`${role}_family`] ?? ""}
+      legacyFace={style[`${role}_bold`] == null && style[`${role}_italic`] == null ? undefined
+        : `${(style[`${role}_bold`] ?? style.font_bold) ? 700 : 400}:${(style[`${role}_italic`] ?? style.font_italic) ? "italic" : "normal"}`}
+      onFace={(face) => onChange({ ...style, [`${role}_face`]: face, [`${role}_bold`]: null, [`${role}_italic`]: null })}
       onChange={(value) => onChange({ ...style, [`${role}_family`]: value.trim() ? value : null })} />
     <NumberField key={role} label={`${label} size (px)`} placeholder="Auto" value={style[`${role}_size`]}
       onChange={(value) => onChange({ ...style, [`${role}_size`]: Number.isNaN(value) ? null : value })} />
-    {(["bold", "italic"] as const).map((emphasis) => {
-      const key = `${role}_${emphasis}` as const;
-      const value = style[key];
-      return <Choice key={emphasis} label={`${label} ${emphasis}`} value={value === null ? "inherit" : value ? "on" : "off"}
-        options={[["inherit", "Inherit"], ["on", "On"], ["off", "Off"]]}
-        onChange={(next) => onChange({ ...style, [key]: next === "inherit" ? null : next === "on" })} />;
-    })}
   </SettingsGroup>;
 }
 
@@ -277,11 +311,9 @@ function FigureFields({ style, bar, markers, line, onChange }: {
       onChange={(value) => set("axes_height", Number.isNaN(value) ? null : value)} />
     </SettingsGroup>
     <SettingsGroup title="Typography">
-    <FontField value={style.font_family} onChange={(value) => set("font_family", value)} />
-    <div className="font-emphasis">
-      <Field label="Bold"><input type="checkbox" checked={style.font_bold} onChange={(event) => set("font_bold", event.target.checked)} /></Field>
-      <Field label="Italic"><input type="checkbox" checked={style.font_italic} onChange={(event) => set("font_italic", event.target.checked)} /></Field>
-    </div>
+    <FontField value={style.font_family} onChange={(value) => set("font_family", value)} face={style.font_face}
+      legacyFace={style.font_bold || style.font_italic ? `${style.font_bold ? 700 : 400}:${style.font_italic ? "italic" : "normal"}` : undefined}
+      onFace={(face) => onChange({ ...style, font_face: face, font_bold: false, font_italic: false })} />
     <NumberField label="Axis label size (px)" value={style.label_size} onChange={(value) => set("label_size", value)} />
     <NumberField label="Tick and legend size (px)" value={style.tick_size} onChange={(value) => set("tick_size", value)} />
     </SettingsGroup>
@@ -298,23 +330,23 @@ function FigureFields({ style, bar, markers, line, onChange }: {
         ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"],
       ]} />
     </SettingsGroup>
-    {(bar || markers || line) && <SettingsGroup title="Traces and markers">
-    {bar && <NumberField label="Bar width (fraction)" value={style.bar_width} onChange={(value) => set("bar_width", value)} />}
-    {markers && <>
-          <Field label="Show markers"><input type="checkbox" checked={style.show_markers} onChange={(event) => set("show_markers", event.target.checked)} /></Field>
+    {(bar || markers || line) && <SettingsGroup title="Traces">
+    {bar && <SettingsGroup title="Bars"><NumberField label="Bar width (fraction)" value={style.bar_width} onChange={(value) => set("bar_width", value)} /></SettingsGroup>}
+    {markers && <SettingsGroup title="Markers">
+          <Field label="Show markers" checkbox><input type="checkbox" checked={style.show_markers} onChange={(event) => set("show_markers", event.target.checked)} /></Field>
           <NumberField label="Marker size (px)" value={style.marker_size} onChange={(value) => set("marker_size", value)} />
           <Choice label="Marker shape" value={style.marker_symbol} onChange={(value) => set("marker_symbol", value)}
             options={[
               ["circle", "Circle"], ["square", "Square"], ["diamond", "Diamond"],
               ["triangle-up", "Triangle"], ["cross", "Cross"],
             ]} />
-        </>}
-    {line && <>
-      <Field label="Show trace lines"><input type="checkbox" checked={style.show_lines} onChange={(event) => set("show_lines", event.target.checked)} /></Field>
+        </SettingsGroup>}
+    {line && <SettingsGroup title="Lines">
+      <Field label="Show trace lines" checkbox><input type="checkbox" checked={style.show_lines} onChange={(event) => set("show_lines", event.target.checked)} /></Field>
       <NumberField label="Trace line width (px)" value={style.line_width} onChange={(value) => set("line_width", value)} />
       <Choice label="Trace line style" value={style.line_dash} onChange={(value) => set("line_dash", value)}
         options={[["solid", "Solid"], ["dash", "Dashed"], ["dot", "Dotted"], ["dashdot", "Dash-dot"]]} />
-    </>}
+    </SettingsGroup>}
     </SettingsGroup>}
   </>;
 }

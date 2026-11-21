@@ -99,7 +99,7 @@ Open **Plot → Figure Settings**. Double-click an axis label to open its settin
 
 Enter sizes with units, such as `9 pt`, `8 cm`, or `400 px`. Bare numbers use pixels. Supported lengths are `px`, `pt`, `cm`, `mm`, `in`, `pc`, and `q`, using 96 pixels per inch. Angles accept `deg`, `°`, `rad`, or `turn`, with degrees as the default. The selected units are saved with the figure and global defaults.
 
-- Set the title, legend position, and trace appearance in **Figure**. Use **Text styles** to set the font, size, and emphasis for each text element. Set **Text renderer** to **Plain text** to use the selected system font. In **Auto**, wrap LaTeX in dollar signs, for example `$\alpha$`.
+- Set the title, legend position, and trace appearance in **Figure**. Use **Text styles** to set the font, size, and emphasis for each text element. Set **Text renderer** to **Plain text** to use the selected system font. In **Auto**, wrap math in dollar signs. For example, enter `$i$ (A)` to show italic i followed by the unit.
 - Set **Axes width** and **Axes height** in **Figure**. Leave either field blank for **Auto**. A set dimension stays fixed when you resize the window. Labels and margins sit outside the axes area.
 - Set labels, scales, limits, ticks, axis line width, and hover rulers in the axis settings. Choose plain numbers, SI prefixes, or a shared scientific exponent for numeric ticks. Leave a limit blank for automatic scaling.
 - Select **Apply** to update the figure. Save the project to keep its settings.

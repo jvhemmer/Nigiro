@@ -101,31 +101,38 @@ class FigureStyle:
     font_family: str = "DejaVu Sans"
     font_bold: bool = False
     font_italic: bool = False
+    font_face: str | None = None
     label_size: float = 13
     tick_size: float = 11
     title_family: str | None = None
     title_bold: bool | None = None
     title_italic: bool | None = None
+    title_face: str | None = None
     title_size: float | None = None
     x_label_family: str | None = None
     x_label_bold: bool | None = None
     x_label_italic: bool | None = None
+    x_label_face: str | None = None
     x_label_size: float | None = None
     y_label_family: str | None = None
     y_label_bold: bool | None = None
     y_label_italic: bool | None = None
+    y_label_face: str | None = None
     y_label_size: float | None = None
     x_tick_family: str | None = None
     x_tick_bold: bool | None = None
     x_tick_italic: bool | None = None
+    x_tick_face: str | None = None
     x_tick_size: float | None = None
     y_tick_family: str | None = None
     y_tick_bold: bool | None = None
     y_tick_italic: bool | None = None
+    y_tick_face: str | None = None
     y_tick_size: float | None = None
     legend_family: str | None = None
     legend_bold: bool | None = None
     legend_italic: bool | None = None
+    legend_face: str | None = None
     legend_size: float | None = None
     text_color: str = "#181818"
     background: str = "#ffffff"
@@ -147,6 +154,11 @@ class FigureStyle:
         if self.title_renderer not in ("auto", "plain", "latex"):
             raise ValueError("Choose a text renderer for the title.")
         roles = ("title", "x_label", "y_label", "x_tick", "y_tick", "legend")
+        faces = (self.font_face, *(getattr(self, f"{role}_face") for role in roles))
+        if any(face is not None and (not isinstance(face, str) or not re.fullmatch(
+            r"(?:[1-9]\d{0,2}|1000):(normal|italic|oblique)", face,
+        )) for face in faces):
+            raise ValueError("Choose a valid font style.")
         sizes = tuple(f"{role}_size" for role in roles)
         normalize_units(self, ("axes_width", "axes_height", "label_size", "tick_size", "line_width", "marker_size", *sizes))
         for role in roles:

@@ -559,8 +559,6 @@ td input {
 .settings-nav-group .figure-settings-nav { margin-left: 10px; }
 .history-actions { position: sticky; top: 0; display: flex; gap: 4px; padding: 5px 7px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .refresh-fonts { margin-top: 5px; }
-.font-emphasis { display: flex; gap: 8px; align-items: center; }
-.font-emphasis input[type="checkbox"] { width: auto; }
 .workflow-step {
   display: flex; justify-content: space-between; gap: 6px; width: 100%; padding: 2px 4px;
   border-color: transparent; text-align: left; white-space: normal;
@@ -583,3 +581,6 @@ td input {
 .menu-submenu:hover > .menu-submenu-popup,
 .menu-submenu:focus-within > .menu-submenu-popup { display: grid; }
 .plugin-body > section[hidden] { display: none; }
+
+.figure-field.figure-checkbox { display: flex; flex-direction: row; align-items: center; }
+.figure-field.figure-checkbox input[type="checkbox"] { width: auto; margin: 0; }

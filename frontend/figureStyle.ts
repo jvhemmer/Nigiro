@@ -33,7 +33,7 @@ export const textRoles = {
   x_tick: "X tick labels", y_tick: "Y tick labels", legend: "Legend labels",
 } as const;
 export type TextRole = keyof typeof textRoles;
-type Typography = Record<`${TextRole}_family`, string | null>
+type Typography = Record<`${TextRole}_family` | `${TextRole}_face`, string | null>
   & Record<`${TextRole}_bold` | `${TextRole}_italic`, boolean | null>
   & Record<`${TextRole}_size`, number | null>;
 
@@ -46,6 +46,7 @@ export interface FigureStyle extends Typography {
   font_family: string;
   font_bold: boolean;
   font_italic: boolean;
+  font_face: string | null;
   label_size: number;
   tick_size: number;
   text_color: string;
@@ -64,12 +65,29 @@ export interface FigureStyle extends Typography {
 
 export const figureFont = "DejaVu Sans";
 
+const latexEscapes: Record<string, string> = {
+  "\\": "\\textbackslash{}", "{": "\\{", "}": "\\}", "%": "\\%", "$": "\\$",
+  "&": "\\&", "#": "\\#", "_": "\\_", "^": "\\textasciicircum{}", "~": "\\textasciitilde{}",
+};
+
 export function plotText(text: string, renderer: TextRenderer = "auto") {
   if (!text) return text;
-  if (renderer !== "plain" && text.startsWith("$") && text.endsWith("$")) return text;
-  if (renderer === "latex") return `$${text}$`;
+  if (renderer !== "plain") {
+    const parts = text.split(/(?<!\\)\$([^$]+)(?<!\\)\$/g);
+    if (parts.length > 1) {
+      const expression = parts.map((part, index) => index % 2 || !part ? part
+        : `\\text{${part.replace(/[\\{}%$&#_^~]/g, (character) => latexEscapes[character])}}`).join("");
+      return `$${expression}$`;
+    }
+    if (renderer === "latex") return `$${text}$`;
+  }
   return text.replaceAll("&", "&amp;").replaceAll("$", "&#36;")
     .replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>");
+}
+
+function fontFace(face: string | null, bold: boolean, italic: boolean) {
+  const [weight, slant] = (face ?? `${bold ? 700 : 400}:${italic ? "italic" : "normal"}`).split(":");
+  return { weight: Number(weight), style: slant === "normal" ? "normal" as const : "italic" as const };
 }
 
 function textFont(style: FigureStyle, role: TextRole, defaultSize: number) {
@@ -77,8 +95,8 @@ function textFont(style: FigureStyle, role: TextRole, defaultSize: number) {
   return {
     family: family === figureFont ? figureFont : `"${family}", "${figureFont}"`,
     size: style[`${role}_size`] ?? defaultSize,
-    weight: (style[`${role}_bold`] ?? style.font_bold) ? "bold" as const : "normal" as const,
-    style: (style[`${role}_italic`] ?? style.font_italic) ? "italic" as const : "normal" as const,
+    ...fontFace(style[`${role}_face`] ?? (style[`${role}_bold`] == null && style[`${role}_italic`] == null ? style.font_face : null),
+      style[`${role}_bold`] ?? style.font_bold, style[`${role}_italic`] ?? style.font_italic),
   };
 }
 
@@ -169,7 +187,7 @@ export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string,
     margin: { l: 54, r: 16, t: top, b: 50 },
     title: { text: plotText(style.title, style.title_renderer), font: titleFont, x: 0.5, y: 0.98, yanchor: "top" },
     font: { family: font, size: style.label_size, color: style.text_color,
-      weight: style.font_bold ? "bold" : "normal", style: style.font_italic ? "italic" : "normal" },
+      ...fontFace(style.font_face, style.font_bold, style.font_italic) },
     paper_bgcolor: style.background,
     plot_bgcolor: style.background,
     hovermode: "closest",

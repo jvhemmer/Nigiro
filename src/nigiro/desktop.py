@@ -429,19 +429,26 @@ class Workspace:
             case "export_recipe":
                 return self.export_recipe()
             case "system_fonts":
-                return {"fonts": self.fonts.families(refresh=request.get("refresh", False))}
+                return {"fonts": self.fonts.families(refresh=request.get("refresh", False)), "styles": self.fonts.styles()}
             case "export_fonts":
                 record = self.project.figures.get(self.figure_id)
                 if record is None:
                     raise ValueError("Choose a figure to export.")
                 style = record.style
-                faces = {(style.font_family, style.font_bold, style.font_italic)}
-                for role in ("title", "x_label", "y_label", "x_tick", "y_tick", "legend"):
+                faces = set()
+                for role in ("font", "title", "x_label", "y_label", "x_tick", "y_tick", "legend"):
+                    family = getattr(style, f"{role}_family") or style.font_family
+                    face = getattr(style, f"{role}_face")
                     bold = getattr(style, f"{role}_bold")
                     italic = getattr(style, f"{role}_italic")
-                    faces.add((getattr(style, f"{role}_family") or style.font_family,
-                               style.font_bold if bold is None else bold,
-                               style.font_italic if italic is None else italic))
+                    if face is None and bold is None and italic is None:
+                        face = style.font_face
+                    if face is None:
+                        bold = style.font_bold if bold is None else bold
+                        italic = style.font_italic if italic is None else italic
+                        face = f"{700 if bold else 400}:{'italic' if italic else 'normal'}"
+                    weight, slant = face.split(":")
+                    faces.add((family, int(weight), slant))
                 return {"fonts": [self.fonts.export(*face) for face in sorted(faces)]}
             case "dialog_directory":
                 return {"directory": self.dialog_directory()}

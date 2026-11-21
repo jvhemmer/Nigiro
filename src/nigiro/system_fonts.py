@@ -4,7 +4,7 @@ from base64 import b64encode
 from pathlib import Path
 
 from fontTools.ttLib import TTFont
-from matplotlib.font_manager import FontManager, FontProperties
+from matplotlib.font_manager import FontManager, FontProperties, weight_dict
 
 
 class SystemFonts:
@@ -16,10 +16,18 @@ class SystemFonts:
             self.manager = FontManager()
         return sorted({font.name for font in self.manager.ttflist}, key=str.casefold)
 
-    def export(self, family: str, bold: bool, italic: bool) -> dict:
+    def styles(self) -> dict[str, list[str]]:
         self.families()
-        properties = FontProperties(family=[family], weight="bold" if bold else "normal",
-                                    style="italic" if italic else "normal")
+        faces = {}
+        for font in self.manager.ttflist:
+            weight = font.weight if isinstance(font.weight, int) else weight_dict.get(font.weight, 400)
+            faces.setdefault(font.name, set()).add((weight, font.style))
+        return {family: [f"{weight}:{style}" for weight, style in sorted(variants)]
+                for family, variants in faces.items()}
+
+    def export(self, family: str, weight: int, style: str) -> dict:
+        self.families()
+        properties = FontProperties(family=[family], weight=weight, style=style)
         try:
             path = Path(self.manager.findfont(properties, fallback_to_default=False))
         except ValueError as error:
@@ -34,6 +42,6 @@ class SystemFonts:
             "family": family,
             "extension": path.suffix.lower(),
             "data": b64encode(path.read_bytes()).decode("ascii"),
-            "weight": "bold" if bold else "normal",
-            "style": "italic" if italic else "normal",
+            "weight": str(weight),
+            "style": "italic" if style == "oblique" else style,
         }
