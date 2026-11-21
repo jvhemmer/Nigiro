@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { formatMeasurement, parseMeasurement } from "./units";
 import { Save, RotateCcw } from "lucide-react";
 import type { AxisKey, AxisStyle, FigureStyle, StyleSection } from "./figureStyle";
@@ -42,11 +42,17 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     <label className="figure-field"><span>{label}</span>{children}</label>
     {controls && key && <div className="global-field-actions">
       <button type="button" disabled={controls.busy} title={`Save ${label.toLowerCase()} as global`}
-        aria-label={`Save ${label.toLowerCase()} as global`} onClick={() => controls.save(key)}><Save size={12} /></button>
+        aria-label={`Save ${label.toLowerCase()} as global`} onClick={() => controls.save(key)}><Save size={10} /></button>
       <button type="button" disabled={controls.busy} title={`Revert ${label.toLowerCase()} to global`}
-        aria-label={`Revert ${label.toLowerCase()} to global`} onClick={() => controls.reset(key)}><RotateCcw size={12} /></button>
+        aria-label={`Revert ${label.toLowerCase()} to global`} onClick={() => controls.reset(key)}><RotateCcw size={10} /></button>
     </div>}
   </div>;
+}
+
+function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+  return <fieldset className="settings-category"><legend>{title}</legend>
+    <div className="figure-fields">{children}</div>
+  </fieldset>;
 }
 
 function NumberField({ label, value, onChange, placeholder }: {
@@ -115,7 +121,7 @@ function AxisFields({ style, fallback, categorical, onChange }: {
   }
 
   return <>
-    <div className="figure-fields">
+    <SettingsGroup title="Label and range">
       <Field label="Axis label">
         <input value={style.label ?? fallback} onChange={(event) => set("label", event.target.value)} />
       </Field>
@@ -125,6 +131,8 @@ function AxisFields({ style, fallback, categorical, onChange }: {
         onChange={(value) => set("lower", Number.isNaN(value) ? null : value)} />
       <NumberField label="Upper limit" placeholder="Auto" value={style.upper}
         onChange={(value) => set("upper", Number.isNaN(value) ? null : value)} />
+    </SettingsGroup>
+    <SettingsGroup title="Ticks">
       {!categorical && <>
         <NumberField label={style.scale === "log" ? "Tick interval (decades)" : "Tick interval"}
           placeholder="Auto" value={style.step} onChange={(value) => set("step", Number.isNaN(value) ? null : value)} />
@@ -136,9 +144,12 @@ function AxisFields({ style, fallback, categorical, onChange }: {
         options={[["outside", "Outward"], ["inside", "Inward"], ["none", "Hidden"]]} />
       <NumberField label="Tick length (px)" value={style.tick_length} onChange={(value) => set("tick_length", value)} />
       <NumberField label="Tick label angle (°)" value={style.angle} onChange={(value) => set("angle", value)} />
+    </SettingsGroup>
+    <SettingsGroup title="Axis appearance">
       <NumberField label="Axis line width (px)" value={style.line_width} onChange={(value) => set("line_width", value)} />
-    </div>
+    </SettingsGroup>
     {categorical && <p className="muted">Bar positions start at 0.</p>}
+    <fieldset className="settings-category"><legend>Display</legend>
     <div className="figure-toggles">
       {([
         ["line", "Axis line"], ["tick_labels", "Tick labels"], ["minor_ticks", "Minor ticks"],
@@ -150,6 +161,7 @@ function AxisFields({ style, fallback, categorical, onChange }: {
         </Field>
       ))}
     </div>
+    </fieldset>
   </>;
 }
 
@@ -164,16 +176,21 @@ function FigureFields({ style, bar, markers, line, onChange }: {
     onChange({ ...style, [key]: value });
   }
 
-  return <div className="figure-fields">
+  return <>
+    <SettingsGroup title="Layout">
     <Field label="Figure title"><input value={style.title} onChange={(event) => set("title", event.target.value)} /></Field>
     <NumberField label="Axes width (px)" placeholder="Auto" value={style.axes_width}
       onChange={(value) => set("axes_width", Number.isNaN(value) ? null : value)} />
     <NumberField label="Axes height (px)" placeholder="Auto" value={style.axes_height}
       onChange={(value) => set("axes_height", Number.isNaN(value) ? null : value)} />
+    </SettingsGroup>
+    <SettingsGroup title="Typography">
     <Field label="Font family"><input value={style.font_family}
       onChange={(event) => set("font_family", event.target.value)} /></Field>
     <NumberField label="Axis label size (px)" value={style.label_size} onChange={(value) => set("label_size", value)} />
     <NumberField label="Tick and legend size (px)" value={style.tick_size} onChange={(value) => set("tick_size", value)} />
+    </SettingsGroup>
+    <SettingsGroup title="Colors and legend">
     <Field label="Text and axis color"><input type="color" value={style.text_color}
       onChange={(event) => set("text_color", event.target.value)} /></Field>
     <Field label="Background"><input type="color" value={style.background}
@@ -184,6 +201,8 @@ function FigureFields({ style, bar, markers, line, onChange }: {
         ["top_left", "Top left"], ["top_right", "Top right"],
         ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"],
       ]} />
+    </SettingsGroup>
+    {(bar || markers || line) && <SettingsGroup title="Traces and markers">
     {bar && <NumberField label="Bar width (fraction)" value={style.bar_width} onChange={(value) => set("bar_width", value)} />}
     {markers && <>
           <NumberField label="Marker size (px)" value={style.marker_size} onChange={(value) => set("marker_size", value)} />
@@ -198,7 +217,8 @@ function FigureFields({ style, bar, markers, line, onChange }: {
       <Choice label="Trace line style" value={style.line_dash} onChange={(value) => set("line_dash", value)}
         options={[["solid", "Solid"], ["dash", "Dashed"], ["dot", "Dotted"], ["dashdot", "Dash-dot"]]} />
     </>}
-  </div>;
+    </SettingsGroup>}
+  </>;
 }
 
 function axisError(style: AxisStyle) {
@@ -241,6 +261,9 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
   onApply: (style: FigureStyle) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const [style, setStyle] = useState(initial);
   const [section, setSection] = useState(initialSection);
   const [error, setError] = useState("");
@@ -248,6 +271,33 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
   const axes: AxisKey[] = ["x", "y"];
 
   useEffect(() => { dialog.current?.showModal(); }, []);
+  useEffect(() => { content.current?.scrollTo(0, 0); }, [section]);
+
+  function move(left: number, top: number) {
+    const bounds = dialog.current?.getBoundingClientRect();
+    if (!bounds) return;
+    setPosition({
+      left: Math.max(8, Math.min(left, window.innerWidth - bounds.width - 8)),
+      top: Math.max(8, Math.min(top, window.innerHeight - bounds.height - 8)),
+    });
+  }
+
+  useEffect(() => {
+    function resize() {
+      const bounds = dialog.current?.getBoundingClientRect();
+      if (bounds) move(bounds.left, bounds.top);
+    }
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+
+  function startDrag(event: PointerEvent<HTMLElement>) {
+    if (event.button !== 0) return;
+    const bounds = dialog.current!.getBoundingClientRect();
+    drag.current = { x: event.clientX, y: event.clientY, left: bounds.left, top: bounds.top };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
 
   function apply() {
     if (busy || !dialog.current?.querySelector("form")?.reportValidity()) return;
@@ -309,23 +359,54 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
   }
 
   return <dialog ref={dialog} className="settings-dialog figure-settings" aria-labelledby="figure-settings-title"
+    style={position ? { left: position.left, top: position.top, margin: 0 } : undefined}
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <form onSubmit={(event) => { event.preventDefault(); apply(); }}>
-      <h2 id="figure-settings-title">{global ? "Settings" : "Figure settings"}</h2>
-      {global && <div className="plugin-tabs" role="tablist" aria-label="Application settings">
-        <button type="button" role="tab" aria-selected="true" id="global-style-tab" aria-controls="global-style-panel">Global Figure Settings</button>
-      </div>}
-      <div id={global ? "global-style-panel" : undefined} role={global ? "tabpanel" : undefined}
-        aria-labelledby={global ? "global-style-tab" : undefined}>
-      {global && <p className="global-settings-note muted">Defaults for new figures. Use the restore buttons in a figure’s settings to apply these values to an existing figure.</p>}
-      <div className="figure-settings-nav" role="group" aria-label="Settings section">
-        {(["figure", ...axes] as const).map((item) => (
-          <button key={item} type="button" aria-pressed={section === item}
-            onClick={() => { setSection(item); setError(""); }}>
-            {sectionNames[item]}
-          </button>
-        ))}
-      </div>
+      <header className="settings-title" tabIndex={0} title="Drag to move. Alt + arrow keys also move the window."
+        onPointerDown={startDrag}
+        onPointerMove={(event) => {
+          if (drag.current) move(drag.current.left + event.clientX - drag.current.x, drag.current.top + event.clientY - drag.current.y);
+        }}
+        onPointerUp={(event) => {
+          drag.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => { drag.current = null; }}
+        onLostPointerCapture={() => { drag.current = null; }}
+        onKeyDown={(event) => {
+          if (!event.altKey || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+          event.preventDefault();
+          const bounds = dialog.current!.getBoundingClientRect();
+          move(bounds.left + (event.key === "ArrowRight" ? 16 : event.key === "ArrowLeft" ? -16 : 0),
+            bounds.top + (event.key === "ArrowDown" ? 16 : event.key === "ArrowUp" ? -16 : 0));
+        }}>
+        <h2 id="figure-settings-title">{global ? "Settings" : "Figure settings"}</h2>
+      </header>
+      <div className="settings-body">
+        <nav className="settings-sidebar" aria-label="Settings categories">
+          {global && <p className="settings-sidebar-heading">Global Figure Settings</p>}
+          <div className="figure-settings-nav" role="tablist" aria-label="Settings section" aria-orientation="vertical">
+            {(["figure", ...axes] as const).map((item, index, items) => (
+              <button key={item} type="button" role="tab" aria-selected={section === item}
+                id={`settings-tab-${item}`} aria-controls="settings-options" tabIndex={section === item ? 0 : -1}
+                onClick={() => { setSection(item); setError(""); }}
+                onKeyDown={(event) => {
+                  const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+                    : event.key === "ArrowDown" ? (index + 1) % items.length
+                    : event.key === "ArrowUp" ? (index + items.length - 1) % items.length : -1;
+                  if (next < 0) return;
+                  event.preventDefault();
+                  setSection(items[next]);
+                  setError("");
+                  event.currentTarget.parentElement?.querySelectorAll("button")[next]?.focus();
+                }}>
+                {sectionNames[item]}
+              </button>
+            ))}
+          </div>
+        </nav>
+        <div ref={content} className="settings-content" id="settings-options" role="tabpanel" aria-labelledby={`settings-tab-${section}`}>
+          {global && <p className="global-settings-note muted">Defaults for new figures.</p>}
       <GlobalControls.Provider value={onSaveGlobal ? { busy, save: (key) => { void saveField(key); }, reset: resetField } : null}>
       <MeasurementControls.Provider value={{
         units: (section === "figure" ? style.units : style[section].units) ?? {},
@@ -344,8 +425,11 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
             onChange={(value) => setStyle({ ...style, [section]: value })} />}
       </MeasurementControls.Provider>
       </GlobalControls.Provider>
+        </div>
       </div>
-      {(error || saveError) && <p className="figure-settings-error" role="alert">{error || saveError}</p>}
+      <div className="settings-feedback">
+        {(error || saveError) && <p className="figure-settings-error" role="alert">{error || saveError}</p>}
+      </div>
       <footer>
         <button type="button" className="figure-reset" onClick={resetSection}>Reset section</button>
         <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
