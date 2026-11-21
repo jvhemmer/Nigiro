@@ -4,6 +4,11 @@ import math
 import re
 from dataclasses import dataclass
 
+from .column_formula import COLUMN_FORMULA_PLUGIN
+
+
+TABLE_ONLY_PLUGINS = {"nigiro.filter", COLUMN_FORMULA_PLUGIN}
+
 
 @dataclass(frozen=True)
 class SourceTable:

@@ -8,6 +8,8 @@ import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ExportDialog } from "./ExportDialog";
 import { applyAppearance, cacheAppearance } from "./appearance";
+import { columnFormulaId } from "./FormulaEditor";
+import { ScalarSourceDialog } from "./ScalarSourceDialog";
 import { FigureSettings } from "./FigureSettings";
 import { axisSettings, cycleColor, type StyleSection } from "./figureStyle";
 import { FigurePlot, type CaptureFigure } from "./FitPlot";
@@ -164,7 +166,7 @@ function InspectPanel({ project, inspection, busy, run, onConfigure }: {
     return <div className="inspector inspect-details">
       <h2>{source.name}</h2>
       <dl>
-        <dt>Type</dt><dd>{source.kind === "raw" ? "Imported data" : "Derived data"}</dd>
+        <dt>Type</dt><dd>{source.scalar ? "Scalar source" : source.kind === "raw" ? "Imported data" : "Derived data"}</dd>
         <dt>Original path</dt><dd>{source.original_path ?? "Unavailable"}</dd>
         <dt>Rows</dt><dd>{source.row_count.toLocaleString()}</dd>
         <dt>Columns</dt><dd>{source.columns.join(", ")}</dd>
@@ -315,6 +317,7 @@ export function App() {
   const [projectKey, setProjectKey] = useState(0);
   const [plugins, setPlugins] = useState<PluginDefinition[]>([]);
   const [inputDialog, setInputDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | "scale" | null>(null);
+  const [scalarDialog, setScalarDialog] = useState(false);
   const [stepDialog, setStepDialog] = useState<WorkflowStep | null>(null);
   const [settingsDialog, setSettingsDialog] = useState(false);
   const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
@@ -410,7 +413,7 @@ export function App() {
     ? figure.recipe.options : previous?.kind === "plugin" ? previous.options : undefined;
 
   function pluginCommands(menu: PluginDefinition["menu"]) {
-    return plugins.filter((plugin) => plugin.menu === menu && plugin.id !== "nigiro.filter" && plugin.id !== "example.scaled_xy").map((plugin) => {
+    return plugins.filter((plugin) => plugin.menu === menu && plugin.id !== "nigiro.filter" && plugin.id !== columnFormulaId && plugin.id !== "example.scaled_xy").map((plugin) => {
       const columns = columnFields(plugin).length;
       const required = plugin.distinct_columns ? columns : Math.min(columns, 1);
       return {
@@ -445,6 +448,7 @@ export function App() {
     }
     else if (request.action === "settings") { setError(""); setSettingsDialog(true); }
     else if (request.action === "choose_scale") { setError(""); setInputDialog("scale"); }
+    else if (request.action === "choose_scalar") { setError(""); setScalarDialog(true); }
     else if (request.action === "choose_step") { setError(""); setStepDialog(request.step); }
     else if (request.action === "figure_settings") { setError(""); setFigureDialog("figure"); }
     else if (request.action === "choose_export") setExportDialog(request.target);
@@ -452,10 +456,11 @@ export function App() {
     else void run(request);
   }
 
-  const menuBusy = busy || stepDialog !== null || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
+  const menuBusy = busy || scalarDialog || stepDialog !== null || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
   const openCommands: MenuCommand[] = [
     { label: "New…", request: { action: "new" }, shortcut: "N" },
     { label: "Import Data…", request: { action: "import_data" } },
+    { label: "Add Scalar Source…", request: { action: "choose_scalar" } },
     { label: "Open Project…", request: { action: "open" }, shortcut: "O" },
     { label: "Try Sample Data", request: { action: "sample" } },
   ];
@@ -475,6 +480,9 @@ export function App() {
   const filterPlugin = plugins.find((plugin) => plugin.id === "nigiro.filter");
   const filterCommand: MenuCommand = { label: "Filter…", request: filterPlugin && project?.sources.length
     ? { action: "choose_plugin", plugin: filterPlugin } : null };
+  const formula = plugins.find((plugin) => plugin.id === columnFormulaId);
+  const formulaCommand: MenuCommand = { label: "Column Formula…", request: formula && project?.sources.length
+    ? { action: "choose_plugin", plugin: formula } : null };
   const analysisCommands = pluginCommands("analysis");
 
   function itemCommands(item: WorkspaceItem, name: string): MenuCommand[] {
@@ -525,7 +533,7 @@ export function App() {
       groups = figure && activeFigure?.id === target.id ? [[figureSettings], commands, exportCommands] : [commands];
     } else if (event.target.closest(".source-pane") && (plotCommands.length || analysisCommands.length)) {
       label = "Worksheet actions";
-      groups = [[scaleCommand, filterCommand], plotCommands, analysisCommands].filter((group) => group.length);
+      groups = [[formulaCommand, scaleCommand, filterCommand], plotCommands, analysisCommands].filter((group) => group.length);
     }
     const anchor = (historyStep ?? clicked ?? event.target).getBoundingClientRect();
     const useAnchor = event.clientX === 0 && event.clientY === 0;
@@ -572,7 +580,7 @@ export function App() {
             },
             {
               label: "Analysis",
-              groups: [analysisCommands, [{ label: "Operations", request: null, submenu: [scaleCommand, filterCommand] }]],
+              groups: [analysisCommands, [{ label: "Operations", request: null, submenu: [formulaCommand, scaleCommand, filterCommand] }]],
             },
             {
               label: "Plugins",
@@ -590,7 +598,10 @@ export function App() {
           </div>
         )}
       </header>
-      {stepDialog && <WorkflowStepDialog step={stepDialog} busy={busy} error={error} onRun={run}
+      {scalarDialog && <ScalarSourceDialog busy={busy} error={error}
+        onClose={() => { setScalarDialog(false); setError(""); }}
+        onAdd={async (name, value) => { if (await run({ action: "add_scalar", name, value })) setScalarDialog(false); }} />}
+      {stepDialog && <WorkflowStepDialog step={stepDialog} sources={project?.sources ?? []} busy={busy} error={error} onRun={run}
         onClose={() => { setStepDialog(null); setError(""); }} />}
       {contextMenu && <ContextMenu menu={contextMenu} onClose={closeContextMenu} onRun={runMenu} />}
       {itemDialog && (
@@ -608,6 +619,9 @@ export function App() {
             if (inputDialog === "scale") {
               const runs = submission.runs.map(({ source_id, options }) => ({ source_id, column: Number(options.column) }));
               success = await run({ action: "scale_column", runs, factor: Number(submission.runs[0].options.factor) });
+            } else if (inputDialog.plugin.id === columnFormulaId) {
+              const { source_id, options } = submission.runs[0];
+              success = await run({ action: "apply_formula", source_id, column: Number(options.column), expression: String(options.expression) });
             } else {
               const { id: plugin_id, version, checksum } = inputDialog.plugin;
               success = configuring ? await run({
@@ -667,7 +681,7 @@ export function App() {
           }}
         />
       )}
-      {error && !stepDialog && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
+      {error && !scalarDialog && !stepDialog && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
         <ProjectEditor key={projectKey} {...{ project, busy, run, capture }}
           onConfigure={figure && !figure.overlay_inputs && project.figure_id !== null

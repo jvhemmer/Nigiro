@@ -45,6 +45,8 @@ def operation_record(operation: Operation) -> dict:
     record = {"kind": OPERATION_NAMES[type(operation)], **asdict(operation)}
     if isinstance(operation, Correction) and operation.source_id is None:
         del record["source_id"]
+    if isinstance(operation, PluginStep) and not operation.references:
+        del record["references"]
     return record
 
 
@@ -53,6 +55,7 @@ def source_metadata(source: Source) -> dict:
         "name": source.name, "encoding": source.encoding, "delimiter": source.delimiter,
         "sha256": hashlib.sha256(source.content).hexdigest(),
         **({"original_path": source.original_path} if source.original_path else {}),
+        **({"scalar_value": source.scalar_value} if source.scalar_value is not None else {}),
     }
 
 
@@ -62,6 +65,11 @@ def read_source(archive: ZipFile, path: str, metadata: dict) -> Source:
         raise ValueError("The embedded source does not match its checksum.")
     if not isinstance(metadata["name"], str):
         raise ValueError("Invalid source file name.")
+    if metadata.get("scalar_value") is not None:
+        scalar = Source.scalar(metadata["name"], metadata["scalar_value"])
+        if scalar.content != content:
+            raise ValueError("The saved scalar does not match the source data.")
+        return scalar
     return Source(metadata["name"], content, metadata["encoding"], metadata["delimiter"], metadata.get("original_path"))
 
 

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { ProjectSource } from "./workspace";
 
 export type SourceId = ProjectSource["id"];
@@ -42,20 +42,22 @@ function SourcePath({ path }: { path: string }) {
   return <span ref={element} className="source-option-path" title={path} dir="ltr">{text}</span>;
 }
 
-export function SourceChecklist({ sources, picked, disabled, onChange }: {
+export function SourceChecklist({ sources, picked, disabled, onChange, single = false }: {
   sources: SourceChoice[];
   picked: ReadonlySet<SourceId>;
   disabled: boolean;
+  single?: boolean;
   onChange: (picked: Set<SourceId>) => void;
 }) {
+  const group = useId();
   return <fieldset>
-    <legend>Sources</legend>
+    <legend>{single ? "Output worksheet" : "Sources"}</legend>
     <ul className="batch-sources">
       {sources.map(({ id, name, original_path: path, row_count: rows, columns }) => <li key={id ?? "primary"}>
         <label className="source-option">
           <span className="source-option-name" title={name}>
-            <input type="checkbox" aria-label={name} checked={picked.has(id)} disabled={disabled} onChange={(event) => {
-              const next = new Set(picked);
+            <input type={single ? "radio" : "checkbox"} name={single ? group : undefined} aria-label={name} checked={picked.has(id)} disabled={disabled} onChange={(event) => {
+              const next = single ? new Set<SourceId>() : new Set(picked);
               if (event.target.checked) next.add(id);
               else next.delete(id);
               onChange(next);

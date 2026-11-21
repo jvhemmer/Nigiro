@@ -32,6 +32,15 @@ enum Action {
         runs: Value,
         factor: f64,
     },
+    ApplyFormula {
+        source_id: Option<String>,
+        column: usize,
+        expression: String,
+    },
+    AddScalar {
+        name: String,
+        value: f64,
+    },
     SystemFonts {
         refresh: bool,
     },
@@ -229,6 +238,16 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         }
         Action::ScaleColumn { runs, factor } => {
             json!({ "action": "scale_column", "runs": runs, "factor": factor })
+        }
+        Action::ApplyFormula {
+            source_id,
+            column,
+            expression,
+        } => {
+            json!({ "action": "apply_formula", "source_id": source_id, "column": column, "expression": expression })
+        }
+        Action::AddScalar { name, value } => {
+            json!({ "action": "add_scalar", "name": name, "value": value })
         }
         Action::SystemFonts { refresh } => json!({ "action": "system_fonts", "refresh": refresh }),
         Action::ExportFonts => json!({ "action": "export_fonts" }),

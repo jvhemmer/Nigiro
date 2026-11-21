@@ -1,6 +1,9 @@
 def replay_inputs(payload):
     sources = []
     for record in payload["recipe"]["sources"]:
+        if "scalar_value" in record:
+            sources.append(Source.scalar(record["name"], record["scalar_value"]))
+            continue
         path = Path(__file__).resolve().parent / record["path"]
         try:
             content = path.read_bytes()
@@ -37,17 +40,13 @@ def merge_style(original, changes):
     return merged
 
 
-def replay_plugin(project, plugin, source):
-    worksheet = (
-        Worksheet(tuple(source["columns"]), tuple(map(tuple, source["rows"])))
-        if source is not None else project.worksheet
-    )
+def replay_plugin(plugin, worksheet, references):
     args = worksheet.columns, worksheet.rows, plugin["options"].copy()
     if plugin["source"] is None:
         manifest, runner = BUILTINS[plugin["plugin_id"]]
         if manifest["version"] != plugin["version"]:
             raise ValueError("The bundled plugin version does not match the saved recipe.")
-        result = runner(*args)
+        result = runner(*args, references) if plugin["plugin_id"] == COLUMN_FORMULA_PLUGIN else runner(*args)
         if plugin.get("part"):
             result = linear_fit_view(result, plugin["part"])
     else:
@@ -69,12 +68,8 @@ def replay_figure(project, figure, recipe):
             figures[key] = residuals[record.fit_id]
             continue
         plugin = recipe["plugins"][str(key)]
-        source_id = plugin["source_id"]
-        source = (
-            project.worksheet_for_recipe(source_id, record.recipe) if source_id in project.raw_sources
-            else tables[source_id]
-        )
-        result = replay_plugin(project, plugin, {"columns": source.columns, "rows": source.rows})
+        source = project.recipe_input(plugin["source_id"], record.recipe, tables)
+        result = replay_plugin(plugin, source, project.recipe_references(record.recipe, tables) if isinstance(record.recipe, PluginStep) else {})
         outputs = output_tables(result, plugin["analysis"])
         tables.update({f"{key}:{name}": table for name, table in outputs.items()})
         if record.part == "fit":

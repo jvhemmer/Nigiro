@@ -1,3 +1,4 @@
+import { columnFormulaId, FormulaEditor } from "./FormulaEditor";
 import { SourceChecklist, type SourceChoice } from "./SourceChecklist";
 import { useEffect, useId, useRef, useState } from "react";
 import type { PluginDefinition, PluginField, PluginOptions, PluginSubmission, Project } from "./workspace";
@@ -115,10 +116,11 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
   const inputs = sources.filter(({ id }) => picked.has(id));
   const reference = inputs.find(({ id }) => id === referenceId) ?? inputs[0];
   const fields = definitionFields.filter((field) => field.type === "column");
+  const formula = plugin?.id === columnFormulaId;
   const filter = plugin?.id === "nigiro.filter";
   const outputField = filter ? definitionFields.find(({ key }) => key === "output") : undefined;
   const config = definitionFields.filter((field) => field.type !== "column" && field !== outputField);
-  const output = filter || scale ? "separate" : inputs.length > 1 ? mode : "overlay";
+  const output = filter || scale || formula ? "separate" : inputs.length > 1 ? mode : "overlay";
   const runs = reference ? inputs.map((source) => {
     const mapped = { ...options };
     for (const { key } of fields) {
@@ -133,7 +135,9 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
     };
   }) : [];
   const inputError = !runs.length ? "Select a source." : runs.some((run) => !run.valid) ? "Choose valid columns for each source." : "";
-  const configError = config.some(({ type, key, min, max }) =>
+  const configError = formula && !String(options.expression ?? "").trim()
+    ? "Enter a formula on the Configuration tab."
+    : config.some(({ type, key, min, max }) =>
     type === "number" && (!Number.isFinite(options[key]) || Number(options[key]) < (min ?? -Infinity)
       || Number(options[key]) > (max ?? Infinity))) ? "Check the values on the Configuration tab." : "";
   const targets = runs.flatMap(({ target_id }) => target_id === null ? [] : [target_id]);
@@ -188,7 +192,7 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
           ))}
         </div>
         <section role="tabpanel" id={`${id}-panel-Inputs`} aria-labelledby={`${id}-tab-Inputs`} hidden={tab !== "Inputs"}>
-          <SourceChecklist sources={sources} picked={picked} disabled={configuring || busy} onChange={(next) => {
+          <SourceChecklist sources={sources} picked={picked} single={formula} disabled={configuring || busy} onChange={(next) => {
             const first = sources.find(({ id }) => next.has(id));
             if (!next.has(referenceId) && first) selectReference(first);
             setPicked(next);
@@ -240,12 +244,16 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
         <section role="tabpanel" id={`${id}-panel-Configuration`} aria-labelledby={`${id}-tab-Configuration`} hidden={tab !== "Configuration"}>
           {config.length ? <div className="fit-settings plugin-fields">
             {filter && <p className="muted">Use value to refer to the selected column. For example, 0 &lt; value &lt;= 10.</p>}
-            {config.map((field) => <PluginOptionField key={field.key} field={field} columns={[]}
-              value={options[field.key]} onChange={(value) => change(field.key, value)} />)}
+            {config.map((field) => formula && field.key === "expression"
+              ? <FormulaEditor key={field.key} value={String(options[field.key])} sources={project.sources}
+                  onChange={(value) => change(field.key, value)} />
+              : <PluginOptionField key={field.key} field={field} columns={[]}
+                  value={options[field.key]} onChange={(value) => change(field.key, value)} />)}
           </div> : <p className="muted">This plugin has no additional settings.</p>}
         </section>
         <section role="tabpanel" id={`${id}-panel-Output`} aria-labelledby={`${id}-tab-Output`} hidden={tab !== "Output"}>
-          {scale ? <p>Updates the working column in each selected source. The original CSV files stay intact.</p> : <>
+          {scale ? <p>Updates the working column in each selected source. The original CSV files stay intact.</p>
+          : formula ? <p>Creates a new worksheet with the calculated column and the other columns from the output worksheet.</p> : <>
           <fieldset>
             <legend>Plugin outputs</legend>
             <ul>{(plugin?.outputs?.length ? plugin.outputs : ["Figure", ...(plugin?.menu === "analysis" ? ["Plugin results, if available"] : [])])
@@ -276,7 +284,7 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
         <footer>
           <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
           <button className="primary" type="submit" disabled={!!problem || busy}>
-            {configuring ? "Update figure" : scale ? "Add step" : plugin?.menu === "plot" ? "Create plot" : "Run analysis"}
+            {configuring ? "Update figure" : scale ? "Add step" : formula ? "Calculate column" : plugin?.menu === "plot" ? "Create plot" : "Run analysis"}
           </button>
         </footer>
       </form>

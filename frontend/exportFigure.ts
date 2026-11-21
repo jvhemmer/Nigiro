@@ -1,5 +1,6 @@
 import mathJaxUrl from "mathjax/es5/tex-svg.js?url";
 import { invoke } from "@tauri-apps/api/core";
+import columnFormula from "../src/nigiro/column_formula.py?raw";
 import figureStyle from "../src/nigiro/figure_style.py?raw";
 import sourceTables from "../src/nigiro/source_tables.py?raw";
 import batchFigure from "../src/nigiro/batch_figure.py?raw";
@@ -86,11 +87,12 @@ from base64 import b64encode
 # Nigiro replay payload
 
 ${sourceBody(figureStyle)}
-${sourceBody(sourceTables)}
+${sourceBody(columnFormula)}
+${sourceBody(sourceTables).replace(/^from \.column_formula import .*\n/m, "")}
 ${sourceBody(batchFigure)}
 ${sourceBody(model).replace(/^from \.(figure_style|source_tables) import .*\n/gm, "")}
 ${sourceBody(analysis).replace(/^from \.project import .*\n/m, "")}
-${sourceBody(builtinPlugins).replace(/^from \.(analysis|project) import .*\n/gm, "")}
+${sourceBody(builtinPlugins).replace(/^from \.(analysis|column_formula|project) import .*\n/gm, "")}
 ${sourceBody(pluginSource)}
 ${sourceBody(figureExport)}
 ${replay}

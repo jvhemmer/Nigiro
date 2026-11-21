@@ -19,7 +19,7 @@ def write_script(path: Path, template: str, payload: dict, sources: tuple[Source
         raise ValueError("The Python script template is missing its payload marker.")
 
     if not copy_raw_data:
-        missing = [source.name for source in sources if not source.original_path]
+        missing = [source.name for source in sources if not source.original_path and source.scalar_value is None]
         if missing:
             raise ValueError(
                 f"No original CSV path is recorded for {', '.join(missing)}. Enable Copy raw CSV files beside the script."
@@ -54,6 +54,9 @@ def write_script(path: Path, template: str, payload: dict, sources: tuple[Source
     try:
         inputs = []
         for index, source in enumerate(sources, start=1):
+            if source.scalar_value is not None:
+                inputs.append({"name": source.name, "scalar_value": source.scalar_value})
+                continue
             reference = source.original_path
             if copy_raw_data:
                 reference = save_asset("imports", f"source-{index:03d}.csv", source.content)

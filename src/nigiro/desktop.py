@@ -18,6 +18,7 @@ from matplotlib.figure import Figure
 from nigiro.analysis import FitResult, PlotResult
 from nigiro.batch_figure import overlay_figures
 from nigiro.builtin_plugins import linear_fit_view
+from nigiro.column_formula import COLUMN_FORMULA_PLUGIN, parse_formula
 from nigiro.figure_style import AxisStyle, FigureStyle
 from nigiro.plotting import draw_fit, draw_plot
 from nigiro.plugin_registry import PluginRegistry, plugin_step
@@ -86,12 +87,9 @@ class Workspace:
 
     def execute(self, project: Project, record: FigureRecord, sources: dict[str, SourceTable]) -> Execution:
         step = plugin_step(record.recipe)
-        worksheet = (
-            project.worksheet_for_recipe(step.source_id, record.recipe) if step.source_id in project.raw_sources
-            else self.input_worksheet(project, step.source_id, sources)
-        )
+        worksheet = project.recipe_input(step.source_id, record.recipe, sources)
         plugin = self.plugins.resolve(step)
-        figure = self.plugins.execute(step, worksheet)
+        figure = self.plugins.execute(step, worksheet, project.recipe_references(step, sources))
         legacy = figure.pop("legacy", None) if plugin.checksum is None else None
         tables = output_tables(figure, plugin.manifest["menu"] == "analysis")
         figure.pop("sources", None)
@@ -130,8 +128,9 @@ class Workspace:
                 results[figure_id] = Execution(fit.residual, None, {}, fit.error)
                 continue
             step = plugin_step(record.recipe)
-            upstream = source_origin(step.source_id) if step.source_id is not None else None
-            if changed is None or strict or upstream in refreshed:
+            inputs = (step.source_id, *(reference.source_id for reference in step.references.values()))
+            upstream = {source_origin(source_id) for source_id in inputs if source_id is not None}
+            if changed is None or strict or not upstream.isdisjoint(refreshed):
                 try:
                     result = self.execute(project, record, sources)
                 except ValueError as exc:
@@ -275,6 +274,7 @@ class Workspace:
                  if isinstance(table, Source) else table.columns,
                  "original_path": table.original_path if isinstance(table, Source) else None,
                  "kind": "raw" if isinstance(table, Source) else "derived",
+                 **({"scalar": True} if isinstance(table, Source) and table.scalar_value is not None else {}),
                  "row_count": len(table.worksheet.rows if isinstance(table, Source) else table.rows)}
                 for key in self.ordered_sources() for table in (available[key],)
             ],
@@ -334,6 +334,8 @@ class Workspace:
                 return "Remove item" if request["name"] is None else "Rename item"
             case "fit":
                 return "Analysis: Linear Fit"
+            case "apply_formula":
+                return "Analysis: Column Formula"
             case "plot":
                 return f"Plot: {request['plot_type'].title()}"
             case "execute_plugin" | "run_plugin":
@@ -359,13 +361,20 @@ class Workspace:
                            else [step.request["options"]])
                 plugin = self.plugins.plugins.get((step.request["plugin_id"], step.request["version"], step.request["checksum"]))
                 labels = {field["key"]: field["label"] for field in plugin.manifest["fields"]} if plugin else {}
+            elif action == "apply_formula":
+                options, labels = [{"expression": step.request["expression"]}], {"expression": "Formula"}
+            elif action == "add_scalar":
+                options, labels = [{"value": step.request["value"]}], {"value": "Value"}
             elif action in ("scale_column", "correct", "fit", "plot"):
                 keys = {"scale_column": ["factor"], "correct": ["value"], "fit": ["x", "y"], "plot": ["x", "y"]}[action]
                 options = [{key: step.request[key] for key in keys}]
                 labels = {"factor": "Factor", "value": "Value", "x": "X column (index)", "y": "Y column (index)"}
             else:
                 options, labels = [], {}
-            steps.append({"id": step.id, "label": self.step_label(step.request, step.label), "status": status, "options": options, "labels": labels})
+            steps.append({
+                "id": step.id, "label": self.step_label(step.request, step.label), "status": status,
+                "options": options, "labels": labels, **({"formula": True} if action == "apply_formula" else {}),
+            })
         return {"steps": steps, "completed": plan.completed, "error": plan.error,
                 "has_base": plan.base.source is not None}
 
@@ -457,6 +466,12 @@ class Workspace:
                 command.update(options[0])
             if action == "scale_column":
                 ScaleColumn(0, command["factor"])
+            if action == "apply_formula":
+                command["references"] = self.formula_references(
+                    command["expression"], command["references"], stable=True,
+                )
+            if action == "add_scalar":
+                Source.scalar(command["name"], command["value"])
             plan.steps[index] = replace(step, request=command)
             plan.invalidate(index)
         self.dirty = True
@@ -559,6 +574,12 @@ class Workspace:
                 fonts = Path(__file__).with_name("fonts")
                 write_figure(Path(request["path"]), request["svg"], request["scale"], fonts)
                 return {}
+            case "apply_formula":
+                references = self.formula_references(request["expression"])
+                self.enqueue({**request, "references": references}, "Column Formula")
+            case "add_scalar":
+                scalar = Source.scalar(request["name"], request["value"])
+                self.enqueue({**request, "name": scalar.name}, f"Add scalar source {scalar.name}")
             case "execute_plugin" | "run_plugin":
                 self.enqueue(request, request["plugin_id"])
             case "scale_column":
@@ -683,6 +704,26 @@ class Workspace:
                 if updated.item_deleted("source", self.source_id):
                     self.source_id = None
                 self.dirty = True
+            case "add_scalar":
+                self.import_sources((Source.scalar(request["name"], request["value"]),), remember=False)
+            case "apply_formula":
+                source_id = request["source_id"]
+                if project.item_deleted("source", source_id) or any(
+                    project.item_deleted("source", reference["source_id"]) for reference in request["references"].values()
+                ):
+                    raise ValueError("Select available sources for the formula.")
+                recipe = PluginStep(
+                    COLUMN_FORMULA_PLUGIN, "1", None,
+                    {"column": request["column"], "expression": request["expression"]},
+                    source_id=source_id, references=request["references"],
+                )
+                result_id = len(project.operations)
+                updated = project.apply(recipe)
+                self.render(updated, changed={result_id}, fallback=self.sources)
+                self.project = updated
+                self.source_id = f"{result_id}:calculated"
+                self.row_offset = 0
+                self.dirty = True
             case "scale_column":
                 updated = replace(project, operations=(*project.operations, *self.scale_operations(request)))
                 updated.working_worksheets
@@ -766,6 +807,44 @@ class Workspace:
             case _:
                 raise ValueError("Unknown workspace command.")
 
+    def formula_references(self, expression: str, existing: dict | None = None, *, stable: bool = False) -> dict:
+        _, tokens = parse_formula(expression)
+        project = self.project
+        names = self.figure_names(project)
+        sources = [(key, self.source_name(project, key, self.sources, names)) for key in self.ordered_sources()]
+        references = {}
+        for token, (_, source, column) in tokens.items():
+            if existing is not None and token in existing:
+                references[token] = existing[token]
+                continue
+            matches = [key for key, name in sources if source == name]
+            if not matches:
+                matches = [key for key, name in sources if name.lower().endswith(".csv") and source == name[:-4]]
+            if not matches:
+                raise ValueError(f"Source {source!r} was not found. Use Insert reference to select it.")
+            if len(matches) > 1:
+                raise ValueError(f"Source name {source!r} is ambiguous. Use its full name or rename the source.")
+            key = matches[0]
+            worksheet = self.input_worksheet(project, key, self.sources)
+            if column is None:
+                if len(worksheet.rows) != 1 or len(worksheet.columns) != 1:
+                    raise ValueError(f"{token} needs a column name. Use a source alone for a single value.")
+                selected = 0
+            elif isinstance(column, int):
+                if not 1 <= column <= len(worksheet.columns):
+                    raise ValueError(f"{token} refers to a missing column.")
+                selected = column - 1
+            else:
+                columns = [index for index, name in enumerate(worksheet.columns) if name == column]
+                if len(columns) != 1:
+                    raise ValueError(f"Choose a unique column named {column!r} in {source!r}.")
+                selected, = columns
+            references[token] = {
+                "source_id": self.workflow.reference("source", key) if stable else key,
+                "column": selected,
+            }
+        return references
+
     def scale_operations(self, request: dict) -> list[ScaleColumn]:
         runs = request.get("runs")
         if runs is None:
@@ -785,6 +864,8 @@ class Workspace:
         output, steps = request["output"], request["steps"]
         if output not in ("overlay", "separate") or not isinstance(steps, list) or not steps:
             raise ValueError("Choose batch commands and an output mode.")
+        if any(step["plugin_id"] == COLUMN_FORMULA_PLUGIN for step in steps):
+            raise ValueError("Use Column Formula to calculate a column with source references.")
         filter_only = all(step["plugin_id"] == "nigiro.filter" for step in steps)
         if filter_only:
             output = "separate"

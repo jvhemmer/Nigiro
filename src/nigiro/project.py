@@ -11,7 +11,7 @@ from functools import cached_property
 from typing import Literal
 
 from .figure_style import AxisStyle, FigureStyle
-from .source_tables import SourceTable, raw_source_id, source_origin
+from .source_tables import TABLE_ONLY_PLUGINS, SourceTable, raw_source_id, source_origin
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,15 @@ class Source:
     encoding: str = "utf-8-sig"
     delimiter: str = ","
     original_path: str | None = None
+    scalar_value: float | None = None
+
+    @classmethod
+    def scalar(cls, name: str, value: float) -> Source:
+        if not isinstance(name, str) or not name.strip() or any(c in name for c in ("\n", "\r", "\0")):
+            raise ValueError("Enter a name for the scalar source.")
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise ValueError("Enter a finite scalar value.")
+        return cls(name.strip(), f"Value\n{value}\n".encode("utf-8"), scalar_value=value)
 
     @cached_property
     def worksheet(self) -> Worksheet:
@@ -138,6 +147,18 @@ class FigureAppearance:
 
 
 @dataclass(frozen=True)
+class ColumnReference:
+    source_id: str | None
+    column: int
+
+    def __post_init__(self) -> None:
+        if self.source_id is not None:
+            source_origin(self.source_id)
+        if type(self.column) is not int or self.column < 0:
+            raise ValueError("Invalid column reference.")
+
+
+@dataclass(frozen=True)
 class PluginStep:
     plugin_id: str
     version: str
@@ -146,6 +167,8 @@ class PluginStep:
     keep_style: bool = False
     source_id: str | None = None
     figure_id: int | None = None
+
+    references: dict[str, ColumnReference] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.plugin_id, str) or not self.plugin_id or not isinstance(self.version, str) or not self.version:
@@ -166,6 +189,16 @@ class PluginStep:
             for key, value in self.options.items()
         ):
             raise ValueError("Invalid saved plugin options.")
+        if not isinstance(self.references, dict):
+            raise ValueError("Invalid plugin references.")
+        references = {
+            token: ColumnReference(**reference) if isinstance(reference, dict) else reference
+            for token, reference in self.references.items()
+        }
+        if any(not isinstance(token, str) or not isinstance(reference, ColumnReference)
+               for token, reference in references.items()):
+            raise ValueError("Invalid plugin column reference.")
+        object.__setattr__(self, "references", references)
         object.__setattr__(self, "options", self.options.copy())
 
     @property
@@ -332,7 +365,7 @@ class Project:
         return {
             key: figure for key, figure in self.figures.items()
             if key not in members and not self.item_deleted("figure", key)
-            and not (isinstance(figure.recipe, PluginStep) and figure.recipe.plugin_id == "nigiro.filter")
+            and not (isinstance(figure.recipe, PluginStep) and figure.recipe.plugin_id in TABLE_ONLY_PLUGINS)
         }
 
     @cached_property
@@ -342,6 +375,12 @@ class Project:
         legacy_colors = DEFAULT_COLORS.copy()
         for index, op in enumerate(self.operations):
             if isinstance(op, (LinearFit, Plot, PluginStep)):
+                if isinstance(op, PluginStep) and any(
+                    reference.source_id not in self.raw_sources and (
+                        reference.source_id is None or source_origin(reference.source_id) not in figures
+                    ) for reference in op.references.values()
+                ):
+                    raise ValueError("A plugin refers to a missing source in its expression.")
                 updating = isinstance(op, PluginStep) and op.figure_id is not None
                 if updating:
                     current = op.figure_id
@@ -455,6 +494,20 @@ class Project:
         if key not in self.scaled_worksheets:
             self.scaled_worksheets[key] = self.build_worksheet(source_id, end)
         return self.scaled_worksheets[key]
+
+    def recipe_input(self, source_id: str | None, recipe: FigureRecipe, tables: dict[str, SourceTable]) -> Worksheet:
+        if source_id in self.raw_sources:
+            return self.worksheet_for_recipe(source_id, recipe)
+        if source_id not in tables:
+            raise ValueError("The input source is unavailable.")
+        table = tables[source_id]
+        return Worksheet(table.columns, table.rows)
+
+    def recipe_references(self, step: PluginStep, tables: dict[str, SourceTable]) -> dict:
+        return {
+            token: (self.recipe_input(reference.source_id, step, tables), reference.column)
+            for token, reference in step.references.items()
+        }
 
     def build_worksheet(self, source_id: str | None, scale_until: int) -> Worksheet:
         result = self.raw_sources[source_id].worksheet

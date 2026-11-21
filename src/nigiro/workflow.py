@@ -72,6 +72,11 @@ def map_references(request: dict, transform: Callable) -> dict:
     if "item" in result:
         item = result["item"]
         result["item"] = {**item, "id": transform(item["kind"], item["id"])}
+    if "references" in result:
+        result["references"] = {
+            token: map_references(reference, transform)
+            for token, reference in result["references"].items()
+        }
     for field in ("runs", "steps"):
         if field in result:
             result[field] = [map_references(value, transform) for value in result[field]]

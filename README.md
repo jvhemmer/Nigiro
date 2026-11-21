@@ -69,6 +69,18 @@ Nigiro records imports, plots, analyses, and worksheet changes in **Recorded Ste
 
 When you edit or move a step, Nigiro marks affected results as stale. If a step uses an output from another step, put the producer first. A project saved before this feature supplies the starting point for new steps.
 
+## Calculate a column with a formula
+
+1. Open **Analysis → Operations → Column Formula**. Select the worksheet and the column to calculate.
+2. In **Configuration**, enter a formula. Use `value` for each value in the selected column. Use **Insert reference** to select a column from any available source.
+3. Select **Calculate column**. Nigiro creates a new worksheet with the calculated column and the other columns from the selected source.
+
+For background correction, enter `$Data1:Current - $Data2:Current`. Nigiro matches rows by position, so both columns must have the same row count. `#` also works in a source reference. Use quotes for a source or column name with spaces or punctuation, for example `$"Test data.csv":"Current (A)"`.
+
+Use **File → Add Scalar Source** to enter a named constant. If the source holds one value, refer to it by name alone. For example, enter `$Data1:Voltage - $Data1:Current * $SolResistance`. Nigiro uses the same resistance for each row. An explicitly selected column with one row also acts as a constant. Python exports write values entered with **Add Scalar Source** as numeric parameters.
+
+Formulas support arithmetic, including `^` or `**` for powers, and math functions including `abs`, `sqrt`, `log`, `log10`, `exp`, `sin`, `cos`, `tan`, `min`, and `max`. Edit a formula or a scalar value under **Recorded Steps**, then rerun the workflow to update its results.
+
 ## Install a plugin
 
 1. Download a Nigiro plugin as a `.py` file.

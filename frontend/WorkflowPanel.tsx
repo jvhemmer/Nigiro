@@ -1,6 +1,7 @@
+import { FormulaEditor } from "./FormulaEditor";
 import { useEffect, useRef, useState } from "react";
 import { useListDrag } from "./useListDrag";
-import type { PluginOptions, Request, Workflow, WorkflowStep } from "./workspace";
+import type { PluginOptions, ProjectSource, Request, Workflow, WorkflowStep } from "./workspace";
 
 const statusLabels = { done: "Done", stale: "Stale", pending: "Queued", failed: "Failed" };
 
@@ -58,8 +59,9 @@ export function WorkflowPanel({ workflow, busy, run }: {
   </div>;
 }
 
-export function WorkflowStepDialog({ step, busy, error, onClose, onRun }: {
+export function WorkflowStepDialog({ step, sources, busy, error, onClose, onRun }: {
   step: WorkflowStep;
+  sources: ProjectSource[];
   busy: boolean;
   error: string;
   onClose: () => void;
@@ -79,7 +81,9 @@ export function WorkflowStepDialog({ step, busy, error, onClose, onRun }: {
       <div className="fit-settings plugin-fields">
         {options.map((values, index) => <fieldset key={index}>
           {options.length > 1 && <legend>Input {index + 1}</legend>}
-          {Object.entries(values).map(([key, value]) => (
+          {Object.entries(values).map(([key, value]) => step.formula && key === "expression"
+            ? <FormulaEditor key={key} value={String(value)} sources={sources} onChange={(text) => update(index, key, text)} />
+            : (
             <label key={key}><span>{step.labels[key] ?? key}</span>
               {typeof step.options[index][key] === "boolean"
                 ? <input type="checkbox" checked={Boolean(value)} onChange={(event) => update(index, key, event.target.checked)} />

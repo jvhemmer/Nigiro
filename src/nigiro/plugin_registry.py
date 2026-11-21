@@ -15,8 +15,10 @@ from tempfile import NamedTemporaryFile
 from typing import Callable
 
 from .builtin_plugins import BUILTINS
+from .column_formula import COLUMN_FORMULA_PLUGIN
 from .plugin_source import run_plugin_source
 from .project import LinearFit, Plot, PluginStep, Worksheet
+from .source_tables import TABLE_ONLY_PLUGINS
 
 
 @dataclass(frozen=True)
@@ -161,7 +163,7 @@ class PluginRegistry:
             raise ValueError(f"Install the original {step.plugin_id} plugin, version {step.version}, to replay this figure.")
         return plugin
 
-    def execute(self, step: PluginStep, worksheet: Worksheet) -> dict:
+    def execute(self, step: PluginStep, worksheet: Worksheet, references: dict) -> dict:
         plugin = self.resolve(step)
         fields = plugin.manifest["fields"]
         options = step.options
@@ -182,9 +184,11 @@ class PluginRegistry:
                 args = worksheet.columns, worksheet.rows, options.copy()
                 if plugin.run is None:
                     result = run_plugin_source(plugin.source, step.plugin_id, *args)
+                elif step.plugin_id == COLUMN_FORMULA_PLUGIN:
+                    result = plugin.run(*args, references)
                 else:
                     result = plugin.run(*args)
-            if not isinstance(result, dict) or not isinstance(result.get("traces"), list) or (not result["traces"] and step.plugin_id != "nigiro.filter"):
+            if not isinstance(result, dict) or not isinstance(result.get("traces"), list) or (not result["traces"] and step.plugin_id not in TABLE_ONLY_PLUGINS):
                 raise ValueError("The plugin must return a figure with at least one trace.")
             if not all(isinstance(trace, dict) for trace in result["traces"]):
                 raise ValueError("Each trace must be a dictionary.")

@@ -6,6 +6,7 @@ import ast
 from html import escape
 
 from .analysis import run_linear_fit, run_plot
+from .column_formula import COLUMN_FORMULA_PLUGIN, run_column_formula
 from .project import LinearFit, Plot, Worksheet
 
 
@@ -173,3 +174,14 @@ BUILTINS["nigiro.filter"] = ({
         ]},
     ],
 }, filter_rows)
+
+
+
+BUILTINS[COLUMN_FORMULA_PLUGIN] = ({
+    "api": 1, "id": COLUMN_FORMULA_PLUGIN, "version": "1", "name": "Column Formula", "menu": "analysis",
+    "outputs": ["Calculated worksheet"],
+    "fields": [
+        {"key": "column", "label": "Column to calculate", "type": "column", "default": 0},
+        {"key": "expression", "label": "Formula", "type": "text", "default": "value"},
+    ],
+}, run_column_formula)
