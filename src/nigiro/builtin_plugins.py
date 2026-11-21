@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from html import escape
 
 from .analysis import run_linear_fit, run_plot
@@ -120,3 +121,55 @@ BUILTINS = {
         ("linear_fit", "Linear Fit", "analysis", linear_fit_figure),
     )
 }
+
+
+def filter_rows(columns, rows, options):
+    expression = options["expression"]
+    if len(expression) > 300:
+        raise ValueError("Use an expression of 300 characters or fewer.")
+    tree = ast.parse(expression.strip(), mode="eval")
+    allowed = (
+        ast.Expression, ast.Compare, ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not,
+        ast.USub, ast.UAdd, ast.Name, ast.Load, ast.Constant,
+        ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.Eq, ast.NotEq,
+    )
+    if any(not isinstance(node, allowed) or isinstance(node, ast.Name) and node.id != "value"
+           or isinstance(node, ast.Constant) and type(node.value) not in (str, int, float, bool)
+           for node in ast.walk(tree)):
+        raise ValueError("Use value, comparisons, and, or, or not in the expression.")
+    predicate = compile(tree, "<filter>", "eval")
+    column = options["column"]
+    values_only = options["output"] == "values"
+    matches = []
+    for index, row in enumerate(rows, start=1):
+        value = row[column]
+        try:
+            value = float(value)
+        except ValueError:
+            pass
+        try:
+            keep = eval(predicate, {"__builtins__": {}}, {"value": value})
+        except TypeError as error:
+            raise ValueError(f"Cannot compare the value in row {index}.") from error
+        if type(keep) is not bool:
+            raise ValueError("The expression must return true or false.")
+        if keep:
+            matches.append([row[column]] if values_only else list(row))
+    return {"traces": [], "sources": {"filtered": {
+        "name": "Filtered values" if values_only else "Filtered rows",
+        "columns": [columns[column]] if values_only else list(columns),
+        "rows": matches,
+    }}}
+
+
+BUILTINS["nigiro.filter"] = ({
+    "api": 1, "id": "nigiro.filter", "version": "1", "name": "Filter", "menu": "analysis",
+    "outputs": ["Filtered source"],
+    "fields": [
+        {"key": "column", "label": "Column", "type": "column", "default": 0},
+        {"key": "expression", "label": "Expression", "type": "text", "default": "value > 0"},
+        {"key": "output", "label": "Keep", "type": "choice", "default": "rows", "choices": [
+            {"value": "rows", "label": "Matching rows"}, {"value": "values", "label": "Matching values"},
+        ]},
+    ],
+}, filter_rows)

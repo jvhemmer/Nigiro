@@ -1,16 +1,19 @@
 import type { Layout, LayoutAxis } from "plotly.js";
 
+export type TextRenderer = "auto" | "plain" | "latex";
 export type AxisKey = "x" | "y";
 export type StyleSection = "figure" | AxisKey;
 
 export interface AxisStyle {
   units?: Record<string, string>;
   label: string | null;
+  label_renderer: TextRenderer;
   scale: "linear" | "log";
   lower: number | null;
   upper: number | null;
   step: number | null;
   format: string;
+  notation: "plain" | "si" | "scientific";
   angle: number;
   ticks: "outside" | "inside" | "none";
   tick_length: number;
@@ -25,9 +28,19 @@ export interface AxisStyle {
   hover_ruler: boolean;
 }
 
-export interface FigureStyle {
+export const textRoles = {
+  title: "Title", x_label: "X axis label", y_label: "Y axis label",
+  x_tick: "X tick labels", y_tick: "Y tick labels", legend: "Legend labels",
+} as const;
+export type TextRole = keyof typeof textRoles;
+type Typography = Record<`${TextRole}_family`, string | null>
+  & Record<`${TextRole}_bold` | `${TextRole}_italic`, boolean | null>
+  & Record<`${TextRole}_size`, number | null>;
+
+export interface FigureStyle extends Typography {
   units?: Record<string, string>;
   title: string;
+  title_renderer: TextRenderer;
   axes_width: number | null;
   axes_height: number | null;
   font_family: string;
@@ -41,6 +54,8 @@ export interface FigureStyle {
   line_width: number;
   line_dash: "solid" | "dash" | "dot" | "dashdot";
   marker_size: number;
+  show_markers: boolean;
+  show_lines: boolean;
   marker_symbol: "circle" | "square" | "diamond" | "triangle-up" | "cross";
   bar_width: number;
   x: AxisStyle;
@@ -49,11 +64,25 @@ export interface FigureStyle {
 
 export const figureFont = "DejaVu Sans";
 
-export function plotText(text: string) {
-  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>");
+export function plotText(text: string, renderer: TextRenderer = "auto") {
+  if (!text) return text;
+  if (renderer !== "plain" && text.startsWith("$") && text.endsWith("$")) return text;
+  if (renderer === "latex") return `$${text}$`;
+  return text.replaceAll("&", "&amp;").replaceAll("$", "&#36;")
+    .replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>");
 }
 
-function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision: number, categorical = false): Partial<LayoutAxis> {
+function textFont(style: FigureStyle, role: TextRole, defaultSize: number) {
+  const family = style[`${role}_family`] ?? style.font_family;
+  return {
+    family: family === figureFont ? figureFont : `"${family}", "${figureFont}"`,
+    size: style[`${role}_size`] ?? defaultSize,
+    weight: (style[`${role}_bold`] ?? style.font_bold) ? "bold" as const : "normal" as const,
+    style: (style[`${role}_italic`] ?? style.font_italic) ? "italic" as const : "normal" as const,
+  };
+}
+
+function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision: number, side: AxisKey, categorical = false): Partial<LayoutAxis> {
   const scale = categorical ? "linear" : axis.scale;
   const { lower, upper, step, format } = axis;
   const transformLimit = (limit: number | null) => limit === null || scale === "linear" ? limit : Math.log10(limit);
@@ -68,8 +97,8 @@ function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision
     ...(autorange && (lower !== null || upper !== null) && {
       autorangeoptions: { minallowed: limits[0] ?? undefined, maxallowed: limits[1] ?? undefined },
     }),
-    title: { text: plotText(axis.label ?? label), font: { size: style.label_size }, standoff: 8 },
-    tickfont: { size: style.tick_size },
+    title: { text: plotText(axis.label ?? label, axis.label_renderer), font: textFont(style, `${side}_label`, style.label_size), standoff: 8 },
+    tickfont: textFont(style, `${side}_tick`, style.tick_size),
     ticks,
     ticklen: axis.tick_length,
     tickwidth: axis.line_width,
@@ -78,6 +107,8 @@ function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision
     showticklabels: axis.tick_labels,
     ...(!categorical && {
       tickformat: format,
+      exponentformat: axis.notation === "si" ? "SI" : axis.notation === "scientific" ? "power" : "none",
+      showexponent: axis.notation === "scientific" ? "last" : "all",
       tickmode: step === null ? "auto" : "linear",
       ...(step === null ? {} : { dtick: step, tick0: 0 }),
       ...(axis.minor_ticks && {
@@ -115,7 +146,7 @@ function legendLayout(style: FigureStyle, fit: boolean): Partial<Layout> {
   return {
     showlegend: true,
     legend: {
-      font: { size: style.tick_size },
+      font: textFont(style, "legend", style.tick_size),
       bgcolor: style.background,
       itemdoubleclick: false,
       ...(position === "above"
@@ -126,16 +157,17 @@ function legendLayout(style: FigureStyle, fit: boolean): Partial<Layout> {
 }
 
 export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string, revision: number, fit: boolean, categorical = false, fitLegend = false): Partial<Layout> {
-  const x = axisLayout(style, style.x, xLabel, revision, categorical);
-  const y = axisLayout(style, style.y, yLabel, revision);
+  const x = axisLayout(style, style.x, xLabel, revision, "x", categorical);
+  const y = axisLayout(style, style.y, yLabel, revision, "y");
   const font = style.font_family === figureFont ? figureFont : `"${style.font_family}", "${figureFont}"`;
   const above = style.legend === "above" || ((fit || fitLegend) && style.legend === "auto");
-  const top = style.title ? style.label_size + 25 + (above ? style.tick_size + 7 : 0) : 24;
+  const titleFont = textFont(style, "title", style.label_size + 2);
+  const top = (style.title ? titleFont.size + 23 : 24) + (above ? (style.legend_size ?? style.tick_size) + 7 : 0);
   return {
     autosize: true,
     uirevision: revision,
     margin: { l: 54, r: 16, t: top, b: 50 },
-    title: { text: plotText(style.title), font: { size: style.label_size + 2 }, x: 0.5, y: 0.98, yanchor: "top" },
+    title: { text: plotText(style.title, style.title_renderer), font: titleFont, x: 0.5, y: 0.98, yanchor: "top" },
     font: { family: font, size: style.label_size, color: style.text_color,
       weight: style.font_bold ? "bold" : "normal", style: style.font_italic ? "italic" : "normal" },
     paper_bgcolor: style.background,
@@ -148,7 +180,7 @@ export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string,
           xaxis: { ...x, matches: "x2", title: { text: "" }, showticklabels: false },
           yaxis: { ...y, domain: [0.36, 1] },
           xaxis2: { ...x, anchor: "y2" },
-          yaxis2: { ...axisLayout(style, style.y, "Residual", revision), domain: [0, 0.26] },
+          yaxis2: { ...axisLayout(style, style.y, "Residual", revision, "y"), domain: [0, 0.26] },
         }
       : { xaxis: x, yaxis: y }),
   };

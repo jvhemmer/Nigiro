@@ -184,7 +184,7 @@ class PluginRegistry:
                     result = run_plugin_source(plugin.source, step.plugin_id, *args)
                 else:
                     result = plugin.run(*args)
-            if not isinstance(result, dict) or not isinstance(result.get("traces"), list) or not result["traces"]:
+            if not isinstance(result, dict) or not isinstance(result.get("traces"), list) or (not result["traces"] and step.plugin_id != "nigiro.filter"):
                 raise ValueError("The plugin must return a figure with at least one trace.")
             if not all(isinstance(trace, dict) for trace in result["traces"]):
                 raise ValueError("Each trace must be a dictionary.")

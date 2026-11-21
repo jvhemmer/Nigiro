@@ -1,3 +1,4 @@
+import { loadMathJax } from "./mathText";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Data, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
 import { figureFont, figureLayout, type FigureStyle, type StyleSection } from "./figureStyle";
@@ -23,6 +24,7 @@ function canAccelerate(data: PluginFigure) {
 }
 
 async function loadRenderer(accelerated: boolean): Promise<Renderer> {
+  await loadMathJax();
   const library = accelerated ? await import("plotly.js-gl2d-dist-min") : await import("plotly.js-basic-dist-min");
   return library.default ?? library;
 }
@@ -80,7 +82,9 @@ function styleTrace(trace: Data, style: FigureStyle, color: string): Data {
   if (trace.type !== "scatter" && trace.type !== "scattergl") return trace;
   const marker = { color, size: style.marker_size, symbol: style.marker_symbol };
   const line = { color, width: style.line_width, dash: style.line_dash };
-  return merge(trace, { marker, line });
+  const mode = (trace.mode ?? "lines").split("+").filter((part) =>
+    (part !== "markers" || style.show_markers) && (part !== "lines" || style.show_lines));
+  return merge(trace, { marker, line, mode: mode.join("+") || "none" });
 }
 
 export function FigurePlot({ capture, data, colors, style, revision, onEdit, onSelect }: FigurePlotProps) {

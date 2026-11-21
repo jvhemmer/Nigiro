@@ -19,6 +19,32 @@ class WorkflowTest(unittest.TestCase):
         result = worker.dispatch({"action": "run_all"})["project"]
         self.assertEqual(result["figure_style"]["font_family"], "Liberation Sans")
 
+    def test_filter_outputs_a_source_and_replays_its_dependents(self):
+        worker = Workspace()
+        worker.dispatch({"action": "sample"})
+        command = {
+            "action": "execute_plugin", "plugin_id": "nigiro.filter", "version": "1", "checksum": None,
+            "output": "separate", "runs": [{"source_id": None, "options": {
+                "column": 1, "expression": "value > 6", "output": "rows",
+            }}],
+        }
+        filtered = worker.dispatch(command)["project"]
+        self.assertEqual(filtered["figures"], [])
+        self.assertEqual(len(filtered["source_table"]["columns"]), 2)
+        self.assertEqual(filtered["row_count"], 5)
+        plotted = worker.dispatch({
+            "action": "run_plugin", "plugin_id": "nigiro.scatter", "version": "1", "checksum": None,
+            "options": {"x": 0, "y": 1},
+        })["project"]
+        self.assertEqual(plotted["figure"]["traces"][0]["y"], [6.5, 8.9, 10.2, 13.4, 14.5])
+        replay = worker.dispatch({"action": "run_all"})["project"]
+        self.assertEqual(replay["figure"]["traces"], plotted["figure"]["traces"])
+        values = worker.dispatch({**command, "runs": [{"source_id": None, "options": {
+            "column": 1, "expression": "value < 3", "output": "values",
+        }}]})["project"]
+        self.assertEqual(values["source_table"]["columns"], ("Signal",))
+        self.assertEqual(values["source_table"]["rows"], (("1",), ("2.9",)))
+
     def test_edit_and_move_a_scale_step(self):
         worker = Workspace()
         worker.dispatch({"action": "sample"})

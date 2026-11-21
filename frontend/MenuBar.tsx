@@ -18,6 +18,7 @@ export interface MenuCommand {
   request: MenuRequest | null;
   shortcut?: string;
   disabledReason?: string;
+  submenu?: MenuCommand[];
 }
 
 interface Menu {
@@ -111,6 +112,14 @@ export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
       closeMenu();
       return;
     }
+    if (open && key === "ArrowRight" && event.target instanceof Element) {
+      const child = event.target.closest(".menu-submenu")?.querySelector<HTMLButtonElement>(".menu-submenu-popup button");
+      if (child) {
+        event.preventDefault();
+        child.focus();
+        return;
+      }
+    }
     if (key === "ArrowRight" || key === "ArrowLeft") {
       event.preventDefault();
       const direction = key === "ArrowRight" ? 1 : -1;
@@ -131,7 +140,7 @@ export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
       return;
     }
 
-    const items = Array.from(popup.current?.querySelectorAll("button") ?? []);
+    const items = Array.from(popup.current?.querySelectorAll("button") ?? []).filter((item) => item.getClientRects().length);
     if (items.length === 0) return;
     const current = items.findIndex((item) => item === document.activeElement);
     const direction = key === "ArrowDown" ? 1 : -1;
@@ -176,11 +185,23 @@ export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
               {label}
             </button>
             {expanded && createPortal(
-              <div className="menu-popup" id={menuId} ref={popup} role="menu" aria-labelledby={triggerId}>
+              <div className={groups.some((group) => group.some((command) => command.submenu)) ? "menu-popup menu-with-submenu" : "menu-popup"} id={menuId} ref={popup} role="menu" aria-labelledby={triggerId}>
                 {groups.filter((group) => group.length).map((group, groupIndex) => (
                   <Fragment key={group[0].label}>
                     {groupIndex > 0 && <div className="menu-separator" role="separator" />}
-                    {group.map((command, commandIndex) => (
+                    {group.map((command, commandIndex) => command.submenu ? (
+                      <div className="menu-submenu" key={command.label}>
+                        <button className="menu-command" type="button" role="menuitem" tabIndex={-1}
+                          aria-haspopup="menu" onClick={(event) => event.currentTarget.nextElementSibling?.querySelector("button")?.focus()}>
+                          <span>{command.label}</span><span aria-hidden="true">›</span>
+                        </button>
+                        <div className="menu-popup menu-submenu-popup" role="menu" aria-label={command.label}>
+                          {command.submenu.map((item) => <button className="menu-command" type="button"
+                            key={item.label} role="menuitem" tabIndex={-1} aria-disabled={busy || !item.request}
+                            onClick={() => runCommand(item)}>{item.label}</button>)}
+                        </div>
+                      </div>
+                    ) : (
                       <button
                         className="menu-command"
                         type="button"

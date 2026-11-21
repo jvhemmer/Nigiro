@@ -1,3 +1,4 @@
+import mathJaxUrl from "mathjax/es5/tex-svg.js?url";
 import { invoke } from "@tauri-apps/api/core";
 import figureStyle from "../src/nigiro/figure_style.py?raw";
 import sourceTables from "../src/nigiro/source_tables.py?raw";
@@ -32,14 +33,30 @@ interface EmbeddedFont {
   style: string;
 }
 
-function script(project: Project & { script_recipe: unknown }, figure: FigureSnapshot, settings: ExportSettings, fonts: EmbeddedFont[]) {
-  const payload = JSON.stringify({
+async function script(project: Project & { script_recipe: unknown }, figure: FigureSnapshot, settings: ExportSettings, fonts: EmbeddedFont[]) {
+  const record = {
     recipe: project.script_recipe,
     operations: project.operations,
     figure,
     export_settings: settings,
     ...(fonts.length ? { fonts } : {}),
-  }, null, 2);
+  };
+  const hasMath = (value: unknown): boolean => typeof value === "string"
+    ? value.length > 2 && value.startsWith("$") && value.endsWith("$")
+    : value !== null && typeof value === "object" && Object.values(value).some(hasMath);
+  let mathjax: string | undefined;
+  if (hasMath(figure) || hasMath(project.figure?.traces.map((trace) => trace.name))) {
+    const response = await fetch(mathJaxUrl);
+    if (!response.ok) throw new Error("Could not read MathJax for export.");
+    const compressed = new Blob([await response.arrayBuffer()]).stream().pipeThrough(new CompressionStream("gzip"));
+    const bytes = new Uint8Array(await new Response(compressed).arrayBuffer());
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 8192) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+    }
+    mathjax = btoa(binary);
+  }
+  const payload = JSON.stringify({ ...record, mathjax }, null, 2);
   // These wheels supply the same Plotly.js version and font as the desktop app.
   const { python, numpy, scipy } = project.versions;
   return `# /// script
@@ -90,7 +107,7 @@ export async function saveFigure(name: string, target: ExportTarget, settings: E
     const fonts = settings.embedFonts
       ? (await invoke<{ fonts: EmbeddedFont[] }>("workspace", { request: { action: "export_fonts" } })).fonts
       : [];
-    content = script(response.project, capture.snapshot(), settings, fonts);
+    content = await script(response.project, capture.snapshot(), settings, fonts);
   } else {
     content = await capture.svg();
   }

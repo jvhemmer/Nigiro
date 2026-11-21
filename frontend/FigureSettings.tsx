@@ -1,17 +1,19 @@
+import { textRoles, type TextRole } from "./figureStyle";
 import { createContext, useContext, useEffect, useId, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { formatMeasurement, parseMeasurement } from "./units";
 import { invoke } from "@tauri-apps/api/core";
 import type { Appearance } from "./workspace";
 import { Save, RotateCcw } from "lucide-react";
-import type { AxisKey, AxisStyle, FigureStyle, StyleSection } from "./figureStyle";
+import type { AxisKey, AxisStyle, FigureStyle, StyleSection, TextRenderer } from "./figureStyle";
 
 const sectionNames: Record<StyleSection, string> = {
   figure: "Figure", x: "X axis", y: "Y axis",
 };
 
 const fieldKeys: Record<string, string> = {
+  "Title text renderer": "title_renderer", "Axis label text renderer": "label_renderer",
   "Figure title": "title", "Axes width (px)": "axes_width", "Axes height (px)": "axes_height",
-  "Font family": "font_family", "Axis label size (px)": "label_size", "Tick and legend size (px)": "tick_size",
+  "Show markers": "show_markers", "Show trace lines": "show_lines", "Number notation": "notation", "Font family": "font_family", "Axis label size (px)": "label_size", "Tick and legend size (px)": "tick_size",
   "Text and axis color": "text_color", "Background": "background", "Legend": "legend",
   "Bar width (fraction)": "bar_width", "Marker size (px)": "marker_size", "Marker shape": "marker_symbol",
   "Trace line width (px)": "line_width", "Trace line style": "line_dash",
@@ -24,6 +26,14 @@ const fieldKeys: Record<string, string> = {
 };
 const measuredFields = new Set(Object.entries(fieldKeys)
   .filter(([label]) => label.endsWith("(px)") || label.endsWith("(°)")).map(([, key]) => key));
+
+for (const role of Object.keys(textRoles) as TextRole[]) {
+  const label = textRoles[role];
+  fieldKeys[`${label} font family`] = `${role}_family`;
+  fieldKeys[`${label} bold`] = `${role}_bold`;
+  fieldKeys[`${label} italic`] = `${role}_italic`;
+  fieldKeys[`${label} size (px)`] = `${role}_size`;
+}
 
 const MeasurementControls = createContext<{
   units: Record<string, string>;
@@ -116,30 +126,22 @@ function Choice<T extends string>({ label, value, options, onChange }: {
   </Field>;
 }
 
-const mathSymbols = ["α", "β", "γ", "δ", "ε", "θ", "λ", "μ", "π", "ρ", "σ", "τ", "φ", "ω", "Δ", "Σ", "Ω",
-  "±", "×", "·", "−", "≈", "≤", "≥", "∞", "∂", "∇", "√", "∫", "²", "³", "⁻", "₀", "₁", "₂"];
-
-function MathTextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  const input = useRef<HTMLInputElement>(null);
-  return <div>
-    <Field label={label}><input ref={input} value={value} onChange={(event) => onChange(event.target.value)} /></Field>
-    <select className="math-symbols" aria-label={`Insert math symbol in ${label.toLowerCase()}`} value="" onChange={(event) => {
-      const symbol = event.target.value;
-      const start = input.current?.selectionStart ?? value.length;
-      const end = input.current?.selectionEnd ?? start;
-      onChange(value.slice(0, start) + symbol + value.slice(end));
-      requestAnimationFrame(() => {
-        input.current?.focus();
-        input.current?.setSelectionRange(start + symbol.length, start + symbol.length);
-      });
-    }}>
-      <option value="" disabled>Insert math symbol</option>
-      {mathSymbols.map((symbol) => <option key={symbol} value={symbol}>{symbol}</option>)}
-    </select>
-  </div>;
+function TextField({ label, value, renderer, rendererLabel, onChange, onRenderer }: {
+  label: string;
+  value: string;
+  renderer: TextRenderer;
+  rendererLabel: string;
+  onChange: (value: string) => void;
+  onRenderer: (value: TextRenderer) => void;
+}) {
+  return <>
+    <Field label={label}><input value={value} onChange={(event) => onChange(event.target.value)} /></Field>
+    <Choice label={rendererLabel} value={renderer} onChange={onRenderer}
+      options={[["auto", "Auto"], ["plain", "Plain text"], ["latex", "LaTeX (MathJax)"]]} />
+  </>;
 }
 
-function FontField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+function FontField({ value, onChange, label = "Font family" }: { value: string; onChange: (value: string) => void; label?: string }) {
   const id = useId();
   const [families, setFamilies] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -158,8 +160,8 @@ function FontField({ value, onChange }: { value: string; onChange: (value: strin
   };
   useEffect(() => { void load(false); }, []);
   return <div>
-    <Field label="Font family">
-      <input list={id} value={value} onChange={(event) => onChange(event.target.value)} />
+    <Field label={label}>
+      <input list={id} value={value} placeholder="Inherit figure font" onChange={(event) => onChange(event.target.value)} />
     </Field>
     <datalist id={id}>{families.map((family) => <option key={family} value={family} />)}</datalist>
     <button className="refresh-fonts" type="button" disabled={busy} onClick={() => { void load(true); }}>Refresh system fonts</button>
@@ -179,7 +181,8 @@ function AxisFields({ style, fallback, categorical, onChange }: {
 
   return <>
     <SettingsGroup title="Label and range">
-      <MathTextField label="Axis label" value={style.label ?? fallback} onChange={(value) => set("label", value)} />
+      <TextField label="Axis label" value={style.label ?? fallback} onChange={(value) => set("label", value)}
+        rendererLabel="Axis label text renderer" renderer={style.label_renderer} onRenderer={(value) => set("label_renderer", value)} />
       {!categorical && <Choice label="Scale" value={style.scale} onChange={(value) => set("scale", value)}
         options={[["linear", "Linear"], ["log", "Logarithmic"]]} />}
       <NumberField label="Lower limit" placeholder="Auto" value={style.lower}
@@ -197,6 +200,8 @@ function AxisFields({ style, fallback, categorical, onChange }: {
       </>}
       <Choice label="Tick direction" value={style.ticks} onChange={(value) => set("ticks", value)}
         options={[["outside", "Outward"], ["inside", "Inward"], ["none", "Hidden"]]} />
+      {!categorical && <Choice label="Number notation" value={style.notation} onChange={(value) => set("notation", value)}
+        options={[["plain", "Plain numbers"], ["si", "SI prefixes"], ["scientific", "Shared scientific exponent"]]} />}
       <NumberField label="Tick length (px)" value={style.tick_length} onChange={(value) => set("tick_length", value)} />
       <NumberField label="Tick label angle (°)" value={style.angle} onChange={(value) => set("angle", value)} />
     </SettingsGroup>
@@ -230,6 +235,27 @@ function AxisFields({ style, fallback, categorical, onChange }: {
   </>;
 }
 
+function TextOverrides({ style, onChange }: { style: FigureStyle; onChange: (style: FigureStyle) => void }) {
+  const [role, setRole] = useState<TextRole>("title");
+  const label = textRoles[role];
+  return <SettingsGroup title="Text styles">
+    <Field label="Text element"><select value={role} onChange={(event) => setRole(event.target.value as TextRole)}>
+      {(Object.keys(textRoles) as TextRole[]).map((key) => <option key={key} value={key}>{textRoles[key]}</option>)}
+    </select></Field>
+    <FontField label={`${label} font family`} value={style[`${role}_family`] ?? ""}
+      onChange={(value) => onChange({ ...style, [`${role}_family`]: value.trim() ? value : null })} />
+    <NumberField key={role} label={`${label} size (px)`} placeholder="Auto" value={style[`${role}_size`]}
+      onChange={(value) => onChange({ ...style, [`${role}_size`]: Number.isNaN(value) ? null : value })} />
+    {(["bold", "italic"] as const).map((emphasis) => {
+      const key = `${role}_${emphasis}` as const;
+      const value = style[key];
+      return <Choice key={emphasis} label={`${label} ${emphasis}`} value={value === null ? "inherit" : value ? "on" : "off"}
+        options={[["inherit", "Inherit"], ["on", "On"], ["off", "Off"]]}
+        onChange={(next) => onChange({ ...style, [key]: next === "inherit" ? null : next === "on" })} />;
+    })}
+  </SettingsGroup>;
+}
+
 function FigureFields({ style, bar, markers, line, onChange }: {
   style: FigureStyle;
   bar: boolean;
@@ -243,7 +269,8 @@ function FigureFields({ style, bar, markers, line, onChange }: {
 
   return <>
     <SettingsGroup title="Layout">
-    <MathTextField label="Figure title" value={style.title} onChange={(value) => set("title", value)} />
+    <TextField label="Figure title" value={style.title} onChange={(value) => set("title", value)}
+      rendererLabel="Title text renderer" renderer={style.title_renderer} onRenderer={(value) => set("title_renderer", value)} />
     <NumberField label="Axes width (px)" placeholder="Auto" value={style.axes_width}
       onChange={(value) => set("axes_width", Number.isNaN(value) ? null : value)} />
     <NumberField label="Axes height (px)" placeholder="Auto" value={style.axes_height}
@@ -258,6 +285,7 @@ function FigureFields({ style, bar, markers, line, onChange }: {
     <NumberField label="Axis label size (px)" value={style.label_size} onChange={(value) => set("label_size", value)} />
     <NumberField label="Tick and legend size (px)" value={style.tick_size} onChange={(value) => set("tick_size", value)} />
     </SettingsGroup>
+    <TextOverrides style={style} onChange={onChange} />
     <SettingsGroup title="Colors and legend">
     <Field label="Text and axis color"><input type="color" value={style.text_color}
       onChange={(event) => set("text_color", event.target.value)} /></Field>
@@ -273,6 +301,7 @@ function FigureFields({ style, bar, markers, line, onChange }: {
     {(bar || markers || line) && <SettingsGroup title="Traces and markers">
     {bar && <NumberField label="Bar width (fraction)" value={style.bar_width} onChange={(value) => set("bar_width", value)} />}
     {markers && <>
+          <Field label="Show markers"><input type="checkbox" checked={style.show_markers} onChange={(event) => set("show_markers", event.target.checked)} /></Field>
           <NumberField label="Marker size (px)" value={style.marker_size} onChange={(value) => set("marker_size", value)} />
           <Choice label="Marker shape" value={style.marker_symbol} onChange={(value) => set("marker_symbol", value)}
             options={[
@@ -281,6 +310,7 @@ function FigureFields({ style, bar, markers, line, onChange }: {
             ]} />
         </>}
     {line && <>
+      <Field label="Show trace lines"><input type="checkbox" checked={style.show_lines} onChange={(event) => set("show_lines", event.target.checked)} /></Field>
       <NumberField label="Trace line width (px)" value={style.line_width} onChange={(value) => set("line_width", value)} />
       <Choice label="Trace line style" value={style.line_dash} onChange={(value) => set("line_dash", value)}
         options={[["solid", "Solid"], ["dash", "Dashed"], ["dot", "Dotted"], ["dashdot", "Dash-dot"]]} />
@@ -542,7 +572,6 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
             </Field>
           </SettingsGroup>}
           <div hidden={page !== "figures"}>
-          {global && <p className="global-settings-note muted">Defaults for new figures.</p>}
       <GlobalControls.Provider value={onSaveGlobal ? { busy, save: (key) => { void saveField(key); }, reset: resetField, describe: describeDefault } : null}>
       <MeasurementControls.Provider value={{
         units: (section === "figure" ? style.units : style[section].units) ?? {},

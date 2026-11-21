@@ -90,7 +90,7 @@ def replay_figure(project, figure, recipe):
     }
 
 
-def render_svg(figure, browser_executable, font, embedded_fonts):
+def render_svg(figure, browser_executable, font, embedded_fonts, mathjax=None):
     dimensions = {key: figure[key] for key in ("width", "height")}
     from playwright.sync_api import sync_playwright
     from plotly.offline import get_plotlyjs
@@ -116,6 +116,12 @@ def render_svg(figure, browser_executable, font, embedded_fonts):
                 }""",
                 embedded_fonts,
             )
+        if mathjax:
+            from gzip import decompress
+
+            page.evaluate("window.MathJax = {startup: {typeset: false}, svg: {fontCache: 'none'}}")
+            page.add_script_tag(content=decompress(b64decode(mathjax)).decode("utf-8"))
+            page.evaluate("MathJax.startup.promise.then(() => true)")
         page.add_script_tag(content=get_plotlyjs())
         return page.evaluate(
             """async ({ traces, layout, width, height }) => {
@@ -158,7 +164,7 @@ def main():
     )
     font = (Path(get_data_path()) / "fonts" / "ttf" / "DejaVuSans.ttf").read_bytes()
     embedded_fonts = payload.get("fonts", [])
-    svg = render_svg(figure, args.browser_executable, font, embedded_fonts)
+    svg = render_svg(figure, args.browser_executable, font, embedded_fonts, payload.get("mathjax"))
     with TemporaryDirectory() as directory:
         fonts = Path(directory)
         (fonts / "DejaVuSans.ttf").write_bytes(font)

@@ -435,7 +435,14 @@ class Workspace:
                 if record is None:
                     raise ValueError("Choose a figure to export.")
                 style = record.style
-                return {"fonts": [self.fonts.export(style.font_family, style.font_bold, style.font_italic)]}
+                faces = {(style.font_family, style.font_bold, style.font_italic)}
+                for role in ("title", "x_label", "y_label", "x_tick", "y_tick", "legend"):
+                    bold = getattr(style, f"{role}_bold")
+                    italic = getattr(style, f"{role}_italic")
+                    faces.add((getattr(style, f"{role}_family") or style.font_family,
+                               style.font_bold if bold is None else bold,
+                               style.font_italic if italic is None else italic))
+                return {"fonts": [self.fonts.export(*face) for face in sorted(faces)]}
             case "dialog_directory":
                 return {"directory": self.dialog_directory()}
             case "worksheet_page":
@@ -702,6 +709,9 @@ class Workspace:
         output, steps = request["output"], request["steps"]
         if output not in ("overlay", "separate") or not isinstance(steps, list) or not steps:
             raise ValueError("Choose batch commands and an output mode.")
+        filter_only = all(step["plugin_id"] == "nigiro.filter" for step in steps)
+        if filter_only:
+            output = "separate"
         operations = list(project.operations)
         changed = set()
         destinations = set()
@@ -724,7 +734,7 @@ class Workspace:
                 if recipe.pin == ("nigiro.linear_fit", "1", None):
                     residuals.append(len(operations))
                     operations.append(ResidualFigure(figure_id))
-                destination = run.get("target_id") if output == "separate" else None
+                destination = run.get("target_id") if output == "separate" and not filter_only else None
                 if destination is not None:
                     self.validate_destination(project, destination)
                     if destination in targets:
@@ -752,7 +762,11 @@ class Workspace:
         updated.validate()
         self.render(updated, changed=changed, fallback=self.sources, destinations=destinations)
         self.project = updated
-        self.figure_id = selection
+        if filter_only:
+            self.source_id = f"{selection}:filtered"
+            self.row_offset = 0
+        else:
+            self.figure_id = selection
         self.dirty = True
 
     def apply_global_defaults(self, previous: Project, updated: Project, defaults: dict | None) -> Project:

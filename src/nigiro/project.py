@@ -331,6 +331,7 @@ class Project:
         return {
             key: figure for key, figure in self.figures.items()
             if key not in members and not self.item_deleted("figure", key)
+            and not (isinstance(figure.recipe, PluginStep) and figure.recipe.plugin_id == "nigiro.filter")
         }
 
     @cached_property

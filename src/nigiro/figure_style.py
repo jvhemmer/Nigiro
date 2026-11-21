@@ -41,11 +41,13 @@ def normalize_units(style, lengths, angles=()):
 @dataclass(frozen=True)
 class AxisStyle:
     label: str | None = None
+    label_renderer: str = "auto"
     scale: str = "linear"
     lower: float | None = None
     upper: float | None = None
     step: float | None = None
     format: str = ""
+    notation: str = "plain"
     angle: float = 0
     ticks: str = "outside"
     tick_length: float = 4
@@ -62,6 +64,8 @@ class AxisStyle:
     units: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.label_renderer not in ("auto", "plain", "latex"):
+            raise ValueError("Choose a text renderer for the axis label.")
         normalize_units(self, ("tick_length", "line_width"), ("angle",))
         if self.label is not None and not isinstance(self.label, str):
             raise ValueError("Enter text for the axis label.")
@@ -74,6 +78,8 @@ class AxisStyle:
             raise ValueError("Enter an upper limit greater than the lower limit.")
         if self.step is not None and (not _finite(self.step) or self.step <= 0):
             raise ValueError("Enter a positive tick interval.")
+        if self.notation not in ("plain", "si", "scientific"):
+            raise ValueError("Choose a number notation.")
         if self.ticks not in ("outside", "inside", "none") or not isinstance(self.format, str):
             raise ValueError("Invalid tick settings.")
         for value, minimum, maximum in ((self.angle, -180, 180), (self.tick_length, 0, 30), (self.line_width, 0.1, 12)):
@@ -89,6 +95,7 @@ class AxisStyle:
 @dataclass(frozen=True)
 class FigureStyle:
     title: str = ""
+    title_renderer: str = "auto"
     axes_width: float | None = None
     axes_height: float | None = None
     font_family: str = "DejaVu Sans"
@@ -96,12 +103,38 @@ class FigureStyle:
     font_italic: bool = False
     label_size: float = 13
     tick_size: float = 11
+    title_family: str | None = None
+    title_bold: bool | None = None
+    title_italic: bool | None = None
+    title_size: float | None = None
+    x_label_family: str | None = None
+    x_label_bold: bool | None = None
+    x_label_italic: bool | None = None
+    x_label_size: float | None = None
+    y_label_family: str | None = None
+    y_label_bold: bool | None = None
+    y_label_italic: bool | None = None
+    y_label_size: float | None = None
+    x_tick_family: str | None = None
+    x_tick_bold: bool | None = None
+    x_tick_italic: bool | None = None
+    x_tick_size: float | None = None
+    y_tick_family: str | None = None
+    y_tick_bold: bool | None = None
+    y_tick_italic: bool | None = None
+    y_tick_size: float | None = None
+    legend_family: str | None = None
+    legend_bold: bool | None = None
+    legend_italic: bool | None = None
+    legend_size: float | None = None
     text_color: str = "#181818"
     background: str = "#ffffff"
     legend: str = "auto"
     line_width: float = 1.5
     line_dash: str = "solid"
     marker_size: float = 5
+    show_markers: bool = True
+    show_lines: bool = True
     marker_symbol: str = "circle"
     bar_width: float = 0.8
     x: AxisStyle = AxisStyle()
@@ -111,7 +144,21 @@ class FigureStyle:
     units: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self, residual=None) -> None:
-        normalize_units(self, ("axes_width", "axes_height", "label_size", "tick_size", "line_width", "marker_size"))
+        if self.title_renderer not in ("auto", "plain", "latex"):
+            raise ValueError("Choose a text renderer for the title.")
+        roles = ("title", "x_label", "y_label", "x_tick", "y_tick", "legend")
+        sizes = tuple(f"{role}_size" for role in roles)
+        normalize_units(self, ("axes_width", "axes_height", "label_size", "tick_size", "line_width", "marker_size", *sizes))
+        for role in roles:
+            family = getattr(self, f"{role}_family")
+            size = getattr(self, f"{role}_size")
+            if family is not None and (not isinstance(family, str) or not re.fullmatch(r"[\w .'-]+", family)):
+                raise ValueError("Enter a valid font family.")
+            if size is not None and (not _finite(size) or not 6 <= size <= 48):
+                raise ValueError("Enter a font size from 6 to 48 px.")
+            if any(value is not None and type(value) is not bool
+                   for value in (getattr(self, f"{role}_bold"), getattr(self, f"{role}_italic"))):
+                raise ValueError("Choose a valid font style.")
         for size in (self.axes_width, self.axes_height):
             if size is not None and (not _finite(size) or not 1 <= size <= 8000):
                 raise ValueError("Enter axes dimensions from 1 to 8000 px.")
@@ -129,6 +176,8 @@ class FigureStyle:
             raise ValueError("Choose a legend position.")
         if self.line_dash not in ("solid", "dash", "dot", "dashdot"):
             raise ValueError("Choose a line style.")
+        if type(self.show_markers) is not bool or type(self.show_lines) is not bool:
+            raise ValueError("Choose whether to show markers and lines.")
         if self.marker_symbol not in ("circle", "square", "diamond", "triangle-up", "cross"):
             raise ValueError("Choose a marker shape.")
         for value, minimum, maximum in (

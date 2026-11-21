@@ -386,7 +386,7 @@ export function App() {
     ? figure.recipe.options : previous?.kind === "plugin" ? previous.options : undefined;
 
   function pluginCommands(menu: PluginDefinition["menu"]) {
-    return plugins.filter((plugin) => plugin.menu === menu).map((plugin) => {
+    return plugins.filter((plugin) => plugin.menu === menu && plugin.id !== "nigiro.filter").map((plugin) => {
       const columns = columnFields(plugin).length;
       const required = plugin.distinct_columns ? columns : Math.min(columns, 1);
       return {
@@ -444,11 +444,14 @@ export function App() {
   };
   const activeSource = project?.sources.find((source) => source.id === project.source_id);
   const scaleCommand: MenuCommand = {
-    label: "Multiply Column…",
+    label: "Scalar multiplication…",
     request: activeSource && (activeSource.id === null || activeSource.id.startsWith("raw:")) && activeSource.columns.length
       ? { action: "choose_scale" } : null,
   };
   const plotCommands = pluginCommands("plot");
+  const filterPlugin = plugins.find((plugin) => plugin.id === "nigiro.filter");
+  const filterCommand: MenuCommand = { label: "Filter…", request: filterPlugin && project?.sources.length
+    ? { action: "choose_plugin", plugin: filterPlugin } : null };
   const analysisCommands = pluginCommands("analysis");
 
   function itemCommands(item: WorkspaceItem, name: string): MenuCommand[] {
@@ -495,7 +498,7 @@ export function App() {
       groups = figure && activeFigure?.id === target.id ? [[figureSettings], commands, exportCommands] : [commands];
     } else if (event.target.closest(".source-pane") && (plotCommands.length || analysisCommands.length)) {
       label = "Worksheet actions";
-      groups = [[scaleCommand], plotCommands, analysisCommands].filter((group) => group.length);
+      groups = [[scaleCommand, filterCommand], plotCommands, analysisCommands].filter((group) => group.length);
     }
     const anchor = (historyStep ?? clicked ?? event.target).getBoundingClientRect();
     const useAnchor = event.clientX === 0 && event.clientY === 0;
@@ -534,7 +537,7 @@ export function App() {
             },
             {
               label: "Edit",
-              groups: [[scaleCommand], [{ label: "Settings…", request: { action: "settings" } }]],
+              groups: [[{ label: "Settings…", request: { action: "settings" } }]],
             },
             {
               label: "Plot",
@@ -545,7 +548,7 @@ export function App() {
             },
             {
               label: "Analysis",
-              groups: [analysisCommands],
+              groups: [analysisCommands, [{ label: "Operations", request: null, submenu: [scaleCommand, filterCommand] }]],
             },
             {
               label: "Plugins",

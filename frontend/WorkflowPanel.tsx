@@ -47,11 +47,12 @@ export function WorkflowStepDialog({ step, columns, busy, error, onClose, onRun 
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [options, setOptions] = useState<PluginOptions[]>(step?.options ?? []);
+  const [tab, setTab] = useState("Inputs");
   const [column, setColumn] = useState(0);
   const [factor, setFactor] = useState(1);
   useEffect(() => { dialog.current?.showModal(); }, []);
 
-  return <dialog ref={dialog} className="settings-dialog" aria-labelledby="workflow-dialog-title"
+  return <dialog ref={dialog} className={step ? "settings-dialog" : "settings-dialog plugin-dialog"} aria-labelledby="workflow-dialog-title"
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <form onSubmit={async (event) => {
       event.preventDefault();
@@ -60,9 +61,9 @@ export function WorkflowStepDialog({ step, columns, busy, error, onClose, onRun 
         : { action: "scale_column", column, factor };
       if (await onRun(request)) onClose();
     }}>
-      <h2 id="workflow-dialog-title">{step?.label ?? "Multiply column"}</h2>
-      <div className="fit-settings plugin-fields">
-        {step ? options.map((values, index) => <fieldset key={index}>
+      <h2 id="workflow-dialog-title">{step?.label ?? "Scalar multiplication"}</h2>
+      {step ? <div className="fit-settings plugin-fields">
+        {options.map((values, index) => <fieldset key={index}>
           {options.length > 1 && <legend>Input {index + 1}</legend>}
           {Object.entries(values).map(([key, value]) => (
             <label key={key}><span>{step.labels[key] ?? key}</span>
@@ -74,22 +75,36 @@ export function WorkflowStepDialog({ step, columns, busy, error, onClose, onRun 
                   onChange={(event) => update(index, key, event.target.type === "number" ? event.target.valueAsNumber : event.target.value)} />}
             </label>
           ))}
-        </fieldset>) : <>
+        </fieldset>)}
+      </div> : <div className="plugin-body">
+        <div className="plugin-tabs" role="tablist" aria-orientation="vertical" aria-label="Operation setup">
+          {["Inputs", "Configuration", "Output"].map((name) => <button key={name} type="button" role="tab"
+            id={`scale-tab-${name}`} aria-controls={`scale-panel-${name}`} aria-selected={name === tab}
+            onClick={() => setTab(name)}>{name}</button>)}
+        </div>
+        <section className="fit-settings" hidden={tab !== "Inputs"} role="tabpanel"
+          id="scale-panel-Inputs" aria-labelledby="scale-tab-Inputs">
           <label><span>Column</span>
             <select value={column} onChange={(event) => setColumn(Number(event.target.value))}>
               {columns.map((name, index) => <option key={index} value={index}>{name || `Column ${index + 1}`}</option>)}
             </select>
           </label>
+        </section>
+        <section className="fit-settings" hidden={tab !== "Configuration"} role="tabpanel"
+          id="scale-panel-Configuration" aria-labelledby="scale-tab-Configuration">
           <label><span>Factor</span>
             <input type="number" required step="any" value={Number.isNaN(factor) ? "" : factor}
               onChange={(event) => setFactor(event.target.valueAsNumber)} />
           </label>
-        </>}
-      </div>
+        </section>
+        <section hidden={tab !== "Output"} role="tabpanel" id="scale-panel-Output" aria-labelledby="scale-tab-Output">
+          <p>Updates the working column for later steps. The original CSV stays intact.</p>
+        </section>
+      </div>}
       {error && <p role="alert" className="figure-settings-error">{error}</p>}
       <footer>
         <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
-        <button type="submit" className="primary" disabled={busy}>{step ? "Save step" : "Add step"}</button>
+        <button type="submit" className="primary" disabled={busy || (!step && !Number.isFinite(factor))}>{step ? "Save step" : "Add step"}</button>
       </footer>
     </form>
   </dialog>;

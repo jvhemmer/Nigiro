@@ -104,8 +104,10 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
   const inputs = sources.filter(({ id }) => picked.has(id));
   const reference = inputs.find(({ id }) => id === referenceId) ?? inputs[0];
   const fields = columnFields(plugin);
-  const config = plugin.fields.filter((field) => field.type !== "column");
-  const output = inputs.length > 1 ? mode : "overlay";
+  const filter = plugin.id === "nigiro.filter";
+  const outputField = filter ? plugin.fields.find(({ key }) => key === "output") : undefined;
+  const config = plugin.fields.filter((field) => field.type !== "column" && field !== outputField);
+  const output = filter ? "separate" : inputs.length > 1 ? mode : "overlay";
   const runs = reference ? inputs.map((source) => {
     const mapped = { ...options };
     for (const { key } of fields) {
@@ -144,14 +146,15 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
         });
       }}>
         <h2 id={`${id}-title`}>{plugin.menu === "plot" ? `${plugin.name} plot` : plugin.name}</h2>
-        <div className="plugin-tabs" role="tablist" aria-label="Plugin setup">
+        <div className="plugin-body">
+        <div className="plugin-tabs" role="tablist" aria-label="Plugin setup" aria-orientation="vertical">
           {tabs.map((name, index) => (
             <button key={name} id={`${id}-tab-${name}`} role="tab" aria-selected={tab === name}
               aria-controls={`${id}-panel-${name}`} tabIndex={tab === name ? 0 : -1} type="button"
               onClick={() => setTab(name)} onKeyDown={(event) => {
                 const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
-                  : event.key === "ArrowRight" ? (index + 1) % tabs.length
-                  : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : -1;
+                  : event.key === "ArrowDown" ? (index + 1) % tabs.length
+                  : event.key === "ArrowUp" ? (index + tabs.length - 1) % tabs.length : -1;
                 if (next < 0) return;
                 event.preventDefault();
                 setTab(tabs[next]);
@@ -232,6 +235,7 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
         </section>
         <section role="tabpanel" id={`${id}-panel-Configuration`} aria-labelledby={`${id}-tab-Configuration`} hidden={tab !== "Configuration"}>
           {config.length ? <div className="fit-settings plugin-fields">
+            {filter && <p className="muted">Use value to refer to the selected column. For example, 0 &lt; value &lt;= 10.</p>}
             {config.map((field) => <PluginOptionField key={field.key} field={field} columns={[]}
               value={options[field.key]} onChange={(value) => change(field.key, value)} />)}
           </div> : <p className="muted">This plugin has no additional settings.</p>}
@@ -242,7 +246,11 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
             <ul>{(plugin.outputs?.length ? plugin.outputs : ["Figure", ...(plugin.menu === "analysis" ? ["Plugin results, if available"] : [])])
               .map((label, index) => <li key={index}>{label}</li>)}</ul>
           </fieldset>
-          {configuring ? <p className="muted">Update the current figure.</p> : <div className="fit-settings">
+          {outputField ? <div className="fit-settings">
+            <PluginOptionField field={outputField} columns={[]} value={options[outputField.key]}
+              onChange={(value) => change(outputField.key, value)} />
+            <p className="muted">Each input produces a new source in the Sources panel.</p>
+          </div> : configuring ? <p className="muted">Update the current figure.</p> : <div className="fit-settings">
             {inputs.length > 1 && <label><span>Combine inputs</span>
               <select aria-label="Combine inputs" value={mode} onChange={(event) => setMode(event.target.value === "separate" ? "separate" : "overlay")}>
                 <option value="overlay">Overlay in one figure</option>
@@ -256,6 +264,7 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
             {plugin.id === "nigiro.linear_fit" && <p className="muted">Residuals go to a separate figure. Result tables appear in Sources.</p>}
           </div>}
         </section>
+        </div>
         {problem && <p className="muted">{problem}</p>}
         {error && <p className="error-banner" role="alert">{error}</p>}
         <footer>
