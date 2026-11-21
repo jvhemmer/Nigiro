@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import figureStyle from "../src/nigiro/figure_style.py?raw";
 import sourceTables from "../src/nigiro/source_tables.py?raw";
+import batchFigure from "../src/nigiro/batch_figure.py?raw";
 import model from "../src/nigiro/project.py?raw";
 import analysis from "../src/nigiro/analysis.py?raw";
 import builtinPlugins from "../src/nigiro/builtin_plugins.py?raw";
@@ -32,6 +33,8 @@ function script(project: Project, figure: FigureSnapshot, settings: ExportSettin
     operations: project.operations,
     figure_input: project.figure_input,
     plugin: { ...plugin.recipe, source: plugin.source, part: plugin.part },
+    overlay_inputs: plugin.overlay_inputs,
+    preserve_first: plugin.preserve_first,
     figure,
     export_settings: settings,
   }, null, 2);
@@ -62,6 +65,7 @@ ${payload}
 
 ${sourceBody(figureStyle)}
 ${sourceBody(sourceTables)}
+${sourceBody(batchFigure)}
 ${sourceBody(model).replace(/^from \.(figure_style|source_tables) import .*\n/gm, "")}
 ${sourceBody(analysis).replace(/^from \.project import .*\n/m, "")}
 ${sourceBody(builtinPlugins).replace(/^from \.(analysis|project) import .*\n/gm, "")}
@@ -76,6 +80,10 @@ if __name__ == "__main__":
 
 export async function saveFigure(name: string, target: ExportTarget, settings: ExportSettings, capture: CaptureFigure, project: Project) {
   const format = target === "script" ? "py" : settings.format;
+  if (target === "script") {
+    const response = await invoke<{ project: Project }>("workspace", { request: { action: "state" }, paged: false });
+    project = response.project;
+  }
   const content = target === "script"
     ? script(project, capture.snapshot(), settings)
     : await capture.svg();

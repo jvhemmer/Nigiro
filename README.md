@@ -31,8 +31,8 @@ Find the package in `src-tauri/target/release/bundle/`. The bundle includes the 
 
 ## Try the editor
 
-1. Select **File → Try Sample Data**. To import your own data, select **File → Import CSV**. Use a comma-separated UTF-8 file with a header row.
-2. Select **Analysis → Linear Fit**. Choose the X and Y columns, then select **Run analysis**.
+1. Select **File → Try Sample Data** or use **File → Import Data** to add one or more CSVs to the current project. Use comma-separated UTF-8 files with a header row. **File → New** starts an empty project.
+2. Select **Analysis → Linear Fit**. Choose a source and its X and Y columns on **Inputs**, then select **Run analysis**.
 3. Select a point or the fit line, then apply a color in **Figure element**.
 4. Double-click a value in **Working data** and press Enter to apply the edit.
 5. Select **File → Save** to save the project.
@@ -41,13 +41,15 @@ The fit excludes rows with a blank X or Y value and reports how many it excluded
 
 ## Plot columns
 
-Select **Plot → Scatter**, **Line**, or **Bar**. Choose one X column and one Y column, then select **Create plot**. Scatter and line plots use numeric X and Y values. Bar plots use the X column as labels.
+Select **Plot → Scatter**, **Line**, or **Bar**. Choose sources and columns on **Inputs**. With multiple sources, Nigiro matches column headers from the reference source. Use the mapping table to change the columns for any source. Scatter and line plots use numeric X and Y values. Bar plots use the X column as labels.
+
+The **Configuration** tab contains the plugin's settings. The **Output** tab lists what the plugin produces and lets you create new figures or add traces to existing figures with compatible axes. For multiple sources, you can overlay the traces or use a separate figure for each source.
 
 ## Switch sources and figures
 
 Use the tabs in **Worksheet** to switch between imported data and analysis results. The dockable **Sources** panel lists all sources. Select an entry to open it in **Worksheet**. Linear Fit creates separate tables for coefficients and fitted values. The fitted values table includes X, observed Y, fitted Y, and residuals.
 
-Choose a source before you start a plot or analysis. Linear Fit adds a fit figure and a separate residual figure. Use the tabs in **Figure** to switch between them or return to any earlier figure. Each figure has its own appearance settings. **Plugin settings** updates both figures from the same fit.
+Linear Fit produces a fit and a separate residual figure. Use the tabs in **Figure** to switch between them or return to any earlier figure. Each figure has its own appearance settings. For a fit from one source, **Plugin settings** updates its fit and residual figures.
 
 Save the project to keep the figures, their settings, and the analysis tables. Nigiro recalculates linked results after a worksheet correction.
 
@@ -64,6 +66,8 @@ Linear Fit, Scatter, Line, and Bar ship with Nigiro. Use **Plugin settings** in 
 Use the [Scaled XY example](examples/plugins/scaled_xy.py) as a template. Define a literal `PLUGIN` dictionary at the top of a UTF-8 Python file. Give it an `id`, a `name`, a `version` string, `api: 1`, and a `menu` of `plot` or `analysis`.
 
 Define the plugin's `fields` as a list of controls. Each control has a `key`, `label`, `type`, and `default`. The available types are `column`, `number`, `text`, `boolean`, and `choice`. Number fields accept optional `min` and `max`. Choice fields take a `choices` list with a text `value` and `label` for each choice. Set `distinct_columns` to `True` to require different columns.
+
+Set the optional `outputs` field to a list of labels, such as `["Fit figure", "Coefficients table"]`. Nigiro shows these labels on the **Output** tab.
 
 Define `run(columns, rows, options)`. Nigiro passes the column names, corrected worksheet rows, and selected options. Column indices start at zero. Return a dictionary with a `traces` list of Plotly trace dictionaries. The desktop renderer supports `scatter`, `bar`, and `pie`. You can also return `layout`, `x_label`, `y_label`, and a `summary` of name-value pairs. Use JSON-compatible values.
 

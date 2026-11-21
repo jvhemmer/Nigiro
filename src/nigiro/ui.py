@@ -32,7 +32,7 @@ from .analysis import run_linear_fit
 from .figure_style import FigureStyle
 from .plotting import draw_fit
 from .project import (
-    Correction, FigureAppearance, FigureColor, ItemEdit, LinearFit, Plot, PluginStep, Project, ResidualFigure,
+    AddFigureLayers, Correction, FigureAppearance, FigureColor, ItemEdit, LinearFit, OverlayFigure, Plot, PluginStep, Project, ResidualFigure,
     Source, Worksheet,
 )
 from .storage import load_project, save_project
@@ -164,7 +164,7 @@ class MainWindow(QMainWindow):
         self.project = project
         self.path = path
         self.dirty = path is None
-        self.raw_model.set_worksheet(project.source.worksheet)
+        self.raw_model.set_worksheet(project.source.worksheet if project.source else project.worksheet)
         self.working_model.set_worksheet(project.worksheet)
         for column in (self.x_column, self.y_column):
             column.clear()
@@ -178,7 +178,7 @@ class MainWindow(QMainWindow):
 
     def refresh(self) -> None:
         project = self.project
-        name = (self.path.name if self.path else project.source.name) if project else ""
+        name = (self.path.name if self.path else project.source.name if project.source else "Untitled") if project else ""
         self.setWindowTitle(f"Nigiro — {name}[*]" if name else "Nigiro")
         self.setWindowModified(self.dirty)
         self.save_action.setEnabled(project is not None)
@@ -190,10 +190,11 @@ class MainWindow(QMainWindow):
 
         self.history.clear()
         if project:
-            self.history.addItem(f"Import {project.source.name}")
+            for source in project.raw_sources.values():
+                self.history.addItem(f"Import {source.name}")
             for operation in project.operations:
                 if isinstance(operation, Correction):
-                    column = project.worksheet.columns[operation.column]
+                    column = project.raw_sources[operation.source_id].worksheet.columns[operation.column]
                     step = f"Correct row {operation.row + 1}, {column}: {operation.value!r}"
                 elif isinstance(operation, LinearFit):
                     columns = project.worksheet.columns
@@ -208,6 +209,10 @@ class MainWindow(QMainWindow):
                     step = f"Run {operation.plugin_id} {operation.version}"
                 elif isinstance(operation, ResidualFigure):
                     step = "Create residual figure"
+                elif isinstance(operation, OverlayFigure):
+                    step = f"Overlay {len(operation.figure_ids)} figures"
+                elif isinstance(operation, AddFigureLayers):
+                    step = "Add layers to a figure"
                 elif isinstance(operation, ItemEdit):
                     step = (
                         f"Delete {operation.target}" if operation.name is None
@@ -321,7 +326,8 @@ class MainWindow(QMainWindow):
             dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
             dialog.setNameFilter("Nigiro (*.nigiro)")
             dialog.setDefaultSuffix("nigiro")
-            dialog.selectFile(self.project.source.name + ".nigiro" if path is None else str(path))
+            name = self.project.source.name if self.project.source else "Untitled"
+            dialog.selectFile(name + ".nigiro" if path is None else str(path))
             if not dialog.exec():
                 return False
             path = Path(dialog.selectedFiles()[0])

@@ -6,19 +6,20 @@ interface WorksheetProps {
   rows: string[][];
   originalRows?: string[][];
   busy: boolean;
+  rowCount: number;
+  offset: number;
+  onPage: (offset: number) => void;
   onCorrect?: (row: number, column: number, value: string) => void;
 }
 
 const pageSize = 100;
 
-export function Worksheet({ columns, rows, originalRows, busy, onCorrect }: WorksheetProps) {
+export function Worksheet({ columns, rows, originalRows, busy, rowCount, offset, onPage, onCorrect }: WorksheetProps) {
   const [original, setOriginal] = useState(false);
-  const [page, setPage] = useState(0);
   const [editing, setEditing] = useState<{ row: number; column: number } | null>(null);
   const readOnly = original || !originalRows || !onCorrect;
-  const currentPage = Math.min(page, Math.max(0, Math.ceil(rows.length / pageSize) - 1));
-  const start = currentPage * pageSize;
-  const visibleRows = (original ? originalRows ?? rows : rows).slice(start, start + pageSize);
+  const start = offset;
+  const visibleRows = original ? originalRows ?? rows : rows;
 
   function editCell(event: KeyboardEvent<HTMLInputElement>, row: number, column: number) {
     if (event.key === "Enter") {
@@ -38,7 +39,7 @@ export function Worksheet({ columns, rows, originalRows, busy, onCorrect }: Work
             <LockKeyhole size={13} /> Original CSV
           </button>
         </>}
-        <span className="worksheet-count muted">{rows.length.toLocaleString()} rows</span>
+        <span className="worksheet-count muted">{rowCount.toLocaleString()} rows</span>
       </div>
       <div className="table-scroll">
         <table aria-label={!originalRows ? "Analysis output" : original ? "Original CSV" : "Working worksheet"}>
@@ -72,7 +73,7 @@ export function Worksheet({ columns, rows, originalRows, busy, onCorrect }: Work
                           />
                         ) : (
                           <button
-                            className={value !== originalRows?.[rowIndex][column] ? "corrected-cell" : ""}
+                            className={value !== originalRows?.[index]?.[column] ? "corrected-cell" : ""}
                             aria-label={`${label}, ${value || "blank"}`}
                             title={value}
                             disabled={busy}
@@ -96,16 +97,16 @@ export function Worksheet({ columns, rows, originalRows, busy, onCorrect }: Work
       </div>
       <div className="worksheet-footer">
         <span>{readOnly ? "Read-only source data" : "Double-click a cell to edit"}</span>
-        {rows.length > pageSize && (
+        {rowCount > pageSize && (
           <div className="page-controls">
             <button
-              aria-label="Previous rows" disabled={currentPage === 0}
-              onClick={() => setPage(currentPage - 1)}
+              aria-label="Previous rows" disabled={busy || start === 0}
+              onClick={() => onPage(Math.max(0, start - pageSize))}
             ><ChevronLeft size={16} /></button>
             <span>{start + 1}–{start + visibleRows.length}</span>
             <button
-              aria-label="Next rows" disabled={start + pageSize >= rows.length}
-              onClick={() => setPage(currentPage + 1)}
+              aria-label="Next rows" disabled={busy || start + pageSize >= rowCount}
+              onClick={() => onPage(start + pageSize)}
             ><ChevronRight size={16} /></button>
           </div>
         )}

@@ -34,6 +34,7 @@ export interface PluginDefinition {
   menu: "plot" | "analysis";
   fields: PluginField[];
   distinct_columns?: boolean;
+  outputs?: string[];
 }
 
 export interface PluginRun {
@@ -42,6 +43,18 @@ export interface PluginRun {
   checksum: string | null;
   options: PluginOptions;
   source_id?: string | null;
+}
+
+export interface PluginSubmission {
+  output: "overlay" | "separate";
+  target_id: number | null;
+  runs: { source_id: string | null; options: PluginOptions; target_id: number | null }[];
+}
+
+export interface OverlayInput {
+  plugin: PluginRun & { source: string | null; part?: "fit" | "residual" };
+  input: SourceTable | null;
+  label: string;
 }
 
 export interface PluginFigure {
@@ -57,10 +70,13 @@ export interface PluginFigure {
   residual_panel?: boolean;
   part?: "fit" | "residual";
   summary?: Record<string, number | string | boolean | null>;
+  series_colors?: (string | null)[];
+  overlay_inputs?: OverlayInput[];
+  preserve_first?: boolean;
 }
 
 export type RecordedStep =
-  | { kind: "correct_cell"; row: number; column: number; value: string }
+  | { kind: "correct_cell"; row: number; column: number; value: string; source_id?: string }
   | { kind: "linear_fit"; x: number; y: number; version: number }
   | PlotRecipe
   | ({ kind: "plugin" } & PluginRun)
@@ -68,6 +84,8 @@ export type RecordedStep =
   | ({ kind: "figure_style" } & FigureStyle)
   | { kind: "figure_appearance"; figure_id: number; style: FigureStyle }
   | { kind: "residual_figure"; fit_id: number }
+  | { kind: "overlay_figure"; figure_ids: number[] }
+  | { kind: "add_figure_layers"; target_id: number; figure_ids: number[] }
   | { kind: "item_edit"; target: WorkspaceItem["kind"]; item_id: WorkspaceItem["id"]; name: string | null };
 
 export type WorkspaceItem =
@@ -80,20 +98,31 @@ export interface SourceTable {
   rows: string[][];
 }
 
+export interface ProjectSource {
+  id: string | null;
+  name: string;
+  columns: string[];
+}
+
 export interface Project {
-  source_name: string;
+  row_count: number;
+  row_offset: number;
+  figure_token: string | null;
+  figure_cached: boolean;
+  source_name: string | null;
   file_name: string | null;
   dirty: boolean;
   columns: string[];
   rows: string[][];
   original_rows: string[][];
   operations: RecordedStep[];
-  figures: { id: number; name: string }[];
+  figures: { id: number; name: string; token?: string }[];
   figure_id: number | null;
   figure_input: SourceTable | null;
-  sources: { id: string | null; name: string }[];
+  sources: ProjectSource[];
   source_id: string | null;
   source_table: SourceTable | null;
+  source_original_rows: string[][] | null;
   figure: PluginFigure | null;
   figure_error: string | null;
   colors: Record<FigureElement, string>;
@@ -103,9 +132,11 @@ export interface Project {
 }
 
 export type Request =
-  | { action: "state" | "sample" | "import_csv" | "open" | "save" | "install_plugin" }
+  | { action: "state" | "new" | "sample" | "import_data" | "open" | "save" | "install_plugin" }
+  | { action: "worksheet_page"; offset: number }
   | { action: "correct"; row: number; column: number; value: string }
   | ({ action: "run_plugin"; figure_id?: number } & PluginRun)
+  | ({ action: "execute_plugin" } & Pick<PluginRun, "plugin_id" | "version" | "checksum"> & PluginSubmission)
   | { action: "select_source"; source_id: string | null }
   | { action: "select_figure"; figure_id: number }
   | { action: "edit_item"; item: WorkspaceItem; name: string | null }
@@ -118,8 +149,32 @@ export const elementNames: Record<FigureElement, string> = {
   observations: "Observations",
 };
 
-export function workspace(request: Request) {
-  return invoke<{ project: Project | null; plugins: PluginDefinition[] } | null>("workspace", { request });
+const figureCache = new Map<number, { token: string; figure: PluginFigure }>();
+let appearance: { style: string; colors: string; project: Project } | null = null;
+
+export async function workspace(request: Request) {
+  const knownFigures = Object.fromEntries([...figureCache].map(([id, entry]) => [id, entry.token]));
+  const response = await invoke<{ project: Project; plugins: PluginDefinition[] } | null>("workspace", {
+    request, paged: true, knownFigures,
+  });
+  if (!response) return response;
+  const project = response.project;
+  if (request.action === "new" || request.action === "open") figureCache.clear();
+  if (project.figure_id !== null && project.figure_token) {
+    const cached = figureCache.get(project.figure_id);
+    if (project.figure_cached && cached) project.figure = cached.figure;
+    if (project.figure) {
+      figureCache.delete(project.figure_id);
+      figureCache.set(project.figure_id, { token: project.figure_token, figure: project.figure });
+      if (figureCache.size > 4) figureCache.delete(figureCache.keys().next().value!);
+    }
+  }
+  const style = JSON.stringify(project.figure_style);
+  const colors = JSON.stringify(project.colors);
+  if (appearance?.style === style) project.figure_style = appearance.project.figure_style;
+  if (appearance?.colors === colors) project.colors = appearance.project.colors;
+  appearance = { style, colors, project };
+  return response;
 }
 
 export function formatNumber(value: number | null) {

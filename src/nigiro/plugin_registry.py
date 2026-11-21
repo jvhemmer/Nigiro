@@ -79,6 +79,9 @@ def read_plugin(content: bytes) -> Plugin:
         raise ValueError("Set the plugin menu to plot or analysis.")
     if type(manifest.get("distinct_columns", False)) is not bool or not isinstance(manifest.get("fields"), list):
         raise ValueError("Invalid plugin controls.")
+    outputs = manifest.get("outputs", [])
+    if not isinstance(outputs, list) or not all(isinstance(label, str) and label.strip() for label in outputs):
+        raise ValueError("List plugin outputs as text.")
 
     keys = set()
     for field in manifest["fields"]:

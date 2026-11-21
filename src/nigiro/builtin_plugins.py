@@ -106,6 +106,8 @@ BUILTINS = {
     f"nigiro.{name}": ({
         "api": 1, "id": f"nigiro.{name}", "version": "1", "name": label, "menu": menu,
         "distinct_columns": True,
+        "outputs": ["Fit figure", "Residuals figure", "Coefficients table", "Fitted values table"]
+        if name == "linear_fit" else [f"{label} figure"],
         "fields": [
             {"key": "x", "label": "X column", "type": "column", "default": 0},
             {"key": "y", "label": "Y column", "type": "column", "default": 1},

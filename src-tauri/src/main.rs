@@ -13,8 +13,12 @@ use worker::Worker;
 #[serde(tag = "action", rename_all = "snake_case")]
 enum Action {
     State,
+    WorksheetPage {
+        offset: usize,
+    },
+    New,
     Sample,
-    ImportCsv,
+    ImportData,
     Open,
     Correct {
         row: usize,
@@ -38,6 +42,14 @@ enum Action {
     EditItem {
         item: Value,
         name: Value,
+    },
+    ExecutePlugin {
+        plugin_id: String,
+        version: String,
+        checksum: Option<String>,
+        output: String,
+        target_id: Option<usize>,
+        runs: Vec<Value>,
     },
     Color {
         element: String,
@@ -71,11 +83,18 @@ fn request_engine(window: &WebviewWindow, request: &Value) -> Result<Value, Stri
 }
 
 #[tauri::command]
-async fn workspace(window: WebviewWindow, request: Action) -> Result<Option<Value>, String> {
+async fn workspace(
+    window: WebviewWindow,
+    request: Action,
+    paged: Option<bool>,
+    known_figures: Option<Value>,
+) -> Result<Option<Value>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let Some(request) = prepare_request(&window, request)? else {
+        let Some(mut request) = prepare_request(&window, request)? else {
             return Ok(None);
         };
+        request["_paged"] = json!(paged.unwrap_or(false));
+        request["_known_figures"] = known_figures.unwrap_or(json!({}));
         request_engine(&window, &request).map(Some)
     })
     .await
@@ -125,7 +144,9 @@ async fn save_rendered_figure(
 
 fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Value>, String> {
     let request = match action {
+        Action::WorksheetPage { offset } => json!({ "action": "worksheet_page", "offset": offset }),
         Action::State => json!({ "action": "state" }),
+        Action::New => json!({ "action": "new" }),
         Action::Sample => json!({ "action": "sample" }),
         Action::Correct { row, column, value } => {
             json!({ "action": "correct", "row": row, "column": column, "value": value })
@@ -149,6 +170,17 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         Action::EditItem { item, name } => {
             json!({ "action": "edit_item", "item": item, "name": name })
         }
+        Action::ExecutePlugin {
+            plugin_id,
+            version,
+            checksum,
+            output,
+            target_id,
+            runs,
+        } => json!({
+            "action": "execute_plugin", "plugin_id": plugin_id, "version": version, "checksum": checksum,
+            "output": output, "target_id": target_id, "runs": runs
+        }),
         Action::Color {
             element,
             color,
@@ -160,7 +192,24 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             json!({ "action": "figure_style", "style": style, "figure_id": figure_id })
         }
         Action::Save => json!({ "action": "save" }),
-        Action::ImportCsv => return pick_file(window, "import_csv", "Import CSV", "CSV", "csv"),
+        Action::ImportData => {
+            let paths = window
+                .dialog()
+                .file()
+                .set_parent(window)
+                .set_title("Import data")
+                .add_filter("CSV", &["csv"])
+                .blocking_pick_files();
+            return paths
+                .map(|paths| {
+                    let paths = paths
+                        .into_iter()
+                        .map(|path| path.into_path().map_err(|err| err.to_string()))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(json!({ "action": "import_data", "paths": paths }))
+                })
+                .transpose();
+        }
         Action::Open => return pick_file(window, "open", "Open project", "Nigiro", "nigiro"),
         Action::InstallPlugin => {
             let Some(request) = pick_file(

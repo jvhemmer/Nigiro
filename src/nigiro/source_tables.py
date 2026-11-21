@@ -51,7 +51,13 @@ def output_tables(result: dict, analysis: bool) -> dict[str, SourceTable]:
     return sources
 
 
-def source_origin(source_id: str) -> int:
+def raw_source_id(index: int) -> str:
+    return f"raw:{index}"
+
+
+def source_origin(source_id: str) -> int | None:
+    if isinstance(source_id, str) and re.fullmatch(r"raw:(0|[1-9][0-9]*)", source_id):
+        return None
     if not isinstance(source_id, str) or not re.fullmatch(r"(0|[1-9][0-9]*):[a-z][a-z0-9_-]*", source_id):
         raise ValueError("Invalid derived source reference.")
     return int(source_id.split(":", 1)[0])

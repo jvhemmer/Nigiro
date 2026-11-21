@@ -297,6 +297,145 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertEqual(residual["state"]["project"]["figure_id"], 1)
             self.assertEqual(residual["state"]["project"]["figure"]["part"], "residual")
 
+    def test_batch_uses_per_source_columns_and_keeps_original_csvs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first, second = root / "first.csv", root / "second.csv"
+            first.write_bytes(b"Time,Signal\r\n0,1\r\n1,3\r\n2,5\r\n")
+            second.write_bytes(b"Reading,Ticks\n4,0\n7,1\n10,2\n")
+            path = root / "batch.nigiro"
+            scatter = {
+                "plugin_id": "nigiro.scatter", "version": "1", "checksum": None,
+                "runs": [
+                    {"source_id": None, "options": {"x": 0, "y": 1}},
+                    {"source_id": "raw:0", "options": {"x": 1, "y": 0}},
+                ],
+            }
+            fit = {**scatter, "plugin_id": "nigiro.linear_fit"}
+            bad = {**scatter, "runs": [scatter["runs"][0], {"source_id": "raw:0", "options": {"x": 0, "y": 0}}]}
+            imported, _, _, overlaid, rejected, unchanged, separate, _ = self.run_worker(
+                {"action": "add_sources", "paths": [str(first), str(second)]},
+                {"action": "select_source", "source_id": "raw:0"},
+                {"action": "correct", "row": 0, "column": 0, "value": "5"},
+                {"action": "run_batch", "output": "overlay", "steps": [scatter]},
+                {"action": "run_batch", "output": "separate", "steps": [scatter, bad]},
+                {"action": "state"},
+                {"action": "run_batch", "output": "separate", "steps": [scatter, fit]},
+                {"action": "save", "path": str(path)},
+            )
+            imported, overlaid, unchanged, separate = (
+                reply["state"]["project"] for reply in (imported, overlaid, unchanged, separate)
+            )
+            self.assertEqual([source["columns"] for source in imported["sources"]], [["Time", "Signal"], ["Reading", "Ticks"]])
+            self.assertEqual(overlaid["source_original_rows"][0], ["4", "0"])
+            self.assertEqual(len(overlaid["figures"]), 1)
+            traces = overlaid["figure"]["traces"]
+            self.assertEqual([trace["name"] for trace in traces], ["first.csv", "second.csv"])
+            self.assertEqual([trace["x"] for trace in traces], [[0, 1, 2], [0, 1, 2]])
+            self.assertEqual([trace["y"] for trace in traces], [[1, 3, 5], [5, 7, 10]])
+            self.assertIn("different", rejected["error"])
+            self.assertEqual(unchanged, overlaid)
+            self.assertEqual(len(separate["figures"]), 7)
+            self.assertEqual(len(separate["sources"]), 6)
+            with ZipFile(path) as archive:
+                self.assertEqual(archive.read("source.csv"), first.read_bytes())
+                self.assertEqual(archive.read("sources/0.csv"), second.read_bytes())
+            _, replayed = self.run_worker(
+                {"action": "open", "path": str(path)},
+                {"action": "select_figure", "figure_id": overlaid["figure_id"]},
+            )
+            self.assertEqual(replayed["state"]["project"]["figure"]["traces"], traces)
+
+    def test_import_appends_and_new_clears_the_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            csv_path = root / "input.csv"
+            csv_path.write_bytes(CSV)
+            path = root / "workspace.nigiro"
+            blank_path = root / "blank.nigiro"
+            import_data = {"action": "import_data", "paths": [str(csv_path)]}
+            empty, _, _, _, appended, cleared, _, reopened = self.run_worker(
+                {"action": "state"},
+                import_data,
+                {"action": "plot", "plot_type": "scatter", "x": 0, "y": 1},
+                {"action": "save", "path": str(path)},
+                import_data,
+                {"action": "new"},
+                {"action": "save", "path": str(blank_path)},
+                {"action": "open", "path": str(blank_path)},
+            )
+            project = appended["state"]["project"]
+            self.assertEqual(project["file_name"], path.name)
+            self.assertEqual(len(project["sources"]), 2)
+            self.assertEqual(len(project["figures"]), 1)
+            for response in (empty, cleared, reopened):
+                project = response["state"]["project"]
+                self.assertEqual(project["sources"], [])
+                self.assertEqual(project["figures"], [])
+                self.assertFalse(project["dirty"])
+
+    def test_plugin_outputs_can_append_to_existing_figures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "layered.nigiro"
+            run = {
+                "action": "execute_plugin", "plugin_id": "nigiro.line", "version": "1", "checksum": None,
+                "output": "overlay", "target_id": 0, "runs": [{"source_id": "raw:0", "options": {"x": 0, "y": 1}}],
+            }
+            _, original, _, imported, rejected, unchanged, appended, _, reloaded = self.run_worker(
+                {"action": "sample"},
+                {"action": "plot", "plot_type": "scatter", "x": 0, "y": 1},
+                {"action": "figure_style", "style": {"title": "Original title"}},
+                {"action": "sample"},
+                {**run, "plugin_id": "nigiro.bar"},
+                {"action": "state"},
+                run,
+                {"action": "save", "path": str(path)},
+                {"action": "open", "path": str(path)},
+            )
+            self.assertEqual(len(imported["state"]["project"]["sources"]), 2)
+            self.assertIn("different types of X axes", rejected["error"])
+            original = original["state"]["project"]
+            appended = appended["state"]["project"]
+            self.assertEqual(unchanged["state"]["project"], imported["state"]["project"])
+            self.assertEqual(appended["figures"], original["figures"])
+            self.assertEqual(appended["figure_style"]["title"], "Original title")
+            self.assertEqual(appended["figure"]["traces"][0], original["figure"]["traces"][0])
+            self.assertEqual(appended["figure"]["traces"][1]["mode"], "lines+markers")
+            self.assertEqual(reloaded["state"]["project"]["figure"], appended["figure"])
+
+    def test_paged_transport_keeps_full_data_for_analysis_and_export(self):
+        from nigiro.desktop import Workspace
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "large.csv"
+            path.write_text("X,Y\n" + "".join(f"{index},{index * 2}\n" for index in range(10000)))
+            worker = Workspace()
+            first = worker.dispatch({"action": "import_data", "paths": [str(path)], "_paged": True})["project"]
+            self.assertEqual(first["row_count"], 10000)
+            self.assertEqual(len(first["rows"]), 100)
+            self.assertEqual(len(first["original_rows"]), 100)
+            page = worker.dispatch({"action": "worksheet_page", "offset": 100, "_paged": True})["project"]
+            self.assertEqual(page["rows"][0], ("100", "200"))
+            worker.dispatch({"action": "correct", "row": 100, "column": 1, "value": "201", "_paged": True})
+            plotted = worker.dispatch({"action": "plot", "plot_type": "line", "x": 0, "y": 1, "_paged": True})["project"]
+            self.assertEqual(len(plotted["figure"]["traces"][0]["y"]), 10000)
+            self.assertEqual(plotted["figure"]["traces"][0]["y"][100], 201)
+            cached = worker.dispatch({
+                "action": "state", "_paged": True,
+                "_known_figures": {str(plotted["figure_id"]): plotted["figure_token"]},
+            })["project"]
+            self.assertTrue(cached["figure_cached"])
+            self.assertIsNone(cached["figure"])
+            full = worker.dispatch({"action": "state"})["project"]
+            self.assertEqual(len(full["original_rows"]), 10000)
+            self.assertIsNotNone(full["figure"])
+            changed = worker.dispatch({
+                "action": "correct", "row": 100, "column": 1, "value": "202", "_paged": True,
+                "_known_figures": {str(plotted["figure_id"]): plotted["figure_token"]},
+            })["project"]
+            self.assertFalse(changed["figure_cached"])
+            self.assertEqual(changed["figure"]["traces"][0]["y"][100], 202)
+
     def test_plot_replays_selected_columns_after_worksheet_edits(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "measurements.csv"

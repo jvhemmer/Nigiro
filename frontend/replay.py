@@ -13,6 +13,8 @@ def replay_inputs(payload):
         "figure_appearance": FigureAppearance,
         "residual_figure": ResidualFigure,
         "item_edit": ItemEdit,
+        "overlay_figure": OverlayFigure,
+        "add_figure_layers": AddFigureLayers,
     }
     operations = []
     for record in payload["operations"]:
@@ -20,7 +22,6 @@ def replay_inputs(payload):
         operation_type = operation_types[fields.pop("kind")]
         operations.append(operation_type(**fields))
     project = Project(Source(payload["source_name"], source.getvalue().encode("utf-8")), tuple(operations))
-    project.validate()
     return project
 
 
@@ -32,7 +33,7 @@ def merge_style(original, changes):
     return merged
 
 
-def replay_figure(project, figure, plugin, source):
+def replay_plugin(project, plugin, source):
     worksheet = (
         Worksheet(tuple(source["columns"]), tuple(map(tuple, source["rows"])))
         if source is not None else project.worksheet
@@ -48,6 +49,18 @@ def replay_figure(project, figure, plugin, source):
     else:
         result = run_plugin_source(plugin["source"], plugin["plugin_id"], *args)
 
+    return result
+
+
+def replay_figure(project, figure, plugin, source, overlay_inputs=None, preserve_first=False):
+    if overlay_inputs:
+        result = overlay_figures(
+            [replay_plugin(project, run["plugin"], run["input"]) for run in overlay_inputs],
+            [run["label"] for run in overlay_inputs],
+            preserve_first=preserve_first,
+        )
+    else:
+        result = replay_plugin(project, plugin, source)
     return {
         **figure,
         "traces": [merge_style(trace, style) for trace, style in zip(result["traces"], figure["traces"], strict=True)],
@@ -106,7 +119,10 @@ def main():
         extension = args.format or settings["format"]
         output = Path(__file__).with_suffix(f".{extension}")
 
-    figure = replay_figure(replay_inputs(payload), payload["figure"], payload["plugin"], payload["figure_input"])
+    figure = replay_figure(
+        replay_inputs(payload), payload["figure"], payload["plugin"], payload["figure_input"],
+        payload.get("overlay_inputs"), payload.get("preserve_first", False),
+    )
     font = (Path(get_data_path()) / "fonts" / "ttf" / "DejaVuSans.ttf").read_bytes()
     svg = render_svg(figure, args.browser_executable, font)
     with TemporaryDirectory() as directory:

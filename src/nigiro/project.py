@@ -11,7 +11,7 @@ from functools import cached_property
 from typing import Literal
 
 from .figure_style import AxisStyle, FigureStyle
-from .source_tables import SourceTable, source_origin
+from .source_tables import SourceTable, raw_source_id, source_origin
 
 
 @dataclass(frozen=True)
@@ -51,12 +51,14 @@ class Correction:
     row: int
     column: int
     value: str
+    source_id: str | None = None
 
     def __post_init__(self) -> None:
         if (
             type(self.row) is not int or self.row < 0
             or type(self.column) is not int or self.column < 0
             or not isinstance(self.value, str)
+            or (self.source_id is not None and source_origin(self.source_id) is not None)
         ):
             raise ValueError("Invalid worksheet correction.")
 
@@ -192,7 +194,43 @@ class ItemEdit:
             object.__setattr__(self, "name", self.name.strip())
 
 
-Operation = Correction | FigureRecipe | FigureColor | FigureStyle | FigureAppearance | ResidualFigure | ItemEdit
+@dataclass(frozen=True)
+class OverlayFigure:
+    figure_ids: tuple[int, ...]
+    fit_id: int | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.figure_ids, (list, tuple)) or len(self.figure_ids) < 2
+            or any(type(key) is not int or key < 0 for key in self.figure_ids)
+            or len(set(self.figure_ids)) != len(self.figure_ids)
+        ):
+            raise ValueError("Choose at least two different figures to overlay.")
+        if self.fit_id is not None and (type(self.fit_id) is not int or self.fit_id < 0):
+            raise ValueError("Invalid fit overlay reference.")
+        object.__setattr__(self, "figure_ids", tuple(self.figure_ids))
+
+
+@dataclass(frozen=True)
+class AddFigureLayers:
+    target_id: int
+    figure_ids: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.target_id) is not int or self.target_id < 0
+            or not isinstance(self.figure_ids, (list, tuple)) or not self.figure_ids
+            or any(type(key) is not int or key < 0 for key in self.figure_ids)
+            or len(set(self.figure_ids)) != len(self.figure_ids) or self.target_id in self.figure_ids
+        ):
+            raise ValueError("Choose valid figures to combine.")
+        object.__setattr__(self, "figure_ids", tuple(self.figure_ids))
+
+
+Operation = (
+    Correction | FigureRecipe | FigureColor | FigureStyle | FigureAppearance | ResidualFigure | ItemEdit
+    | OverlayFigure | AddFigureLayers
+)
 DEFAULT_COLORS = {"observations": "#245e9b", "fit": "#be481f"}
 
 
@@ -203,13 +241,19 @@ class FigureRecord:
     colors: dict[str, str]
     part: Literal["fit", "residual"] | None = None
     fit_id: int | None = None
+    overlay: OverlayFigure | None = None
+    layers: tuple[int, ...] = ()
+
+    def members(self, figure_id: int) -> tuple[int, ...]:
+        return (self.overlay.figure_ids if self.overlay else (figure_id,)) + self.layers
 
 
 @dataclass(frozen=True)
 class Project:
-    source: Source
+    source: Source | None = None
     operations: tuple[Operation, ...] = ()
     saved_sources: dict[str, SourceTable] = field(default_factory=dict)
+    additional_sources: tuple[Source, ...] = ()
 
     def apply(self, operation: Operation) -> Project:
         updated = replace(self, operations=(*self.operations, operation))
@@ -217,11 +261,15 @@ class Project:
         return updated
 
     def validate(self) -> None:
-        rows = self.source.worksheet.rows
-        column_count = len(self.source.worksheet.columns)
+        for source in self.raw_sources.values():
+            source.worksheet
+        if self.source is None and self.additional_sources:
+            raise ValueError("A project with imported data needs a primary source.")
+        column_count = len(self.source.worksheet.columns) if self.source else 0
         for operation in self.operations:
             if isinstance(operation, Correction):
-                if operation.row >= len(rows) or operation.column >= column_count:
+                source = self.raw_sources.get(operation.source_id)
+                if source is None or operation.row >= len(source.worksheet.rows) or operation.column >= len(source.worksheet.columns):
                     raise ValueError("Correction refers to a missing worksheet cell.")
             if isinstance(operation, LinearFit) and max(operation.x, operation.y) >= column_count:
                 raise ValueError("Fit refers to a missing worksheet column.")
@@ -235,7 +283,9 @@ class Project:
         for target, item_id in self.item_edits:
             if target == "figure" and item_id not in figures:
                 raise ValueError("A recorded edit refers to a missing figure.")
-            if target == "source" and item_id is not None and source_origin(item_id) not in figures:
+            if target == "source" and item_id not in self.raw_sources and (
+                item_id is None or source_origin(item_id) not in figures
+            ):
                 raise ValueError("A recorded edit refers to a missing source.")
 
     @cached_property
@@ -255,7 +305,13 @@ class Project:
 
     @cached_property
     def visible_figures(self) -> dict[int, FigureRecord]:
-        return {key: figure for key, figure in self.figures.items() if not self.item_deleted("figure", key)}
+        members = {
+            key for op in self.operations if isinstance(op, (OverlayFigure, AddFigureLayers)) for key in op.figure_ids
+        }
+        return {
+            key: figure for key, figure in self.figures.items()
+            if key not in members and not self.item_deleted("figure", key)
+        }
 
     @cached_property
     def figures(self) -> dict[int, FigureRecord]:
@@ -275,7 +331,9 @@ class Project:
                         if record.fit_id == current:
                             figures[key] = replace(record, recipe=op)
                     continue
-                if isinstance(op, PluginStep) and op.source_id is not None and source_origin(op.source_id) not in figures:
+                if isinstance(op, PluginStep) and op.source_id not in self.raw_sources and (
+                    op.source_id is None or source_origin(op.source_id) not in figures
+                ):
                     raise ValueError("A plugin refers to a missing input source.")
                 previous = figures.get(current)
                 style = previous.style if isinstance(op, PluginStep) and op.keep_style and previous else FigureStyle()
@@ -292,6 +350,25 @@ class Project:
                     fit.recipe, FigureStyle(y=AxisStyle(zero_line=True)),
                     legacy_colors.copy(), part="residual", fit_id=op.fit_id,
                 )
+            elif isinstance(op, OverlayFigure):
+                if any(key not in figures or figures[key].overlay for key in op.figure_ids):
+                    raise ValueError("An overlay refers to a missing or combined figure.")
+                current = index
+                first = figures[op.figure_ids[0]]
+                if op.fit_id is not None and (
+                    op.fit_id not in figures or not figures[op.fit_id].overlay
+                    or figures[op.fit_id].part != "fit" or first.part != "residual"
+                ):
+                    raise ValueError("A residual overlay needs a fit overlay.")
+                figures[index] = replace(first, fit_id=op.fit_id, overlay=op)
+            elif isinstance(op, AddFigureLayers):
+                target = figures.get(op.target_id)
+                if target is None or any(
+                    key not in figures or figures[key].overlay or figures[key].layers
+                    or key in target.members(op.target_id) for key in op.figure_ids
+                ):
+                    raise ValueError("A figure layer refers to a missing or combined figure.")
+                figures[op.target_id] = replace(target, layers=target.layers + op.figure_ids)
             elif isinstance(op, FigureColor):
                 target = op.figure_id if op.figure_id is not None else current
                 if op.figure_id is None:
@@ -328,12 +405,27 @@ class Project:
 
     @cached_property
     def worksheet(self) -> Worksheet:
-        original = self.source.worksheet
-        changes = {
-            (op.row, op.column): op.value
-            for op in self.operations
-            if isinstance(op, Correction)
+        return self.working_worksheets.get(None, Worksheet((), ()))
+
+    @cached_property
+    def raw_sources(self) -> dict[str | None, Source]:
+        if self.source is None:
+            return {}
+        return {None: self.source, **{raw_source_id(index): source for index, source in enumerate(self.additional_sources)}}
+
+    @cached_property
+    def working_worksheets(self) -> dict[str | None, Worksheet]:
+        corrections = {}
+        for op in self.operations:
+            if isinstance(op, Correction):
+                corrections.setdefault(op.source_id, {})[op.row, op.column] = op.value
+        return {
+            key: self.corrected_worksheet(source.worksheet, corrections.get(key, {}))
+            for key, source in self.raw_sources.items()
         }
+
+    @staticmethod
+    def corrected_worksheet(original: Worksheet, changes: dict[tuple[int, int], str]) -> Worksheet:
         if not changes:
             return original
         return Worksheet(

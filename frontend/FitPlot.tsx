@@ -69,6 +69,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
   const plotly = useRef<typeof import("plotly.js-basic-dist-min") | null>(null);
   const rendered = useRef<PlotlyHTMLElement | null>(null);
   const drawing = useRef<Promise<void>>(Promise.resolve());
+  const lastDraw = useRef<{ data: PluginFigure; colors: Colors; style: FigureStyle; width: number; height: number } | null>(null);
   const lockedWidth = style.axes_width;
   const lockedHeight = style.axes_height;
   const width = lockedWidth ?? available.width;
@@ -123,7 +124,6 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
   useEffect(() => {
     const node = container.current!;
     if (!visible) return;
-    rendered.current = null;
     let active = true;
     let chart: PlotlyHTMLElement | undefined;
     const elements = data.elements ?? [];
@@ -147,9 +147,17 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
       // The distribution exposes Plotly as its default export in Vite.
       const renderer = library.default ?? library;
       plotly.current = renderer;
+      const previous = lastDraw.current;
+      if (previous?.data === data && previous.colors === colors && previous.style === style
+        && previous.width === width && previous.height === height && rendered.current) {
+        chart = rendered.current;
+        chart.on("plotly_click", selectPoint);
+        chart.on("plotly_legendclick", selectLegend);
+        return;
+      }
       const layout = merge(
         figureLayout(style, data.x_label ?? "", data.y_label ?? "", revision,
-          !!data.residual_panel, !!data.categorical_x, data.part === "fit"),
+          !!data.residual_panel, !!data.categorical_x, data.part === "fit" || !!data.overlay_inputs),
         structuredClone(data.layout ?? {}),
       );
       const margin = layout.margin;
@@ -162,7 +170,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
       }
       const series = structuredClone(data.traces).map((trace, index) => {
         const element = elements[index];
-        return element ? styleTrace(trace, style, colors[element]) : trace;
+        return element ? styleTrace(trace, style, data.series_colors?.[index] ?? colors[element]) : trace;
       });
       const next = await renderer.react(node, series, { ...layout, ...setCanvas(), autosize: false }, {
         responsive: false,
@@ -181,6 +189,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
         await renderer.relayout(next, setCanvas());
       }
       if (active) {
+        lastDraw.current = { data, colors, style, width, height };
         chart = next;
         rendered.current = next;
         chart.on("plotly_click", selectPoint);
