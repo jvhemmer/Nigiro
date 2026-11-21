@@ -13,15 +13,39 @@ class Settings:
     def __init__(self, path: Path):
         self.path = path
         self.figure_style = FigureStyle()
+        self.last_import_path: str | None = None
+        self.last_project_path: str | None = None
         if path.exists():
-            self.figure_style = FigureStyle(**json.loads(path.read_text(encoding="utf-8")))
+            record = json.loads(path.read_text(encoding="utf-8"))
+            self.figure_style = FigureStyle(**record.get("figure_style", record))
+            if "figure_style" in record:
+                for key in ("last_import_path", "last_project_path"):
+                    value = record.get(key)
+                    if value is not None and not isinstance(value, str):
+                        raise ValueError("Invalid saved file path.")
+                    setattr(self, key, value)
 
     def save(self, style: FigureStyle) -> None:
+        self.write(style)
+        self.figure_style = style
+
+    def remember(self, *, import_path: str | None = None, project_path: str | None = None) -> None:
+        if import_path is not None:
+            self.last_import_path = import_path
+        if project_path is not None:
+            self.last_project_path = project_path
+        self.write(self.figure_style)
+
+    def write(self, style: FigureStyle) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=self.path.parent, mode="w", encoding="utf-8", delete=False) as file:
             temporary = Path(file.name)
             try:
-                json.dump(asdict(style), file, indent=2, allow_nan=False)
+                json.dump({
+                    "figure_style": asdict(style),
+                    "last_import_path": self.last_import_path,
+                    "last_project_path": self.last_project_path,
+                }, file, indent=2, allow_nan=False)
             except BaseException:
                 temporary.unlink(missing_ok=True)
                 raise
@@ -29,4 +53,3 @@ class Settings:
             os.replace(temporary, self.path)
         finally:
             temporary.unlink(missing_ok=True)
-        self.figure_style = style

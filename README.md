@@ -39,6 +39,8 @@ Find the package in `src-tauri/target/release/bundle/`. The bundle includes the 
 
 The fit excludes rows with a blank X or Y value and reports how many it excluded. Other invalid values produce an error with the row number.
 
+Import and Open dialogs start in the current project's last import folder. If it is unavailable, Nigiro uses the last remembered import folder, including from a previous session. The project archive saves its import path.
+
 ## Plot columns
 
 Select **Plot → Scatter**, **Line**, or **Bar**. Choose sources and columns on **Inputs**. With multiple sources, Nigiro matches column headers from the reference source. Use the mapping table to change the columns for any source. Scatter and line plots use numeric X and Y values. Bar plots use the X column as labels.

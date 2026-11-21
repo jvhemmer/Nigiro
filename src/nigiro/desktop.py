@@ -296,6 +296,8 @@ class Workspace:
         if request["action"] in ("new", "open", "select_source"):
             self.row_offset = 0
         match request["action"]:
+            case "dialog_directory":
+                return {"directory": self.dialog_directory()}
             case "worksheet_page":
                 offset = request["offset"]
                 if type(offset) is not int or offset < 0:
@@ -310,11 +312,19 @@ class Workspace:
             case "sample":
                 self.import_sources((Source("Sample data.csv", SAMPLE),))
             case "import_data" | "import_csv" | "add_sources":
-                paths = (Path(value) for value in (request["paths"] if "paths" in request else [request["path"]]))
-                self.import_sources(tuple(Source(path.name, path.read_bytes()) for path in paths))
+                paths = [Path(value).resolve() for value in (request["paths"] if "paths" in request else [request["path"]])]
+                self.import_sources(
+                    tuple(Source(path.name, path.read_bytes()) for path in paths),
+                    import_path=str(paths[-1]) if paths else None,
+                )
             case "open":
-                path = Path(request["path"])
+                path = Path(request["path"]).resolve()
                 self.set_project(load_project(path), path)
+                imported = self.project.last_import_path
+                self.remember_paths(
+                    import_path=imported if imported and Path(imported).parent.is_dir() else None,
+                    project_path=str(path),
+                )
             case "install_plugin":
                 self.plugins.install(Path(request["path"]))
                 if any(result.error for result in self.results.values()):
@@ -329,7 +339,24 @@ class Workspace:
                 self.apply(request)
         return self.snapshot(paged=request.get("_paged", False), known_figures=request.get("_known_figures"))
 
-    def import_sources(self, additions: tuple[Source, ...]) -> None:
+    def dialog_directory(self) -> str | None:
+        for value in (
+            self.project.last_import_path, self.settings.last_import_path,
+            str(self.path) if self.path else None, self.settings.last_project_path,
+        ):
+            if value:
+                directory = Path(value).parent
+                if directory.is_dir():
+                    return str(directory)
+        return None
+
+    def remember_paths(self, **paths) -> None:
+        try:
+            self.settings.remember(**paths)
+        except OSError as exc:
+            print(f"Could not save the last file folder. {exc}", file=sys.stderr)
+
+    def import_sources(self, additions: tuple[Source, ...], *, import_path: str | None = None) -> None:
         if not additions:
             raise ValueError("Choose at least one CSV file.")
         project = self.project
@@ -337,8 +364,12 @@ class Workspace:
             project, source=additions[0], additional_sources=additions[1:]
         )
         updated.validate()
+        if import_path is not None:
+            updated = replace(updated, last_import_path=import_path)
         self.project = updated
         self.dirty = True
+        if import_path is not None:
+            self.remember_paths(import_path=import_path)
 
     def apply(self, request: dict) -> None:
         project = self.project

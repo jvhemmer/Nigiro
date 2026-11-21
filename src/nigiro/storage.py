@@ -69,6 +69,7 @@ def save_project(path: Path, project: Project) -> None:
             isinstance(op, (OverlayFigure, AddFigureLayers)) for op in project.operations
         ) else 1,
         "source": source_metadata(source) if source else None,
+        "last_import_path": project.last_import_path,
         "operations": [operation_record(op) for op in project.operations],
         "saved_with": {
             "python": platform.python_version(),
@@ -116,7 +117,7 @@ def load_project(path: Path) -> Project:
         if not isinstance(records, dict):
             raise ValueError("Invalid saved sources.")
         tables = {key: SourceTable.from_record(record) for key, record in records.items()}
-        project = Project(source, tuple(operations), tables, additional)
+        project = Project(source, tuple(operations), tables, additional, manifest.get("last_import_path"))
         project.validate()
         return project
     except (BadZipFile, LookupError, RuntimeError, TypeError) as exc:

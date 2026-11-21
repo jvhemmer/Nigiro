@@ -254,6 +254,7 @@ class Project:
     operations: tuple[Operation, ...] = ()
     saved_sources: dict[str, SourceTable] = field(default_factory=dict)
     additional_sources: tuple[Source, ...] = ()
+    last_import_path: str | None = None
 
     def apply(self, operation: Operation) -> Project:
         updated = replace(self, operations=(*self.operations, operation))
@@ -261,6 +262,8 @@ class Project:
         return updated
 
     def validate(self) -> None:
+        if self.last_import_path is not None and not isinstance(self.last_import_path, str):
+            raise ValueError("Invalid saved import path.")
         for source in self.raw_sources.values():
             source.worksheet
         if self.source is None and self.additional_sources:

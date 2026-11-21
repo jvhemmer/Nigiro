@@ -197,13 +197,16 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         }
         Action::Save => json!({ "action": "save" }),
         Action::ImportData => {
-            let paths = window
+            let mut dialog = window
                 .dialog()
                 .file()
                 .set_parent(window)
                 .set_title("Import data")
-                .add_filter("CSV", &["csv"])
-                .blocking_pick_files();
+                .add_filter("CSV", &["csv"]);
+            if let Some(directory) = dialog_directory(window)? {
+                dialog = dialog.set_directory(directory);
+            }
+            let paths = dialog.blocking_pick_files();
             return paths
                 .map(|paths| {
                     let paths = paths
@@ -261,18 +264,28 @@ fn pick_file(
     filter: &str,
     extension: &str,
 ) -> Result<Option<Value>, String> {
-    let path = window
+    let mut dialog = window
         .dialog()
         .file()
         .set_parent(window)
         .set_title(title)
-        .add_filter(filter, &[extension])
-        .blocking_pick_file();
+        .add_filter(filter, &[extension]);
+    if action == "open" {
+        if let Some(directory) = dialog_directory(window)? {
+            dialog = dialog.set_directory(directory);
+        }
+    }
+    let path = dialog.blocking_pick_file();
     path.map(|path| {
         let path = path.into_path().map_err(|err| err.to_string())?;
         file_request(action, path)
     })
     .transpose()
+}
+
+fn dialog_directory(window: &WebviewWindow) -> Result<Option<PathBuf>, String> {
+    let state = request_engine(window, &json!({ "action": "dialog_directory" }))?;
+    Ok(state["directory"].as_str().map(PathBuf::from))
 }
 
 fn save_file(
