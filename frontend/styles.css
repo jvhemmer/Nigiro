@@ -10,27 +10,31 @@
   --surface-hover: #eef4fa;
   --error: #903822;
   --error-bg: #fff0ec;
-  --panel: #fff;
+  --panel: #ffffff;
   --line: #ccd3db;
   --muted: #526172;
   --accent: #245883;
   --accent-soft: #e2edf7;
   --accent-ink: #245883;
   --accent-contrast: #ffffff;
+  --menu-shadow: #18283a26;
+  --dialog-backdrop: #19213a55;
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --text: #e2e7ef;
-  --canvas: #171d26;
-  --panel: #222a35;
-  --surface: #2b3543;
-  --surface-hover: #354255;
-  --line: #465467;
-  --muted: #b5c2d3;
+  --text: #ededed;
+  --canvas: #191919;
+  --panel: #212121;
+  --surface: #2b2b2b;
+  --surface-hover: #383838;
+  --line: #464646;
+  --muted: #bdbdbd;
   --error: #ffb4a8;
   --error-bg: #4c292b;
+  --menu-shadow: #00000066;
+  --dialog-backdrop: #00000066;
 }
 input, select, textarea { accent-color: var(--accent); }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: .8; }
@@ -150,7 +154,7 @@ button.primary:hover:not(:disabled) { background: var(--accent); filter: brightn
   border: 1px solid var(--line);
   border-radius: 2px;
   background: var(--panel);
-  box-shadow: 0 3px 9px #18283a26;
+  box-shadow: 0 3px 9px var(--menu-shadow);
 }
 .menu-command span { overflow: hidden; text-overflow: ellipsis; }
 .menu-command {
@@ -452,7 +456,7 @@ td input {
   background: var(--panel);
   color: inherit;
 }
-.settings-dialog::backdrop { background: #19213a55; }
+.settings-dialog::backdrop { background: var(--dialog-backdrop); }
 .settings-dialog h2 { margin-bottom: 10px; font-size: 1.15rem; }
 .settings-dialog .fit-settings { padding: 0; }
 .plugin-fields input:not([type="checkbox"]) {

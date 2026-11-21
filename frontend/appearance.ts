@@ -25,15 +25,17 @@ export function applyAppearance(appearance: Appearance) {
   const dark = appearance.theme === "dark" || (appearance.theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   root.dataset.theme = dark ? "dark" : "light";
   const accent = rgb(appearance.accent);
-  const panel = dark ? rgb("#222a35") : [255, 255, 255];
+  const panel = rgb(getComputedStyle(root).getPropertyValue("--panel").trim());
+  const tint = dark ? 0.12 : 0.18;
+  const soft = accent.map((value, index) => Math.round(value * tint + panel[index] * (1 - tint)));
   const ink = [...accent];
   const target = dark ? 255 : 0;
-  for (let step = 0; contrast(ink, panel) < 4.5 && step < 40; step++) {
+  for (let step = 0; Math.min(contrast(ink, panel), contrast(ink, soft)) < 4.5 && step < 40; step++) {
     ink.forEach((value, index) => { ink[index] = Math.round(value * 0.9 + target * 0.1); });
   }
   root.style.setProperty("--accent", appearance.accent);
   root.style.setProperty("--accent-ink", `rgb(${ink.join(",")})`);
-  root.style.setProperty("--accent-soft", `rgb(${accent.map((value, index) => Math.round(value * 0.18 + panel[index] * 0.82)).join(",")})`);
+  root.style.setProperty("--accent-soft", `rgb(${soft.join(",")})`);
   root.style.setProperty("--accent-contrast", contrast(accent, [255, 255, 255]) >= contrast(accent, [0, 0, 0]) ? "#ffffff" : "#000000");
 }
 
