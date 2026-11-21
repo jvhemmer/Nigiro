@@ -14,10 +14,10 @@ const sectionNames: Record<SettingsTab, string> = {
 };
 
 const figureTabFields: Record<FigureTab, (keyof FigureStyle)[]> = {
-  figure: ["title", "title_renderer", "axes_width", "axes_height", "text_color", "background"],
+  figure: ["title", "title_renderer", "axes_width", "axes_height", "background"],
   traces: ["bar_width", "show_markers", "marker_size", "marker_symbol", "show_lines", "line_width", "line_dash"],
   legend: ["legend"],
-  fonts: ["font_family", "font_face", "font_bold", "font_italic", "label_size", "tick_size", "math_alphabet", "math_preamble",
+  fonts: ["text_color", "font_family", "font_face", "font_bold", "font_italic", "label_size", "tick_size", "math_alphabet", "math_preamble",
     ...(Object.keys(textRoles) as TextRole[]).flatMap((role) =>
       (["family", "face", "size", "bold", "italic"] as const).map((field) => `${role}_${field}` as const))],
 };
@@ -27,7 +27,7 @@ const fieldKeys: Record<string, string> = {
   "Math alphabet": "math_alphabet", "TeX preamble": "math_preamble",
   "Figure title": "title", "Axes width (px)": "axes_width", "Axes height (px)": "axes_height",
   "Show markers": "show_markers", "Show trace lines": "show_lines", "Number notation": "notation", "Font family": "font_family", "Font style": "font_face", "Axis label size (px)": "label_size", "Tick and legend size (px)": "tick_size",
-  "Text and axis color": "text_color", "Background": "background", "Legend": "legend",
+  "Text color": "text_color", "Background": "background", "Legend": "legend",
   "Bar width (fraction)": "bar_width", "Marker size (px)": "marker_size", "Marker shape": "marker_symbol",
   "Trace line width (px)": "line_width", "Trace line style": "line_dash",
   "Axis label": "label", "Scale": "scale", "Lower limit": "lower", "Upper limit": "upper",
@@ -259,14 +259,13 @@ function AxisFields({ style, fallback, categorical, onChange }: {
       <NumberField label="Axis line width (px)" value={style.line_width} onChange={(value) => set("line_width", value)} />
     </SettingsGroup>
     {categorical && <p className="muted">Bar positions start at 0.</p>}
-    <fieldset className="settings-category"><legend>Display</legend>
-    <div className="figure-toggles">
+    <SettingsGroup title="Display">
       {([
         ["line", "Axis line"], ["tick_labels", "Tick labels"], ["minor_ticks", "Minor ticks"],
         ["mirror", "Opposite axis line"], ["grid", "Grid lines"], ["zero_line", "Zero line"],
         ["hover_ruler", "Hover ruler"],
       ] as const).filter(([key]) => !categorical || key !== "minor_ticks").map(([key, label]) => (
-        <Field key={key} label={label}>
+        <Field key={key} label={label} checkbox>
           <input type="checkbox" checked={style[key]} onChange={(event) => {
             if (key === "mirror") {
               onChange({ ...style, mirror: event.target.checked, opposite_ticks: style.opposite_ticks ?? false });
@@ -276,12 +275,11 @@ function AxisFields({ style, fallback, categorical, onChange }: {
           }} />
         </Field>
       ))}
-      <Field label="Opposite ticks">
+      <Field label="Opposite ticks" checkbox>
         <input type="checkbox" checked={style.opposite_ticks ?? style.mirror} disabled={!style.mirror || !style.line}
           onChange={(event) => set("opposite_ticks", event.target.checked)} />
       </Field>
-    </div>
-    </fieldset>
+    </SettingsGroup>
   </>;
 }
 
@@ -326,14 +324,14 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
       onChange={(value) => set("axes_height", Number.isNaN(value) ? null : value)} />
     </SettingsGroup>
     <SettingsGroup title="Colors">
-    <Field label="Text and axis color"><input type="color" value={style.text_color}
-      onChange={(event) => set("text_color", event.target.value)} /></Field>
     <Field label="Background"><input type="color" value={style.background}
       onChange={(event) => set("background", event.target.value)} /></Field>
     </SettingsGroup>
     </>}
     {tab === "fonts" && <>
     <SettingsGroup title="Typography">
+    <Field label="Text color"><input type="color" value={style.text_color}
+      onChange={(event) => set("text_color", event.target.value)} /></Field>
     <FontField value={style.font_family} onChange={(value) => set("font_family", value)} face={style.font_face}
       legacyFace={style.font_bold || style.font_italic ? `${style.font_bold ? 700 : 400}:${style.font_italic ? "italic" : "normal"}` : undefined}
       onFace={(face) => onChange({ ...style, font_face: face, font_bold: false, font_italic: false })} />
@@ -361,7 +359,7 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
         ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"],
       ]} />
     </SettingsGroup>}
-    {tab === "traces" && <div className="trace-settings">
+    {tab === "traces" && <>
     {bar && <SettingsGroup title="Bars"><NumberField label="Bar width (fraction)" value={style.bar_width} onChange={(value) => set("bar_width", value)} /></SettingsGroup>}
     {markers && <SettingsGroup title="Markers">
           <Field label="Show markers" checkbox><input type="checkbox" checked={style.show_markers} onChange={(event) => set("show_markers", event.target.checked)} /></Field>
@@ -378,7 +376,7 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
       <Choice label="Trace line style" value={style.line_dash} onChange={(value) => set("line_dash", value)}
         options={[["solid", "Solid"], ["dash", "Dashed"], ["dot", "Dotted"], ["dashdot", "Dash-dot"]]} />
     </SettingsGroup>}
-    </div>}
+    </>}
   </>;
 }
 
@@ -626,7 +624,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
         </nav>
         <div ref={content} className="settings-content" id="settings-options" role="tabpanel" aria-labelledby={page === "figures" ? `settings-tab-${tab}` : `settings-tab-${page}`}>
           {page === "workflow" && <SettingsGroup title="Execution">
-            <Field label="Run new steps automatically">
+            <Field label="Run new steps automatically" checkbox>
               <input type="checkbox" checked={automatic} onChange={(event) => setAutomatic(event.target.checked)} />
             </Field>
           </SettingsGroup>}
