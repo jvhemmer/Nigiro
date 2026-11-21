@@ -262,6 +262,7 @@ button.primary:hover:not(:disabled) { background: var(--accent); filter: brightn
 .dock-tab {
   display: flex;
   align-items: center;
+  width: max-content;
   gap: 4px;
   padding: 0 4px;
   cursor: grab;

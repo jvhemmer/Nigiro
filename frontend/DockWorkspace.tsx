@@ -152,6 +152,7 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
         api.fromJSON(defaultLayout.current, { reuseExistingPanels: true });
       }
     }
+    for (const group of api.groups) group.model.header.hidden = false;
     syncLayout(api);
     setApi(api);
   }
@@ -238,6 +239,7 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
             theme={themeLight}
             components={components}
             defaultTabComponent={DockTab}
+            singleTabMode="default"
             rightHeaderActionsComponent={DockActions}
             watermarkComponent={DockEmpty}
             dndStrategy="pointer"
