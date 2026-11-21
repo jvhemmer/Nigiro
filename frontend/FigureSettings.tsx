@@ -6,8 +6,20 @@ import type { Appearance } from "./workspace";
 import { Save, RotateCcw } from "lucide-react";
 import type { AxisKey, AxisStyle, FigureStyle, StyleSection, TextRenderer } from "./figureStyle";
 
-const sectionNames: Record<StyleSection, string> = {
-  figure: "Figure", x: "X axis", y: "Y axis",
+type FigureTab = "figure" | "traces" | "legend" | "fonts";
+type SettingsTab = FigureTab | AxisKey;
+
+const sectionNames: Record<SettingsTab, string> = {
+  figure: "Figure", traces: "Traces", legend: "Legend", fonts: "Fonts", x: "X axis", y: "Y axis",
+};
+
+const figureTabFields: Record<FigureTab, (keyof FigureStyle)[]> = {
+  figure: ["title", "title_renderer", "axes_width", "axes_height", "text_color", "background"],
+  traces: ["bar_width", "show_markers", "marker_size", "marker_symbol", "show_lines", "line_width", "line_dash"],
+  legend: ["legend"],
+  fonts: ["font_family", "font_face", "font_bold", "font_italic", "label_size", "tick_size",
+    ...(Object.keys(textRoles) as TextRole[]).flatMap((role) =>
+      (["family", "face", "size", "bold", "italic"] as const).map((field) => `${role}_${field}` as const))],
 };
 
 const fieldKeys: Record<string, string> = {
@@ -290,7 +302,8 @@ function TextOverrides({ style, onChange }: { style: FigureStyle; onChange: (sty
   </SettingsGroup>;
 }
 
-function FigureFields({ style, bar, markers, line, onChange }: {
+function FigureFields({ tab, style, bar, markers, line, onChange }: {
+  tab: FigureTab;
   style: FigureStyle;
   bar: boolean;
   markers: boolean;
@@ -302,6 +315,7 @@ function FigureFields({ style, bar, markers, line, onChange }: {
   }
 
   return <>
+    {tab === "figure" && <>
     <SettingsGroup title="Layout">
     <TextField label="Figure title" value={style.title} onChange={(value) => set("title", value)}
       rendererLabel="Title text renderer" renderer={style.title_renderer} onRenderer={(value) => set("title_renderer", value)} />
@@ -310,6 +324,14 @@ function FigureFields({ style, bar, markers, line, onChange }: {
     <NumberField label="Axes height (px)" placeholder="Auto" value={style.axes_height}
       onChange={(value) => set("axes_height", Number.isNaN(value) ? null : value)} />
     </SettingsGroup>
+    <SettingsGroup title="Colors">
+    <Field label="Text and axis color"><input type="color" value={style.text_color}
+      onChange={(event) => set("text_color", event.target.value)} /></Field>
+    <Field label="Background"><input type="color" value={style.background}
+      onChange={(event) => set("background", event.target.value)} /></Field>
+    </SettingsGroup>
+    </>}
+    {tab === "fonts" && <>
     <SettingsGroup title="Typography">
     <FontField value={style.font_family} onChange={(value) => set("font_family", value)} face={style.font_face}
       legacyFace={style.font_bold || style.font_italic ? `${style.font_bold ? 700 : 400}:${style.font_italic ? "italic" : "normal"}` : undefined}
@@ -318,19 +340,16 @@ function FigureFields({ style, bar, markers, line, onChange }: {
     <NumberField label="Tick and legend size (px)" value={style.tick_size} onChange={(value) => set("tick_size", value)} />
     </SettingsGroup>
     <TextOverrides style={style} onChange={onChange} />
-    <SettingsGroup title="Colors and legend">
-    <Field label="Text and axis color"><input type="color" value={style.text_color}
-      onChange={(event) => set("text_color", event.target.value)} /></Field>
-    <Field label="Background"><input type="color" value={style.background}
-      onChange={(event) => set("background", event.target.value)} /></Field>
+    </>}
+    {tab === "legend" && <SettingsGroup title="Legend">
     <Choice label="Legend" value={style.legend} onChange={(value) => set("legend", value)}
       options={[
         ["auto", "Automatic"], ["none", "Hidden"], ["above", "Above plot"],
         ["top_left", "Top left"], ["top_right", "Top right"],
         ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"],
       ]} />
-    </SettingsGroup>
-    {(bar || markers || line) && <SettingsGroup title="Traces">
+    </SettingsGroup>}
+    {tab === "traces" && <div className="trace-settings">
     {bar && <SettingsGroup title="Bars"><NumberField label="Bar width (fraction)" value={style.bar_width} onChange={(value) => set("bar_width", value)} /></SettingsGroup>}
     {markers && <SettingsGroup title="Markers">
           <Field label="Show markers" checkbox><input type="checkbox" checked={style.show_markers} onChange={(event) => set("show_markers", event.target.checked)} /></Field>
@@ -347,7 +366,7 @@ function FigureFields({ style, bar, markers, line, onChange }: {
       <Choice label="Trace line style" value={style.line_dash} onChange={(value) => set("line_dash", value)}
         options={[["solid", "Solid"], ["dash", "Dashed"], ["dot", "Dotted"], ["dashdot", "Dash-dot"]]} />
     </SettingsGroup>}
-    </SettingsGroup>}
+    </div>}
   </>;
 }
 
@@ -364,14 +383,14 @@ function axisError(style: AxisStyle) {
 
 function figureError(style: FigureStyle) {
   if ([style.axes_width, style.axes_height].some((size) => size !== null && (!Number.isFinite(size) || size < 1 || size > 8000))) {
-    return "Enter axes dimensions from 1 to 8000 px.";
+    return { tab: "figure" as const, message: "Enter axes dimensions from 1 to 8000 px." };
   }
-  if (!/^[\p{L}\p{N}_ .'-]+$/u.test(style.font_family.trim())) return "Enter one font family name.";
-  if (![style.label_size, style.tick_size].every((size) => size >= 6 && size <= 48)) return "Enter font sizes from 6 to 48 px.";
-  if (!(style.line_width >= 0.1 && style.line_width <= 12)) return "Enter a trace line width from 0.1 to 12 px.";
-  if (!(style.marker_size >= 1 && style.marker_size <= 30)) return "Enter a marker size from 1 to 30 px.";
-  if (!(style.bar_width >= 0.05 && style.bar_width <= 1)) return "Enter a bar width from 0.05 to 1.";
-  return "";
+  if (!/^[\p{L}\p{N}_ .'-]+$/u.test(style.font_family.trim())) return { tab: "fonts" as const, message: "Enter one font family name." };
+  if (![style.label_size, style.tick_size].every((size) => size >= 6 && size <= 48)) return { tab: "fonts" as const, message: "Enter font sizes from 6 to 48 px." };
+  if (!(style.line_width >= 0.1 && style.line_width <= 12)) return { tab: "traces" as const, message: "Enter a trace line width from 0.1 to 12 px." };
+  if (!(style.marker_size >= 1 && style.marker_size <= 30)) return { tab: "traces" as const, message: "Enter a marker size from 1 to 30 px." };
+  if (!(style.bar_width >= 0.05 && style.bar_width <= 1)) return { tab: "traces" as const, message: "Enter a bar width from 0.05 to 1." };
+  return null;
 }
 
 export function FigureSettings({ initial, defaults, initialSection, labels, categoricalX, bar, markers, line, onClose, onApply, global = false, appearance, runAutomatically = true, busy = false, saveError = "", onSaveGlobal }: {
@@ -401,13 +420,14 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
   const [automatic, setAutomatic] = useState(runAutomatically);
   const [expanded, setExpanded] = useState(true);
   const [appearanceDraft, setAppearanceDraft] = useState<Appearance>(appearance ?? { theme: "system", accent: "#245883" });
-  const [section, setSection] = useState(initialSection);
+  const [tab, setTab] = useState<SettingsTab>(initialSection);
+  const section: StyleSection = tab === "x" || tab === "y" ? tab : "figure";
   const [error, setError] = useState("");
-  const [invalidMeasurements, setInvalidMeasurements] = useState<Record<string, StyleSection>>({});
+  const [invalidMeasurements, setInvalidMeasurements] = useState<Record<string, SettingsTab>>({});
   const axes: AxisKey[] = ["x", "y"];
 
   useEffect(() => { dialog.current?.showModal(); }, []);
-  useEffect(() => { content.current?.scrollTo(0, 0); }, [section, page]);
+  useEffect(() => { content.current?.scrollTo(0, 0); }, [tab, page]);
 
   function move(left: number, top: number) {
     const bounds = dialog.current?.getBoundingClientRect();
@@ -441,19 +461,20 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
     if (invalidSection) {
       setPage("figures");
       setExpanded(true);
-      setSection(invalidSection);
+      setTab(invalidSection);
       setError("Enter valid measurement units.");
       return;
     }
-    for (const item of ["figure", ...axes] as const) {
-      const message = item === "figure" ? figureError(style) : axisError(style[item]);
-      if (message) {
-        setPage("figures");
-        setExpanded(true);
-        setSection(item);
-        setError(message);
-        return;
-      }
+    const xError = axisError(style.x);
+    const yError = axisError(style.y);
+    const failure = figureError(style) || (xError ? { tab: "x" as const, message: xError }
+      : yError ? { tab: "y" as const, message: yError } : null);
+    if (failure) {
+      setPage("figures");
+      setExpanded(true);
+      setTab(failure.tab);
+      setError(failure.message);
+      return;
     }
     onApply({ ...style, font_family: style.font_family.trim() }, global ? appearanceDraft : undefined, global ? automatic : undefined);
   }
@@ -496,11 +517,18 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
       setAppearanceDraft({ theme: "system", accent: "#245883" });
       return;
     }
-    setInvalidMeasurements((current) => Object.fromEntries(Object.entries(current).filter(([, value]) => value !== section)));
     setError("");
-    setStyle(section === "figure"
-      ? { ...defaults, x: style.x, y: style.y }
-      : { ...style, [section]: defaults[section] });
+    if (tab === "x" || tab === "y") {
+      setInvalidMeasurements((current) => Object.fromEntries(Object.entries(current).filter(([, value]) => value !== tab)));
+      setStyle({ ...style, [tab]: defaults[tab] });
+      return;
+    }
+    const fields = figureTabFields[tab];
+    setInvalidMeasurements((current) => Object.fromEntries(
+      Object.entries(current).filter(([key]) => !fields.some((field) => key === `figure.${field}`)),
+    ));
+    const units = fields.reduce((current, key) => resetUnits(current, defaults.units, key), style.units ?? {});
+    setStyle({ ...style, ...Object.fromEntries(fields.map((key) => [key, defaults[key]])), units });
   }
 
   function describeDefault(key: string) {
@@ -520,10 +548,11 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
 
   const sectionTabs = (
           <div className="figure-settings-nav">
-            {(["figure", ...axes] as const).map((item) => (
-              <button key={item} type="button" role="tab" aria-selected={page === "figures" && section === item}
-                id={`settings-tab-${item}`} aria-controls="settings-options" tabIndex={page === "figures" && section === item ? 0 : -1}
-                onClick={() => { setPage("figures"); setSection(item); setError(""); }}>
+            {(["figure", "traces", "legend", "fonts", ...axes] as const)
+              .filter((item) => item !== "traces" || bar || markers || line).map((item) => (
+              <button key={item} type="button" role="tab" aria-selected={page === "figures" && tab === item}
+                id={`settings-tab-${item}`} aria-controls="settings-options" tabIndex={page === "figures" && tab === item ? 0 : -1}
+                onClick={() => { setPage("figures"); setTab(item); setError(""); }}>
                 {sectionNames[item]}
               </button>
             ))}
@@ -583,7 +612,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
             </details> : sectionTabs}
           </div>
         </nav>
-        <div ref={content} className="settings-content" id="settings-options" role="tabpanel" aria-labelledby={page === "figures" ? `settings-tab-${section}` : `settings-tab-${page}`}>
+        <div ref={content} className="settings-content" id="settings-options" role="tabpanel" aria-labelledby={page === "figures" ? `settings-tab-${tab}` : `settings-tab-${page}`}>
           {page === "workflow" && <SettingsGroup title="Execution">
             <Field label="Run new steps automatically">
               <input type="checkbox" checked={automatic} onChange={(event) => setAutomatic(event.target.checked)} />
@@ -609,7 +638,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
         units: (section === "figure" ? style.units : style[section].units) ?? {},
         setInvalid: (key, invalid) => setInvalidMeasurements((current) => {
           const next = { ...current };
-          if (invalid) next[`${section}.${key}`] = section;
+          if (invalid) next[`${section}.${key}`] = tab;
           else delete next[`${section}.${key}`];
           return next;
         }),
@@ -617,7 +646,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
           ? { ...current, units: { ...current.units, [key]: unit } }
           : { ...current, [section]: { ...current[section], units: { ...current[section].units, [key]: unit } } }),
       }}>
-      {section === "figure" ? <FigureFields style={style} bar={bar} markers={markers} line={line} onChange={setStyle} />
+      {section === "figure" ? <FigureFields tab={tab as FigureTab} style={style} bar={bar} markers={markers} line={line} onChange={setStyle} />
         : <AxisFields style={style[section]} fallback={labels[section]} categorical={categoricalX && section === "x"}
             onChange={(value) => setStyle({ ...style, [section]: value })} />}
       </MeasurementControls.Provider>

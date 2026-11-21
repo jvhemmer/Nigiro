@@ -577,3 +577,7 @@ td input {
 
 .figure-field.figure-checkbox { display: flex; flex-direction: row; align-items: center; }
 .figure-field.figure-checkbox input[type="checkbox"] { width: auto; margin: 0; }
+
+.trace-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+.trace-settings > :only-child { grid-column: 1 / -1; }
+.trace-settings .figure-fields { grid-template-columns: minmax(0, 1fr); }
