@@ -259,23 +259,16 @@ button.primary:hover:not(:disabled) { background: var(--accent); filter: brightn
   --dv-active-sash-color: var(--accent);
   --dv-drag-over-background-color: var(--accent-soft);
 }
-/* Dockview's React tab wrapper has an inline 100% width. Size it from the
-   title so it doesn't depend on the width of the flex item it measures. */
 .nigiro-dock .dv-tab { flex-shrink: 0; }
-.nigiro-dock .dv-tab > .dv-react-part { width: max-content !important; }
 .nigiro-dock .dv-tabs-container { scrollbar-width: none; }
 .nigiro-dock .dv-tabs-container::-webkit-scrollbar { display: none; }
-.dock-tab {
-  display: flex;
-  align-items: center;
+.nigiro-dock .dv-tab .dv-default-tab {
   width: max-content;
-  gap: 4px;
-  padding: 0 4px;
+  padding-inline: 4px;
   cursor: grab;
-  white-space: nowrap;
   font-weight: 650;
 }
-.dock-tab svg { flex: none; }
+.nigiro-dock .dv-tab .dv-default-tab-action { display: none; }
 .dock-actions { display: flex; align-items: center; height: 100%; padding-inline: 3px; }
 .dock-icon {
   width: 23px;

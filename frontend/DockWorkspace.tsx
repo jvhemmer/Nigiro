@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import {
   DockviewReact, themeLight,
   type AddPanelOptions, type DockviewApi, type DockviewReadyEvent,
-  type IDockviewHeaderActionsProps, type IDockviewPanelHeaderProps, type IDockviewPanelProps,
+  type IDockviewHeaderActionsProps, type IDockviewPanelProps,
   type SerializedDockview,
 } from "dockview-react";
 import { PanelLeftClose, RotateCcw, type LucideIcon } from "lucide-react";
@@ -32,17 +32,6 @@ export function useRevealDockPanel() {
 function DockContent({ api }: IDockviewPanelProps) {
   const panel = useContext(Dock).panels.find((item) => item.id === api.id);
   return <div className="dock-content">{panel?.content}</div>;
-}
-
-function DockTab({ api }: IDockviewPanelHeaderProps) {
-  const panel = useContext(Dock).panels.find((item) => item.id === api.id);
-  if (!panel) return null;
-  return (
-    <div className="dock-tab" title={`Drag ${panel.title} to move it`}>
-      <panel.icon size={15} aria-hidden="true" />
-      <span>{panel.title}</span>
-    </div>
-  );
 }
 
 function DockActions({ activePanel }: IDockviewHeaderActionsProps) {
@@ -76,6 +65,8 @@ function readLayout(panels: DockPanel[]): SerializedDockview | null {
         !entries.every(([id, panel]) => panel.contentComponent === "dock" && panels.some((item) => item.id === id))) {
       return null;
     }
+    // Older layouts stored the React tab renderer in each panel.
+    for (const [, panel] of entries) delete panel.tabComponent;
     return layout;
   } catch {
     return null;
@@ -238,7 +229,6 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
             className="nigiro-dock"
             theme={themeLight}
             components={components}
-            defaultTabComponent={DockTab}
             singleTabMode="default"
             scrollbars="native"
             rightHeaderActionsComponent={DockActions}
