@@ -18,8 +18,8 @@
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "dockview-react": "^8.9.1",
     "lucide-react": "^0.548.0",
-    "plotly.js-basic-dist-min": "3.7.0",
-    "plotly.js-gl2d-dist-min": "3.7.0",
+    "plotly.js-basic-dist-min": "4.1.1",
+    "plotly.js-gl2d-dist-min": "4.1.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

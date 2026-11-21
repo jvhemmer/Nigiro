@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { formatMeasurement, parseMeasurement } from "./units";
+import { invoke } from "@tauri-apps/api/core";
 import type { Appearance } from "./workspace";
 import { Save, RotateCcw } from "lucide-react";
 import type { AxisKey, AxisStyle, FigureStyle, StyleSection } from "./figureStyle";
@@ -18,9 +19,12 @@ const fieldKeys: Record<string, string> = {
   "Tick interval": "step", "Tick interval (decades)": "step", "Tick number format": "format",
   "Tick direction": "ticks", "Tick length (px)": "tick_length", "Tick label angle (°)": "angle",
   "Axis line width (px)": "line_width", "Axis line": "line", "Tick labels": "tick_labels",
-  "Minor ticks": "minor_ticks", "Mirror axis and ticks": "mirror", "Grid lines": "grid",
+  "Minor ticks": "minor_ticks", "Opposite axis line": "mirror", "Opposite ticks": "opposite_ticks", "Bold": "font_bold", "Italic": "font_italic", "Grid lines": "grid",
   "Zero line": "zero_line", "Hover ruler": "hover_ruler",
 };
+const measuredFields = new Set(Object.entries(fieldKeys)
+  .filter(([label]) => label.endsWith("(px)") || label.endsWith("(°)")).map(([, key]) => key));
+
 const MeasurementControls = createContext<{
   units: Record<string, string>;
   setUnit: (key: string, unit: string) => void;
@@ -34,6 +38,7 @@ const GlobalControls = createContext<{
   busy: boolean;
   save: (key: string) => void;
   reset: (key: string) => void;
+  describe: (key: string) => string;
 } | null>(null);
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -42,9 +47,9 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <div className="figure-field-row">
     <label className="figure-field"><span>{label}</span>{children}</label>
     {controls && key && <div className="global-field-actions">
-      <button type="button" disabled={controls.busy} title={`Save ${label.toLowerCase()} as global`}
+      <button type="button" disabled={controls.busy} title="Save as global value"
         aria-label={`Save ${label.toLowerCase()} as global`} onClick={() => controls.save(key)}><Save size={10} /></button>
-      <button type="button" disabled={controls.busy} title={`Revert ${label.toLowerCase()} to global`}
+      <button type="button" disabled={controls.busy} title={`Use global value (${controls.describe(key)})`}
         aria-label={`Revert ${label.toLowerCase()} to global`} onClick={() => controls.reset(key)}><RotateCcw size={10} /></button>
     </div>}
   </div>;
@@ -111,6 +116,57 @@ function Choice<T extends string>({ label, value, options, onChange }: {
   </Field>;
 }
 
+const mathSymbols = ["α", "β", "γ", "δ", "ε", "θ", "λ", "μ", "π", "ρ", "σ", "τ", "φ", "ω", "Δ", "Σ", "Ω",
+  "±", "×", "·", "−", "≈", "≤", "≥", "∞", "∂", "∇", "√", "∫", "²", "³", "⁻", "₀", "₁", "₂"];
+
+function MathTextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  return <div>
+    <Field label={label}><input ref={input} value={value} onChange={(event) => onChange(event.target.value)} /></Field>
+    <select className="math-symbols" aria-label={`Insert math symbol in ${label.toLowerCase()}`} value="" onChange={(event) => {
+      const symbol = event.target.value;
+      const start = input.current?.selectionStart ?? value.length;
+      const end = input.current?.selectionEnd ?? start;
+      onChange(value.slice(0, start) + symbol + value.slice(end));
+      requestAnimationFrame(() => {
+        input.current?.focus();
+        input.current?.setSelectionRange(start + symbol.length, start + symbol.length);
+      });
+    }}>
+      <option value="" disabled>Insert math symbol</option>
+      {mathSymbols.map((symbol) => <option key={symbol} value={symbol}>{symbol}</option>)}
+    </select>
+  </div>;
+}
+
+function FontField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const id = useId();
+  const [families, setFamilies] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = async (refresh: boolean) => {
+    setBusy(true);
+    setError("");
+    try {
+      const response = await invoke<{ fonts: string[] }>("workspace", { request: { action: "system_fonts", refresh } });
+      setFamilies(response.fonts);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+  useEffect(() => { void load(false); }, []);
+  return <div>
+    <Field label="Font family">
+      <input list={id} value={value} onChange={(event) => onChange(event.target.value)} />
+    </Field>
+    <datalist id={id}>{families.map((family) => <option key={family} value={family} />)}</datalist>
+    <button className="refresh-fonts" type="button" disabled={busy} onClick={() => { void load(true); }}>Refresh system fonts</button>
+    {error && <p className="figure-settings-error" role="alert">{error}</p>}
+  </div>;
+}
+
 function AxisFields({ style, fallback, categorical, onChange }: {
   style: AxisStyle;
   fallback: string;
@@ -123,9 +179,7 @@ function AxisFields({ style, fallback, categorical, onChange }: {
 
   return <>
     <SettingsGroup title="Label and range">
-      <Field label="Axis label">
-        <input value={style.label ?? fallback} onChange={(event) => set("label", event.target.value)} />
-      </Field>
+      <MathTextField label="Axis label" value={style.label ?? fallback} onChange={(value) => set("label", value)} />
       {!categorical && <Choice label="Scale" value={style.scale} onChange={(value) => set("scale", value)}
         options={[["linear", "Linear"], ["log", "Logarithmic"]]} />}
       <NumberField label="Lower limit" placeholder="Auto" value={style.lower}
@@ -154,13 +208,23 @@ function AxisFields({ style, fallback, categorical, onChange }: {
     <div className="figure-toggles">
       {([
         ["line", "Axis line"], ["tick_labels", "Tick labels"], ["minor_ticks", "Minor ticks"],
-        ["mirror", "Mirror axis and ticks"], ["grid", "Grid lines"], ["zero_line", "Zero line"],
+        ["mirror", "Opposite axis line"], ["grid", "Grid lines"], ["zero_line", "Zero line"],
         ["hover_ruler", "Hover ruler"],
       ] as const).filter(([key]) => !categorical || key !== "minor_ticks").map(([key, label]) => (
         <Field key={key} label={label}>
-          <input type="checkbox" checked={style[key]} onChange={(event) => set(key, event.target.checked)} />
+          <input type="checkbox" checked={style[key]} onChange={(event) => {
+            if (key === "mirror") {
+              onChange({ ...style, mirror: event.target.checked, opposite_ticks: style.opposite_ticks ?? false });
+            } else {
+              set(key, event.target.checked);
+            }
+          }} />
         </Field>
       ))}
+      <Field label="Opposite ticks">
+        <input type="checkbox" checked={style.opposite_ticks ?? style.mirror} disabled={!style.mirror || !style.line}
+          onChange={(event) => set("opposite_ticks", event.target.checked)} />
+      </Field>
     </div>
     </fieldset>
   </>;
@@ -179,15 +243,18 @@ function FigureFields({ style, bar, markers, line, onChange }: {
 
   return <>
     <SettingsGroup title="Layout">
-    <Field label="Figure title"><input value={style.title} onChange={(event) => set("title", event.target.value)} /></Field>
+    <MathTextField label="Figure title" value={style.title} onChange={(value) => set("title", value)} />
     <NumberField label="Axes width (px)" placeholder="Auto" value={style.axes_width}
       onChange={(value) => set("axes_width", Number.isNaN(value) ? null : value)} />
     <NumberField label="Axes height (px)" placeholder="Auto" value={style.axes_height}
       onChange={(value) => set("axes_height", Number.isNaN(value) ? null : value)} />
     </SettingsGroup>
     <SettingsGroup title="Typography">
-    <Field label="Font family"><input value={style.font_family}
-      onChange={(event) => set("font_family", event.target.value)} /></Field>
+    <FontField value={style.font_family} onChange={(value) => set("font_family", value)} />
+    <div className="font-emphasis">
+      <Field label="Bold"><input type="checkbox" checked={style.font_bold} onChange={(event) => set("font_bold", event.target.checked)} /></Field>
+      <Field label="Italic"><input type="checkbox" checked={style.font_italic} onChange={(event) => set("font_italic", event.target.checked)} /></Field>
+    </div>
     <NumberField label="Axis label size (px)" value={style.label_size} onChange={(value) => set("label_size", value)} />
     <NumberField label="Tick and legend size (px)" value={style.tick_size} onChange={(value) => set("tick_size", value)} />
     </SettingsGroup>
@@ -245,9 +312,10 @@ function figureError(style: FigureStyle) {
   return "";
 }
 
-export function FigureSettings({ initial, defaults, initialSection, labels, categoricalX, bar, markers, line, onClose, onApply, global = false, appearance, busy = false, saveError = "", onSaveGlobal }: {
+export function FigureSettings({ initial, defaults, initialSection, labels, categoricalX, bar, markers, line, onClose, onApply, global = false, appearance, runAutomatically = true, busy = false, saveError = "", onSaveGlobal }: {
   global?: boolean;
   appearance?: Appearance;
+  runAutomatically?: boolean;
   busy?: boolean;
   saveError?: string;
   onSaveGlobal?: (section: StyleSection, key: string, value: unknown, unit?: string) => Promise<boolean>;
@@ -260,14 +328,15 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
   markers: boolean;
   line: boolean;
   onClose: () => void;
-  onApply: (style: FigureStyle, appearance?: Appearance) => void;
+  onApply: (style: FigureStyle, appearance?: Appearance, runAutomatically?: boolean) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const [style, setStyle] = useState(initial);
-  const [page, setPage] = useState<"appearance" | "figures">(global ? "appearance" : "figures");
+  const [page, setPage] = useState<"appearance" | "figures" | "workflow">(global ? "appearance" : "figures");
+  const [automatic, setAutomatic] = useState(runAutomatically);
   const [expanded, setExpanded] = useState(true);
   const [appearanceDraft, setAppearanceDraft] = useState<Appearance>(appearance ?? { theme: "system", accent: "#245883" });
   const [section, setSection] = useState(initialSection);
@@ -324,7 +393,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
         return;
       }
     }
-    onApply({ ...style, font_family: style.font_family.trim() }, global ? appearanceDraft : undefined);
+    onApply({ ...style, font_family: style.font_family.trim() }, global ? appearanceDraft : undefined, global ? automatic : undefined);
   }
 
   async function saveField(key: string) {
@@ -360,6 +429,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
   }
 
   function resetSection() {
+    if (page === "workflow") { setAutomatic(true); return; }
     if (page === "appearance") {
       setAppearanceDraft({ theme: "system", accent: "#245883" });
       return;
@@ -369,6 +439,21 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
     setStyle(section === "figure"
       ? { ...defaults, x: style.x, y: style.y }
       : { ...style, [section]: defaults[section] });
+  }
+
+  function describeDefault(key: string) {
+    const defaultsForSection = section === "figure" ? defaults : defaults[section];
+    const value = key === "opposite_ticks" && section !== "figure"
+      ? defaults[section].opposite_ticks ?? defaults[section].mirror
+      : defaultsForSection[key as keyof typeof defaultsForSection] as unknown;
+    if (typeof value === "boolean") return value ? "On" : "Off";
+    if (value == null) return "Auto";
+    if (value === "") return "Blank";
+    if (typeof value === "number" && measuredFields.has(key)) {
+      const angle = key === "angle";
+      return formatMeasurement(value, defaultsForSection.units?.[key] ?? (angle ? "deg" : "px"), angle);
+    }
+    return String(value);
   }
 
   const sectionTabs = (
@@ -426,6 +511,9 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
             {global && <button className="settings-page-tab" type="button" role="tab" id="settings-tab-appearance"
               aria-controls="settings-options" aria-selected={page === "appearance"} tabIndex={page === "appearance" ? 0 : -1}
               onClick={() => { setPage("appearance"); setError(""); }}>Appearance</button>}
+            {global && <button className="settings-page-tab" type="button" role="tab" id="settings-tab-workflow"
+              aria-controls="settings-options" aria-selected={page === "workflow"} tabIndex={page === "workflow" ? 0 : -1}
+              onClick={() => { setPage("workflow"); setError(""); }}>Workflow</button>}
             {global ? <details className="settings-nav-group" open={expanded}
               onToggle={(event) => setExpanded(event.currentTarget.open)}>
               <summary>Global Figure Settings</summary>
@@ -433,7 +521,12 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
             </details> : sectionTabs}
           </div>
         </nav>
-        <div ref={content} className="settings-content" id="settings-options" role="tabpanel" aria-labelledby={page === "appearance" ? "settings-tab-appearance" : `settings-tab-${section}`}>
+        <div ref={content} className="settings-content" id="settings-options" role="tabpanel" aria-labelledby={page === "figures" ? `settings-tab-${section}` : `settings-tab-${page}`}>
+          {page === "workflow" && <SettingsGroup title="Execution">
+            <Field label="Run new steps automatically">
+              <input type="checkbox" checked={automatic} onChange={(event) => setAutomatic(event.target.checked)} />
+            </Field>
+          </SettingsGroup>}
           {page === "appearance" && <SettingsGroup title="Interface">
             <Field label="Theme">
               <select aria-label="Theme" value={appearanceDraft.theme} onChange={(event) => setAppearanceDraft({
@@ -450,7 +543,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
           </SettingsGroup>}
           <div hidden={page !== "figures"}>
           {global && <p className="global-settings-note muted">Defaults for new figures.</p>}
-      <GlobalControls.Provider value={onSaveGlobal ? { busy, save: (key) => { void saveField(key); }, reset: resetField } : null}>
+      <GlobalControls.Provider value={onSaveGlobal ? { busy, save: (key) => { void saveField(key); }, reset: resetField, describe: describeDefault } : null}>
       <MeasurementControls.Provider value={{
         units: (section === "figure" ? style.units : style[section].units) ?? {},
         setInvalid: (key, invalid) => setInvalidMeasurements((current) => {

@@ -8,6 +8,7 @@ import os
 import platform
 import tempfile
 from dataclasses import asdict
+from io import BytesIO
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
@@ -17,13 +18,15 @@ import scipy
 from .figure_style import FigureStyle
 from .project import (
     AddFigureLayers, Correction, FigureAppearance, FigureColor, ItemEdit, LinearFit, Operation, OverlayFigure, Plot, PluginStep,
-    Project, ResidualFigure, Source,
+    Project, ResidualFigure, ScaleColumn, Source,
 )
 from .source_tables import SourceTable
+from .workflow import Step, Workflow
 
 
 OPERATION_TYPES = {
     "correct_cell": Correction,
+    "scale_column": ScaleColumn,
     "linear_fit": LinearFit,
     "plot": Plot,
     "plugin": PluginStep,
@@ -61,7 +64,17 @@ def read_source(archive: ZipFile, path: str, metadata: dict) -> Source:
     return Source(metadata["name"], content, metadata["encoding"], metadata["delimiter"])
 
 
-def save_project(path: Path, project: Project) -> None:
+def save_project(path: Path, project: Project, workflow: Workflow | None = None) -> None:
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
+        pending = Path(temporary.name)
+    try:
+        write_project(pending, project, workflow)
+        os.replace(pending, path)
+    finally:
+        pending.unlink(missing_ok=True)
+
+
+def write_project(destination: Path | BytesIO, project: Project, workflow: Workflow | None = None) -> None:
     project.validate()
     source = project.source
     manifest = {
@@ -81,21 +94,60 @@ def save_project(path: Path, project: Project) -> None:
         manifest["derived_sources"] = {key: asdict(table) for key, table in project.saved_sources.items()}
     if project.additional_sources:
         manifest["additional_sources"] = [source_metadata(item) for item in project.additional_sources]
-    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
-        temporary_path = Path(temporary.name)
-    try:
-        with ZipFile(temporary_path, "w", compression=ZIP_DEFLATED) as archive:
-            archive.writestr("manifest.json", json.dumps(manifest, indent=2))
-            if source:
-                archive.writestr("source.csv", source.content)
-            for index, item in enumerate(project.additional_sources):
-                archive.writestr(f"sources/{index}.csv", item.content)
-        os.replace(temporary_path, path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
+    with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", json.dumps(manifest, indent=2))
+        if source:
+            archive.writestr("source.csv", source.content)
+        for index, item in enumerate(project.additional_sources):
+            archive.writestr(f"sources/{index}.csv", item.content)
+        if workflow and workflow.steps:
+            base = BytesIO()
+            write_project(base, workflow.base)
+            archive.writestr("workflow/base.nigiro", base.getvalue())
+            files = {}
+            for index, item in enumerate(project.raw_sources.values()):
+                files[source_metadata(item)["sha256"]] = "source.csv" if index == 0 else f"sources/{index - 1}.csv"
+            steps = []
+            for step in workflow.steps:
+                inputs = []
+                for index, item in enumerate(step.sources):
+                    metadata = source_metadata(item)
+                    checksum = metadata["sha256"]
+                    if checksum not in files:
+                        files[checksum] = f"workflow/{step.id}/{index}.csv"
+                        archive.writestr(files[checksum], item.content)
+                    inputs.append({"file": files[checksum], **metadata})
+                steps.append({"id": step.id, "label": step.label, "request": step.request, "inputs": inputs})
+            archive.writestr("workflow/steps.json", json.dumps({
+                "steps": steps,
+                "completed": workflow.completed,
+                "executed": sorted(workflow.executed),
+                "bindings": workflow.bindings,
+                "needs_replay": workflow.needs_replay,
+                "error": workflow.error,
+            }, allow_nan=False))
 
 
-def load_project(path: Path) -> Project:
+def load_workflow(path: Path, project: Project) -> Workflow:
+    with ZipFile(path) as archive:
+        if "workflow/steps.json" not in archive.namelist():
+            return Workflow(project)
+        record = json.loads(archive.read("workflow/steps.json"))
+        base = load_project(BytesIO(archive.read("workflow/base.nigiro")))
+        steps = [
+            Step(step["id"], step["label"], step["request"],
+                 tuple(read_source(archive, entry["file"], entry) for entry in step["inputs"]))
+            for step in record["steps"]
+        ]
+        completed = record["completed"]
+        if type(completed) is not int or not 0 <= completed <= len(steps):
+            raise ValueError("Invalid workflow progress.")
+        return Workflow(
+            base, steps, completed, set(record["executed"]), record["bindings"], record["needs_replay"], record.get("error"),
+        )
+
+
+def load_project(path: Path | BytesIO) -> Project:
     try:
         with ZipFile(path) as archive:
             manifest = json.loads(archive.read("manifest.json"))

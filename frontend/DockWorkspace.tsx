@@ -82,8 +82,9 @@ function readLayout(panels: DockPanel[]): SerializedDockview | null {
   }
 }
 
-export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
+export function DockWorkspace({ panels, sourceCount }: { panels: DockPanel[]; sourceCount: number }) {
   const [api, setApi] = useState<DockviewApi | null>(null);
+  const area = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const defaultLayout = useRef<SerializedDockview | null>(null);
   const focusRestore = useRef<string | null>(null);
@@ -127,6 +128,16 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
     const subscription = api.onDidLayoutChange(() => syncLayout(api));
     return () => subscription.dispose();
   }, [api, syncLayout]);
+
+  useEffect(() => {
+    if (!api) return;
+    // Measure the tab strips after an import updates the dock contents.
+    const frame = requestAnimationFrame(() => {
+      const bounds = area.current?.getBoundingClientRect();
+      if (bounds?.width && bounds.height) api.layout(bounds.width, bounds.height, true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [api, sourceCount]);
 
   function ready({ api }: DockviewReadyEvent) {
     for (const { icon: _icon, content: _content, ...options } of panels) {
@@ -233,7 +244,7 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
             <RotateCcw size={17} aria-hidden="true" />
           </button>
         </aside>
-        <div className="dock-area">
+        <div className="dock-area" ref={area}>
           <DockviewReact
             className="nigiro-dock"
             theme={themeLight}

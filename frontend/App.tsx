@@ -16,10 +16,11 @@ import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigu
 import { MenuBar, type MenuCommand, type MenuRequest } from "./MenuBar";
 import { columnFields, PluginDialog } from "./PluginDialog";
 import { ViewTabs, viewTabId } from "./ViewTabs";
+import { WorkflowPanel, WorkflowStepDialog } from "./WorkflowPanel";
 import { Worksheet } from "./Worksheet";
 import {
-  elementNames, formatNumber, plotNames, workspace,
-  type FigureElement, type PluginDefinition, type PluginRun, type Project, type RecordedStep, type Request, type WorkspaceItem,
+  elementNames, formatNumber, workspace,
+  type FigureElement, type PluginDefinition, type PluginRun, type Project, type Request, type WorkflowStep, type WorkspaceItem,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<boolean>;
@@ -44,36 +45,6 @@ function confirmDiscard() {
     okLabel: "Discard changes",
     cancelLabel: "Cancel",
   });
-}
-
-function stepLabel(operation: RecordedStep, project: Project, plugins: PluginDefinition[]) {
-  const columns = project.columns;
-  switch (operation.kind) {
-    case "correct_cell": {
-      const source = project.sources.find(({ id }) => id === operation.source_id);
-      const name = (operation.source_id ? source?.columns : columns)?.[operation.column] || `Column ${operation.column + 1}`;
-      return `Set row ${operation.row + 1}, ${name} to ${JSON.stringify(operation.value)}`;
-    }
-    case "plot":
-      return `${plotNames[operation.plot_type]} plot of ${columns[operation.y]} against ${columns[operation.x]}`;
-    case "linear_fit":
-      return `Fit ${columns[operation.y]} against ${columns[operation.x]}`;
-    case "plugin":
-      return `Run ${plugins.find((plugin) => matchesPlugin(operation, plugin))?.name ?? operation.plugin_id}`;
-    case "figure_color":
-      return `Change ${elementNames[operation.element].toLowerCase()} color to ${operation.color}`;
-    case "figure_style":
-    case "figure_appearance":
-      return "Change figure settings";
-    case "residual_figure":
-      return "Create residual figure";
-    case "overlay_figure":
-      return `Overlay ${operation.figure_ids.length} figures`;
-    case "add_figure_layers":
-      return `Add ${operation.figure_ids.length === 1 ? "a layer" : `${operation.figure_ids.length} layers`} to a figure`;
-    case "item_edit":
-      return operation.name === null ? `Delete ${operation.target}` : `Rename ${operation.target} to ${operation.name}`;
-  }
 }
 
 function ColorField({
@@ -112,6 +83,12 @@ function FigurePanel({ project, onSelect, onEdit, busy, capture, run }: {
   const data = project.figure;
   const summary = Object.entries(data?.summary ?? {});
   const figureId = project.figure_id;
+  const previousFigure = useRef(figureId);
+  const reveal = useRevealDockPanel();
+  useEffect(() => {
+    if (figureId !== null && previousFigure.current !== figureId) reveal("figure");
+    previousFigure.current = figureId;
+  }, [figureId, reveal]);
   const charts = useRef(new Map<number, Project>());
   for (const [id, stored] of charts.current) {
     const current = project.figures.find((figure) => figure.id === id);
@@ -266,47 +243,38 @@ function SourcesPanel({ project, busy, run }: { project: Project; busy: boolean;
   );
 }
 
-function ProjectEditor({ project, plugins, busy, run, onConfigure, onEdit, capture }: {
+function ProjectEditor({ project, busy, run, onConfigure, onEdit, capture }: {
   project: Project;
   capture: Ref<CaptureFigure>;
   busy: boolean;
   run: Run;
-  plugins: PluginDefinition[];
   onConfigure?: () => void;
   onEdit: (section: StyleSection) => void;
 }) {
   const [element, setElement] = useState<FigureElement>("fit");
   return (
-    <DockWorkspace panels={[
+    <DockWorkspace sourceCount={project.sources.length} panels={[
       {
         id: "figure", title: "Figure", icon: ChartNoAxesCombined, minimumWidth: 210,
         content: <FigurePanel project={project} onSelect={setElement} onEdit={onEdit} busy={busy} capture={capture} run={run} />,
       },
       {
         id: "worksheet", title: "Worksheet", icon: Table2,
-        position: { referencePanel: "figure", direction: "left" },
-        initialWidth: 320, minimumWidth: 170, minimumHeight: 150,
+        position: { referencePanel: "figure", direction: "within" },
+        minimumWidth: 170, minimumHeight: 150,
         content: <WorksheetPanel project={project} busy={busy} run={run} />,
       },
       {
         id: "sources", title: "Sources", icon: Database,
-        position: { referencePanel: "worksheet", direction: "above" },
-        initialHeight: 115, minimumWidth: 150, minimumHeight: 65,
+        position: { referencePanel: "figure", direction: "left" },
+        initialWidth: 260, minimumWidth: 150, minimumHeight: 65,
         content: <SourcesPanel project={project} busy={busy} run={run} />,
       },
       {
         id: "history", title: "Recorded steps", icon: History,
-        position: { referencePanel: "worksheet", direction: "below" },
+        position: { referencePanel: "sources", direction: "below" },
         initialHeight: 180, minimumWidth: 150, minimumHeight: 90,
-        content: (
-          <div className="history">
-            <ol>
-              {project.sources.filter(({ id }) => id === null || id.startsWith("raw:"))
-                .map(({ id, name }) => <li key={id ?? "primary"}>Import {name}</li>)}
-              {project.operations.map((step, index) => <li key={index}>{stepLabel(step, project, plugins)}</li>)}
-            </ol>
-          </div>
-        ),
+        content: <WorkflowPanel workflow={project.workflow} busy={busy} run={run} />,
       },
       {
         id: "analysis", title: "Analysis", icon: SlidersHorizontal,
@@ -325,6 +293,7 @@ export function App() {
   const [projectKey, setProjectKey] = useState(0);
   const [plugins, setPlugins] = useState<PluginDefinition[]>([]);
   const [pluginDialog, setPluginDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | null>(null);
+  const [stepDialog, setStepDialog] = useState<WorkflowStep | "scale" | null>(null);
   const [settingsDialog, setSettingsDialog] = useState(false);
   const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
   const [exportDialog, setExportDialog] = useState<ExportTarget | null>(null);
@@ -435,7 +404,7 @@ export function App() {
     setError("");
     try {
       if (!capture.current) throw new Error("Open the Figure panel before exporting.");
-      await saveFigure(exportName, target, settings, capture.current, project);
+      await saveFigure(exportName, target, settings, capture.current);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -451,13 +420,15 @@ export function App() {
       setPluginDialog({ plugin: request.plugin });
     }
     else if (request.action === "settings") { setError(""); setSettingsDialog(true); }
+    else if (request.action === "choose_scale") { setError(""); setStepDialog("scale"); }
+    else if (request.action === "choose_step") { setError(""); setStepDialog(request.step); }
     else if (request.action === "figure_settings") { setError(""); setFigureDialog("figure"); }
     else if (request.action === "choose_export") setExportDialog(request.target);
     else if (request.action === "manage_item") setItemDialog(request.change);
     else void run(request);
   }
 
-  const menuBusy = busy || settingsDialog || pluginDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
+  const menuBusy = busy || stepDialog !== null || settingsDialog || pluginDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
   const openCommands: MenuCommand[] = [
     { label: "New…", request: { action: "new" }, shortcut: "N" },
     { label: "Import Data…", request: { action: "import_data" } },
@@ -470,6 +441,12 @@ export function App() {
   ];
   const figureSettings: MenuCommand = {
     label: "Figure Settings…", request: exportName ? { action: "figure_settings" } : null,
+  };
+  const activeSource = project?.sources.find((source) => source.id === project.source_id);
+  const scaleCommand: MenuCommand = {
+    label: "Multiply Column…",
+    request: activeSource && (activeSource.id === null || activeSource.id.startsWith("raw:")) && activeSource.columns.length
+      ? { action: "choose_scale" } : null,
   };
   const plotCommands = pluginCommands("plot");
   const analysisCommands = pluginCommands("analysis");
@@ -494,7 +471,18 @@ export function App() {
     let groups = [openCommands];
     const clicked = event.target.closest<HTMLElement>("[data-item-kind][data-item-id]");
     const activeFigure = project?.figures.find(({ id }) => id === project.figure_id);
-    if (clicked?.dataset.itemKind === "source") {
+    const historyStep = event.target.closest<HTMLElement>("[data-workflow-id]");
+    if (historyStep && project) {
+      const index = project.workflow.steps.findIndex(({ id }) => String(id) === historyStep.dataset.workflowId);
+      const step = project.workflow.steps[index];
+      if (!step) return;
+      label = "Recorded step actions";
+      groups = [[
+        { label: "Edit Step…", request: step.options.length ? { action: "choose_step", step } : null },
+        { label: "Move Earlier", request: index > 0 ? { action: "move_step", step_id: step.id, direction: -1 } : null },
+        { label: "Move Later", request: index < project.workflow.steps.length - 1 ? { action: "move_step", step_id: step.id, direction: 1 } : null },
+      ]];
+    } else if (clicked?.dataset.itemKind === "source") {
       const source = project?.sources.find(({ id }) => (id ?? "") === clicked.dataset.itemId);
       if (!source) return;
       label = "Source actions";
@@ -507,20 +495,22 @@ export function App() {
       groups = figure && activeFigure?.id === target.id ? [[figureSettings], commands, exportCommands] : [commands];
     } else if (event.target.closest(".source-pane") && (plotCommands.length || analysisCommands.length)) {
       label = "Worksheet actions";
-      groups = [plotCommands, analysisCommands].filter((group) => group.length);
+      groups = [[scaleCommand], plotCommands, analysisCommands].filter((group) => group.length);
     }
-    const anchor = (clicked ?? event.target).getBoundingClientRect();
+    const anchor = (historyStep ?? clicked ?? event.target).getBoundingClientRect();
     const useAnchor = event.clientX === 0 && event.clientY === 0;
     setContextMenu({
       label, groups,
       x: useAnchor ? anchor.left : event.clientX,
       y: useAnchor ? anchor.bottom : event.clientY,
-      returnFocus: clicked ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null),
+      returnFocus: historyStep ?? clicked ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null),
     });
   }
 
   return (
-    <div className="app" onContextMenu={openContextMenu}>
+    <div className="app" onContextMenu={openContextMenu} onClick={(event) => {
+      if (event.target instanceof Element && event.target.closest("[data-workflow-id]")) openContextMenu(event);
+    }}>
       <header className="app-bar">
         <div className="brand"><ChartNoAxesCombined size={21} /><span>Nigiro</span></div>
         <MenuBar
@@ -544,7 +534,7 @@ export function App() {
             },
             {
               label: "Edit",
-              groups: [[{ label: "Settings…", request: { action: "settings" } }]],
+              groups: [[scaleCommand], [{ label: "Settings…", request: { action: "settings" } }]],
             },
             {
               label: "Plot",
@@ -573,6 +563,9 @@ export function App() {
           </div>
         )}
       </header>
+      {stepDialog && <WorkflowStepDialog step={stepDialog === "scale" ? undefined : stepDialog}
+        columns={activeSource?.columns ?? []} busy={busy} error={error} onRun={run}
+        onClose={() => { setStepDialog(null); setError(""); }} />}
       {contextMenu && <ContextMenu menu={contextMenu} onClose={closeContextMenu} onRun={runMenu} />}
       {itemDialog && (
         <ItemDialog change={itemDialog} onClose={() => setItemDialog(null)} onApply={(name) => {
@@ -605,12 +598,12 @@ export function App() {
         />
       )}
       {project && settingsDialog && (
-        <FigureSettings global appearance={project.appearance} initial={project.global_figure_style} defaults={project.factory_figure_style}
+        <FigureSettings global runAutomatically={project.run_automatically} appearance={project.appearance} initial={project.global_figure_style} defaults={project.factory_figure_style}
           initialSection="figure" labels={{ x: "", y: "" }}
           categoricalX={false} bar markers line busy={busy} saveError={error}
           onClose={() => { setSettingsDialog(false); setError(""); }}
-          onApply={async (style, appearance) => {
-            if (appearance && await run({ action: "set_preferences", style, appearance })) setSettingsDialog(false);
+          onApply={async (style, appearance, run_automatically) => {
+            if (appearance && await run({ action: "set_preferences", style, appearance, run_automatically })) setSettingsDialog(false);
           }} />
       )}
       {project && figure && project.figure_id !== null && figureDialog && (
@@ -641,9 +634,9 @@ export function App() {
           }}
         />
       )}
-      {error && !pluginDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
+      {error && !stepDialog && !pluginDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
-        <ProjectEditor key={projectKey} {...{ project, plugins, busy, run, capture }}
+        <ProjectEditor key={projectKey} {...{ project, busy, run, capture }}
           onConfigure={figure && !figure.overlay_inputs && project.figure_id !== null
             ? () => { setError(""); setPluginDialog({ plugin: figure.definition, figureId: project.figure_id ?? undefined }); }
             : undefined} onEdit={setFigureDialog} />

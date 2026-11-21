@@ -551,3 +551,15 @@ td input {
   cursor: pointer; padding: 6px 3px; font-weight: 600; font-size: .88rem; color: var(--text);
 }
 .settings-nav-group .figure-settings-nav { margin-left: 10px; }
+.history-actions { position: sticky; top: 0; display: flex; gap: 4px; padding: 5px 7px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.refresh-fonts, .math-symbols { margin-top: 5px; }
+.math-symbols { max-width: 100%; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+.font-emphasis { display: flex; gap: 8px; align-items: center; }
+.font-emphasis input[type="checkbox"] { width: auto; }
+.workflow-step {
+  display: flex; justify-content: space-between; gap: 6px; width: 100%; padding: 2px 4px;
+  border-color: transparent; text-align: left; white-space: normal;
+}
+.workflow-step small { flex: none; color: var(--muted); }
+.workflow-step small[data-status="stale"], .workflow-step small[data-status="failed"], .workflow-error { color: var(--error); }
+.workflow-error, .workflow-base { margin: 6px 8px; }

@@ -74,7 +74,9 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertIn("Install the original example.scaled_xy", opened["state"]["project"]["figure_error"])
             self.assertFalse(marker.exists())
             with ZipFile(saved) as archive:
-                self.assertEqual(set(archive.namelist()), {"manifest.json", "source.csv"})
+                self.assertEqual(set(archive.namelist()), {
+                    "manifest.json", "source.csv", "workflow/base.nigiro", "workflow/steps.json",
+                })
             download.write_text(
                 example.read_text(encoding="utf-8").replace('"version": "1"', '"version": "2"'),
                 encoding="utf-8",

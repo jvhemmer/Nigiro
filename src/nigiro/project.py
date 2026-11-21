@@ -64,6 +64,19 @@ class Correction:
 
 
 @dataclass(frozen=True)
+class ScaleColumn:
+    column: int
+    factor: float
+    source_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.column) is not int or self.column < 0:
+            raise ValueError("Choose a valid column.")
+        if type(self.factor) not in (int, float) or not math.isfinite(self.factor):
+            raise ValueError("Enter a finite multiplication factor.")
+
+
+@dataclass(frozen=True)
 class LinearFit:
     x: int
     y: int
@@ -228,7 +241,7 @@ class AddFigureLayers:
 
 
 Operation = (
-    Correction | FigureRecipe | FigureColor | FigureStyle | FigureAppearance | ResidualFigure | ItemEdit
+    Correction | ScaleColumn | FigureRecipe | FigureColor | FigureStyle | FigureAppearance | ResidualFigure | ItemEdit
     | OverlayFigure | AddFigureLayers
 )
 DEFAULT_COLORS = {"observations": "#245e9b", "fit": "#be481f"}
@@ -274,6 +287,10 @@ class Project:
                 source = self.raw_sources.get(operation.source_id)
                 if source is None or operation.row >= len(source.worksheet.rows) or operation.column >= len(source.worksheet.columns):
                     raise ValueError("Correction refers to a missing worksheet cell.")
+            if isinstance(operation, ScaleColumn):
+                source = self.raw_sources.get(operation.source_id)
+                if source is None or operation.column >= len(source.worksheet.columns):
+                    raise ValueError("Choose an available raw data column.")
             if isinstance(operation, LinearFit) and max(operation.x, operation.y) >= column_count:
                 raise ValueError("Fit refers to a missing worksheet column.")
 
@@ -418,14 +435,49 @@ class Project:
 
     @cached_property
     def working_worksheets(self) -> dict[str | None, Worksheet]:
+        return {key: self.build_worksheet(key, len(self.operations)) for key in self.raw_sources}
+
+    @cached_property
+    def recipe_positions(self) -> dict[int, int]:
+        return {id(op): index for index, op in enumerate(self.operations) if isinstance(op, (PluginStep, LinearFit, Plot))}
+
+    @cached_property
+    def scaled_worksheets(self) -> dict[tuple[str | None, int], Worksheet]:
+        return {}
+
+    def worksheet_for_recipe(self, source_id: str | None, recipe: FigureRecipe) -> Worksheet:
+        end = self.recipe_positions.get(id(recipe), len(self.operations))
+        if not any(isinstance(op, ScaleColumn) and op.source_id == source_id for op in self.operations[end:]):
+            return self.working_worksheets[source_id]
+        key = (source_id, end)
+        if key not in self.scaled_worksheets:
+            self.scaled_worksheets[key] = self.build_worksheet(source_id, end)
+        return self.scaled_worksheets[key]
+
+    def build_worksheet(self, source_id: str | None, scale_until: int) -> Worksheet:
+        result = self.raw_sources[source_id].worksheet
         corrections = {}
-        for op in self.operations:
-            if isinstance(op, Correction):
-                corrections.setdefault(op.source_id, {})[op.row, op.column] = op.value
-        return {
-            key: self.corrected_worksheet(source.worksheet, corrections.get(key, {}))
-            for key, source in self.raw_sources.items()
-        }
+        for index, operation in enumerate(self.operations):
+            if isinstance(operation, Correction) and operation.source_id == source_id:
+                corrections[operation.row, operation.column] = operation.value
+            if isinstance(operation, ScaleColumn) and operation.source_id == source_id and index < scale_until:
+                result = self.corrected_worksheet(result, corrections)
+                corrections = {}
+                column = operation.column
+                rows = []
+                for row_number, row in enumerate(result.rows, start=1):
+                    if not row[column].strip():
+                        rows.append(row)
+                        continue
+                    try:
+                        value = float(row[column]) * operation.factor
+                        if not math.isfinite(value):
+                            raise ValueError
+                    except ValueError as error:
+                        raise ValueError(f"Multiplication needs a finite number in row {row_number}.") from error
+                    rows.append((*row[:column], repr(value), *row[column + 1:]))
+                result = Worksheet(result.columns, tuple(rows))
+        return self.corrected_worksheet(result, corrections)
 
     @staticmethod
     def corrected_worksheet(original: Worksheet, changes: dict[tuple[int, int], str]) -> Worksheet:

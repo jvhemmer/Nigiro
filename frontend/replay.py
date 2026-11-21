@@ -1,10 +1,11 @@
 def replay_inputs(payload):
-    source = io.StringIO(newline="")
-    writer = csv.writer(source)
-    writer.writerow(payload["columns"])
-    writer.writerows(payload["rows"])
+    sources = [
+        Source(record["name"], b64decode(record["content"]), record["encoding"], record["delimiter"])
+        for record in payload["recipe"]["sources"]
+    ]
     operation_types = {
         "correct_cell": Correction,
+        "scale_column": ScaleColumn,
         "linear_fit": LinearFit,
         "plot": Plot,
         "plugin": PluginStep,
@@ -21,8 +22,7 @@ def replay_inputs(payload):
         fields = dict(record)
         operation_type = operation_types[fields.pop("kind")]
         operations.append(operation_type(**fields))
-    project = Project(Source(payload["source_name"], source.getvalue().encode("utf-8")), tuple(operations))
-    return project
+    return Project(sources[0] if sources else None, tuple(operations), additional_sources=tuple(sources[1:]))
 
 
 def merge_style(original, changes):
@@ -52,15 +52,37 @@ def replay_plugin(project, plugin, source):
     return result
 
 
-def replay_figure(project, figure, plugin, source, overlay_inputs=None, preserve_first=False):
-    if overlay_inputs:
-        result = overlay_figures(
-            [replay_plugin(project, run["plugin"], run["input"]) for run in overlay_inputs],
-            [run["label"] for run in overlay_inputs],
-            preserve_first=preserve_first,
+def replay_figure(project, figure, recipe):
+    figures = {}
+    tables = {}
+    residuals = {}
+    overlays = recipe["overlays"]
+    project.working_worksheets
+    for key, record in project.figures.items():
+        if record.overlay:
+            continue
+        if record.fit_id is not None:
+            figures[key] = residuals[record.fit_id]
+            continue
+        plugin = recipe["plugins"][str(key)]
+        source_id = plugin["source_id"]
+        source = (
+            project.worksheet_for_recipe(source_id, record.recipe) if source_id in project.raw_sources
+            else tables[source_id]
         )
+        result = replay_plugin(project, plugin, {"columns": source.columns, "rows": source.rows})
+        outputs = output_tables(result, plugin["analysis"])
+        tables.update({f"{key}:{name}": table for name, table in outputs.items()})
+        if record.part == "fit":
+            residuals[key] = linear_fit_view(result, "residual")
+            result = linear_fit_view(result, "fit")
+        figures[key] = result
+    target = recipe["figure_id"]
+    if str(target) in overlays:
+        overlay = overlays[str(target)]
+        result = overlay_figures([figures[key] for key in overlay["members"]], overlay["labels"], overlay["preserve_first"])
     else:
-        result = replay_plugin(project, plugin, source)
+        result = figures[target]
     return {
         **figure,
         "traces": [merge_style(trace, style) for trace, style in zip(result["traces"], figure["traces"], strict=True)],
@@ -68,7 +90,7 @@ def replay_figure(project, figure, plugin, source, overlay_inputs=None, preserve
     }
 
 
-def render_svg(figure, browser_executable, font):
+def render_svg(figure, browser_executable, font, embedded_fonts):
     dimensions = {key: figure[key] for key in ("width", "height")}
     from playwright.sync_api import sync_playwright
     from plotly.offline import get_plotlyjs
@@ -82,6 +104,18 @@ def render_svg(figure, browser_executable, font):
             '@font-face {font-family: "DejaVu Sans"; '
             f'src: url(data:font/ttf;base64,{encoded_font}) format("truetype");}}'
         ))
+        if embedded_fonts:
+            page.evaluate(
+                """async (fonts) => {
+                    for (const font of fonts) {
+                        const face = new FontFace(font.family, 'url(data:application/octet-stream;base64,' + font.data + ')',
+                            { weight: font.weight, style: font.style });
+                        await face.load();
+                        document.fonts.add(face);
+                    }
+                }""",
+                embedded_fonts,
+            )
         page.add_script_tag(content=get_plotlyjs())
         return page.evaluate(
             """async ({ traces, layout, width, height }) => {
@@ -120,12 +154,16 @@ def main():
         output = Path(__file__).with_suffix(f".{extension}")
 
     figure = replay_figure(
-        replay_inputs(payload), payload["figure"], payload["plugin"], payload["figure_input"],
-        payload.get("overlay_inputs"), payload.get("preserve_first", False),
+        replay_inputs(payload), payload["figure"], payload["recipe"],
     )
     font = (Path(get_data_path()) / "fonts" / "ttf" / "DejaVuSans.ttf").read_bytes()
-    svg = render_svg(figure, args.browser_executable, font)
+    embedded_fonts = payload.get("fonts", [])
+    svg = render_svg(figure, args.browser_executable, font, embedded_fonts)
     with TemporaryDirectory() as directory:
         fonts = Path(directory)
         (fonts / "DejaVuSans.ttf").write_bytes(font)
+        from base64 import b64decode
+
+        for index, embedded in enumerate(embedded_fonts):
+            (fonts / f"embedded-{index}{embedded['extension']}").write_bytes(b64decode(embedded["data"]))
         write_figure(output, svg, args.scale, fonts)

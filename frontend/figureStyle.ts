@@ -19,6 +19,7 @@ export interface AxisStyle {
   line: boolean;
   line_width: number;
   mirror: boolean;
+  opposite_ticks: boolean | null;
   grid: boolean;
   zero_line: boolean;
   hover_ruler: boolean;
@@ -30,6 +31,8 @@ export interface FigureStyle {
   axes_width: number | null;
   axes_height: number | null;
   font_family: string;
+  font_bold: boolean;
+  font_italic: boolean;
   label_size: number;
   tick_size: number;
   text_color: string;
@@ -91,7 +94,7 @@ function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision
     showline: axis.line,
     linewidth: axis.line_width,
     linecolor: style.text_color,
-    mirror: axis.line && axis.mirror ? "ticks" : false,
+    mirror: axis.line && axis.mirror ? (axis.opposite_ticks ?? true) ? "ticks" : true : false,
     showgrid: axis.grid,
     gridcolor: "#e0e0e0",
     zeroline: axis.zero_line,
@@ -133,7 +136,8 @@ export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string,
     uirevision: revision,
     margin: { l: 54, r: 16, t: top, b: 50 },
     title: { text: plotText(style.title), font: { size: style.label_size + 2 }, x: 0.5, y: 0.98, yanchor: "top" },
-    font: { family: font, size: style.label_size, color: style.text_color },
+    font: { family: font, size: style.label_size, color: style.text_color,
+      weight: style.font_bold ? "bold" : "normal", style: style.font_italic ? "italic" : "normal" },
     paper_bgcolor: style.background,
     plot_bgcolor: style.background,
     hovermode: "closest",

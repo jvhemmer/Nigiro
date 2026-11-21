@@ -109,6 +109,21 @@ export interface Appearance {
   accent: string;
 }
 
+export interface WorkflowStep {
+  id: number;
+  label: string;
+  status: "done" | "pending" | "stale" | "failed";
+  options: PluginOptions[];
+  labels: Record<string, string>;
+}
+
+export interface Workflow {
+  steps: WorkflowStep[];
+  completed: number;
+  error: string | null;
+  has_base: boolean;
+}
+
 export interface Project {
   appearance: Appearance;
   row_count: number;
@@ -118,6 +133,8 @@ export interface Project {
   source_name: string | null;
   file_name: string | null;
   dirty: boolean;
+  workflow: Workflow;
+  run_automatically: boolean;
   columns: string[];
   rows: string[][];
   original_rows: string[][];
@@ -140,7 +157,10 @@ export interface Project {
 }
 
 export type Request =
-  | { action: "state" | "new" | "sample" | "import_data" | "open" | "save" | "install_plugin" }
+  | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "save" | "install_plugin" }
+  | { action: "move_step"; step_id: number; direction: -1 | 1 }
+  | { action: "edit_step"; step_id: number; options: PluginOptions[] }
+  | { action: "scale_column"; column: number; factor: number }
   | { action: "worksheet_page"; offset: number }
   | { action: "correct"; row: number; column: number; value: string }
   | ({ action: "run_plugin"; figure_id?: number } & PluginRun)
@@ -149,7 +169,7 @@ export type Request =
   | { action: "select_figure"; figure_id: number }
   | { action: "edit_item"; item: WorkspaceItem; name: string | null }
   | { action: "color"; element: FigureElement; color: string; figure_id: number }
-  | { action: "set_preferences"; style: FigureStyle; appearance: Appearance }
+  | { action: "set_preferences"; style: FigureStyle; appearance: Appearance; run_automatically?: boolean }
   | { action: "set_global_style"; style: FigureStyle }
   | { action: "figure_style"; style: FigureStyle; figure_id: number }
   | { action: "save_as"; name: string };

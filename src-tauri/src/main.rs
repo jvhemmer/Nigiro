@@ -13,9 +13,29 @@ use worker::Worker;
 #[serde(tag = "action", rename_all = "snake_case")]
 enum Action {
     State,
+    RunAll,
+    RunNext,
+    ExportRecipe,
+    MoveStep {
+        step_id: usize,
+        direction: i8,
+    },
+    EditStep {
+        step_id: usize,
+        options: Value,
+    },
+    ScaleColumn {
+        column: usize,
+        factor: f64,
+    },
+    SystemFonts {
+        refresh: bool,
+    },
+    ExportFonts,
     SetPreferences {
         style: Value,
         appearance: Value,
+        run_automatically: Option<bool>,
     },
     SetGlobalStyle {
         style: Value,
@@ -152,10 +172,28 @@ async fn save_rendered_figure(
 fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Value>, String> {
     let request = match action {
         Action::WorksheetPage { offset } => json!({ "action": "worksheet_page", "offset": offset }),
-        Action::SetPreferences { style, appearance } => json!({
-            "action": "set_preferences", "style": style, "appearance": appearance
+        Action::SetPreferences {
+            style,
+            appearance,
+            run_automatically,
+        } => json!({
+            "action": "set_preferences", "style": style, "appearance": appearance, "run_automatically": run_automatically
         }),
         Action::SetGlobalStyle { style } => json!({ "action": "set_global_style", "style": style }),
+        Action::RunAll => json!({ "action": "run_all" }),
+        Action::RunNext => json!({ "action": "run_next" }),
+        Action::ExportRecipe => json!({ "action": "export_recipe" }),
+        Action::MoveStep { step_id, direction } => {
+            json!({ "action": "move_step", "step_id": step_id, "direction": direction })
+        }
+        Action::EditStep { step_id, options } => {
+            json!({ "action": "edit_step", "step_id": step_id, "options": options })
+        }
+        Action::ScaleColumn { column, factor } => {
+            json!({ "action": "scale_column", "column": column, "factor": factor })
+        }
+        Action::SystemFonts { refresh } => json!({ "action": "system_fonts", "refresh": refresh }),
+        Action::ExportFonts => json!({ "action": "export_fonts" }),
         Action::State => json!({ "action": "state" }),
         Action::New => json!({ "action": "new" }),
         Action::Sample => json!({ "action": "sample" }),

@@ -14,6 +14,7 @@ import type { Project } from "./workspace";
 export interface ExportSettings {
   format: "png" | "pdf";
   scale: number;
+  embedFonts?: boolean;
 }
 
 export type ExportTarget = "figure" | "script";
@@ -23,20 +24,21 @@ function sourceBody(source: string) {
     .replace(/^from __future__ import annotations\n\n/m, "");
 }
 
-function script(project: Project, figure: FigureSnapshot, settings: ExportSettings) {
-  const plugin = project.figure;
-  if (!plugin) throw new Error("Create a figure before you export it.");
+interface EmbeddedFont {
+  family: string;
+  extension: string;
+  data: string;
+  weight: string;
+  style: string;
+}
+
+function script(project: Project & { script_recipe: unknown }, figure: FigureSnapshot, settings: ExportSettings, fonts: EmbeddedFont[]) {
   const payload = JSON.stringify({
-    source_name: project.source_name,
-    columns: project.columns,
-    rows: project.original_rows,
+    recipe: project.script_recipe,
     operations: project.operations,
-    figure_input: project.figure_input,
-    plugin: { ...plugin.recipe, source: plugin.source, part: plugin.part },
-    overlay_inputs: plugin.overlay_inputs,
-    preserve_first: plugin.preserve_first,
     figure,
     export_settings: settings,
+    ...(fonts.length ? { fonts } : {}),
   }, null, 2);
   // These wheels supply the same Plotly.js version and font as the desktop app.
   const { python, numpy, scipy } = project.versions;
@@ -45,7 +47,7 @@ function script(project: Project, figure: FigureSnapshot, settings: ExportSettin
 # dependencies = [
 #   "numpy==${numpy}",
 #   "scipy==${scipy}",
-#   "plotly==6.9.0",
+#   "plotly==7.1.0",
 #   "matplotlib==3.10.8",
 #   "playwright==1.65.1",
 #   "typst==0.15.2",
@@ -57,7 +59,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from base64 import b64encode
+from base64 import b64decode, b64encode
 
 PAYLOAD = json.loads(r"""
 ${payload}
@@ -78,14 +80,19 @@ if __name__ == "__main__":
 `;
 }
 
-export async function saveFigure(name: string, target: ExportTarget, settings: ExportSettings, capture: CaptureFigure, project: Project) {
+export async function saveFigure(name: string, target: ExportTarget, settings: ExportSettings, capture: CaptureFigure) {
   const format = target === "script" ? "py" : settings.format;
+  let content: string;
   if (target === "script") {
-    const response = await invoke<{ project: Project }>("workspace", { request: { action: "state" }, paged: false });
-    project = response.project;
+    const response = await invoke<{ project: Project & { script_recipe: unknown } }>("workspace", {
+      request: { action: "export_recipe" },
+    });
+    const fonts = settings.embedFonts
+      ? (await invoke<{ fonts: EmbeddedFont[] }>("workspace", { request: { action: "export_fonts" } })).fonts
+      : [];
+    content = script(response.project, capture.snapshot(), settings, fonts);
+  } else {
+    content = await capture.svg();
   }
-  const content = target === "script"
-    ? script(project, capture.snapshot(), settings)
-    : await capture.svg();
   await invoke("save_rendered_figure", { name, format, content, scale: settings.scale });
 }

@@ -6,6 +6,7 @@ import csv
 import json
 import os
 import sys
+from base64 import b64encode
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
@@ -23,11 +24,13 @@ from nigiro.plotting import draw_fit, draw_plot
 from nigiro.plugin_registry import PluginRegistry, plugin_step
 from nigiro.project import (
     AddFigureLayers, Correction, FigureAppearance, FigureColor, FigureRecord, ItemEdit, LinearFit, OverlayFigure, Plot, PluginStep, Project,
-    ResidualFigure, Source, Worksheet,
+    ResidualFigure, ScaleColumn, Source, Worksheet,
 )
 from nigiro.source_tables import SourceTable, output_tables, source_origin
+from nigiro.system_fonts import SystemFonts
 from nigiro.settings import Appearance, Settings
-from nigiro.storage import load_project, operation_record, save_project
+from nigiro.storage import load_project, load_workflow, operation_record, save_project
+from nigiro.workflow import Step, Workflow, map_references
 
 
 SAMPLE = b"""Time (s),Signal
@@ -54,6 +57,8 @@ class Execution:
 class Workspace:
     def __init__(self) -> None:
         self.project = Project()
+        self.workflow = Workflow(self.project)
+        self.fonts = SystemFonts()
         self.path: Path | None = None
         self.dirty = False
         folder = os.environ.get("NIGIRO_PLUGIN_DIR")
@@ -74,6 +79,7 @@ class Workspace:
         project.validate()
         self.render(project, fallback=project.saved_sources)
         self.project = project
+        self.workflow = Workflow(project)
         self.figure_id = project.last_figure_id
         self.source_id = None
         self.path = path
@@ -81,7 +87,10 @@ class Workspace:
 
     def execute(self, project: Project, record: FigureRecord, sources: dict[str, SourceTable]) -> Execution:
         step = plugin_step(record.recipe)
-        worksheet = self.input_worksheet(project, step.source_id, sources)
+        worksheet = (
+            project.worksheet_for_recipe(step.source_id, record.recipe) if step.source_id in project.raw_sources
+            else self.input_worksheet(project, step.source_id, sources)
+        )
         plugin = self.plugins.resolve(step)
         figure = self.plugins.execute(step, worksheet)
         legacy = figure.pop("legacy", None) if plugin.checksum is None else None
@@ -252,6 +261,8 @@ class Workspace:
             "source_name": project.source.name if project.source else None,
             "file_name": self.path.name if self.path else None,
             "dirty": self.dirty,
+            "run_automatically": self.settings.run_automatically,
+            "workflow": self.workflow_snapshot(),
             "columns": project.worksheet.columns,
             "rows": rows[offset:end] if paged else project.worksheet.rows,
             "original_rows": (original[offset:end] if original is not None else ()) if paged else (project.source.worksheet.rows if project.source else ()),
@@ -293,10 +304,138 @@ class Workspace:
         }
         return state
 
+    def workflow_snapshot(self) -> dict:
+        plan = self.workflow
+        steps = []
+        for index, step in enumerate(plan.steps):
+            if index < plan.completed:
+                status = "done"
+            elif index == plan.completed and plan.error:
+                status = "failed"
+            else:
+                status = "stale" if step.id in plan.executed else "pending"
+            action = step.request["action"]
+            if action in ("execute_plugin", "run_plugin"):
+                options = ([run["options"] for run in step.request["runs"]] if action == "execute_plugin"
+                           else [step.request["options"]])
+                plugin = self.plugins.plugins.get((step.request["plugin_id"], step.request["version"], step.request["checksum"]))
+                labels = {field["key"]: field["label"] for field in plugin.manifest["fields"]} if plugin else {}
+            elif action in ("scale_column", "correct", "fit", "plot"):
+                keys = {"scale_column": ["factor"], "correct": ["value"], "fit": ["x", "y"], "plot": ["x", "y"]}[action]
+                options = [{key: step.request[key] for key in keys}]
+                labels = {"factor": "Factor", "value": "Value", "x": "X column (index)", "y": "Y column (index)"}
+            else:
+                options, labels = [], {}
+            steps.append({"id": step.id, "label": step.label, "status": status, "options": options, "labels": labels})
+        return {"steps": steps, "completed": plan.completed, "error": plan.error,
+                "has_base": plan.base.source is not None}
+
+    def enqueue(self, request: dict, label: str, sources: tuple[Source, ...] = ()) -> None:
+        plan = self.workflow
+        step_id = max((step.id for step in plan.steps), default=0) + 1
+        command = {key: value for key, value in request.items() if not key.startswith("_")}
+        if command["action"] in ("execute_plugin", "run_batch", "run_plugin", "fit", "plot"):
+            command["default_style"] = asdict(self.settings.figure_style)
+        if command["action"] in ("correct", "scale_column", "run_plugin") and "source_id" not in command:
+            command["source_id"] = self.source_id
+        if command["action"] in ("figure_style", "color") and "figure_id" not in command:
+            command["figure_id"] = self.figure_id
+        step = Step(step_id, label, map_references(command, plan.reference), sources)
+        auto = self.settings.run_automatically and not plan.needs_replay and plan.completed == len(plan.steps)
+        plan.steps.append(step)
+        if auto:
+            try:
+                self.execute_step(step)
+            except (ValueError, KeyError, TypeError, OSError):
+                plan.steps.pop()
+                raise
+        self.dirty = True
+
+    def execute_step(self, step: Step) -> None:
+        plan = self.workflow
+        request = map_references(step.request, plan.resolve)
+        before = self.project
+        if step.sources:
+            self.import_sources(step.sources, import_path=request.get("import_path"), remember=False)
+        else:
+            self.apply(request)
+        plan.bind(step, before, self.project)
+        plan.completed += 1
+        plan.executed.add(step.id)
+
+    def run_workflow(self, *, restart: bool = False, limit: int | None = None) -> None:
+        plan = self.workflow
+        if limit is None:
+            limit = len(plan.steps)
+        if restart or plan.needs_replay:
+            self.render(plan.base, fallback=plan.base.saved_sources)
+            self.project = plan.base
+            self.figure_id = self.project.last_figure_id
+            self.source_id = None
+            self.row_offset = 0
+            plan.bindings.clear()
+            plan.completed = 0
+            plan.needs_replay = False
+        plan.error = None
+        while plan.completed < limit:
+            step = plan.steps[plan.completed]
+            try:
+                self.execute_step(step)
+            except (ValueError, KeyError, TypeError, OSError) as error:
+                plan.error = f"{step.label}. {error}"
+                break
+        self.dirty = True
+
+    def edit_workflow(self, request: dict) -> None:
+        plan = self.workflow
+        index = next((index for index, step in enumerate(plan.steps) if step.id == request["step_id"]), -1)
+        if index < 0:
+            raise ValueError("Choose a recorded step.")
+        step = plan.steps[index]
+        if request["action"] == "move_step":
+            destination = index + request["direction"]
+            if not 0 <= destination < len(plan.steps):
+                raise ValueError("The step cannot move farther in that direction.")
+            plan.steps.pop(index)
+            plan.steps.insert(destination, step)
+            plan.invalidate(min(index, destination))
+        else:
+            previous = self.workflow_snapshot()["steps"][index]["options"]
+            options = request["options"]
+            if not previous or len(options) != len(previous) or any(
+                not isinstance(values, dict) or values.keys() != original.keys()
+                or any(type(value) not in (bool, str, int, float) for value in values.values())
+                for values, original in zip(options, previous)
+            ):
+                raise ValueError("Enter valid step options.")
+            command = step.request.copy()
+            action = command["action"]
+            if action == "execute_plugin":
+                command["runs"] = [{**run, "options": values} for run, values in zip(command["runs"], options)]
+            elif action == "run_plugin":
+                command["options"] = options[0]
+            else:
+                command.update(options[0])
+            if action == "scale_column":
+                ScaleColumn(command["column"], command["factor"])
+            plan.steps[index] = replace(step, request=command)
+            plan.invalidate(index)
+        self.dirty = True
+
     def dispatch(self, request: dict) -> dict:
         if request["action"] in ("new", "open", "select_source"):
             self.row_offset = 0
         match request["action"]:
+            case "export_recipe":
+                return self.export_recipe()
+            case "system_fonts":
+                return {"fonts": self.fonts.families(refresh=request.get("refresh", False))}
+            case "export_fonts":
+                record = self.project.figures.get(self.figure_id)
+                if record is None:
+                    raise ValueError("Choose a figure to export.")
+                style = record.style
+                return {"fonts": [self.fonts.export(style.font_family, style.font_bold, style.font_italic)]}
             case "dialog_directory":
                 return {"directory": self.dialog_directory()}
             case "worksheet_page":
@@ -305,24 +444,38 @@ class Workspace:
                     raise ValueError("Choose a valid worksheet page.")
                 self.row_offset = (offset // 100) * 100
             case "set_preferences":
-                self.settings.save_preferences(FigureStyle(**request["style"]), Appearance(**request["appearance"]))
+                self.settings.save_preferences(FigureStyle(**request["style"]), Appearance(**request["appearance"]), request.get("run_automatically"))
             case "set_global_style":
                 self.settings.save(FigureStyle(**request["style"]))
+            case "run_all":
+                self.run_workflow(restart=True)
+            case "run_next":
+                if self.workflow.completed < len(self.workflow.steps):
+                    self.run_workflow(limit=self.workflow.completed + 1)
+            case "edit_step" | "move_step":
+                self.edit_workflow(request)
             case "state":
                 pass
             case "new":
                 self.set_project(Project(), None)
             case "sample":
-                self.import_sources((Source("Sample data.csv", SAMPLE),))
+                self.enqueue({"action": "import_data"}, "Import sample data", (Source("Sample data.csv", SAMPLE),))
             case "import_data" | "import_csv" | "add_sources":
                 paths = [Path(value).resolve() for value in (request["paths"] if "paths" in request else [request["path"]])]
-                self.import_sources(
-                    tuple(Source(path.name, path.read_bytes()) for path in paths),
-                    import_path=str(paths[-1]) if paths else None,
-                )
+                if not paths:
+                    raise ValueError("Choose at least one CSV file.")
+                sources = tuple(Source(path.name, path.read_bytes()) for path in paths)
+                for source in sources:
+                    source.worksheet
+                self.enqueue({"action": "import_data", "import_path": str(paths[-1])},
+                             "Import " + ", ".join(path.name for path in paths), sources)
+                self.remember_paths(import_path=str(paths[-1]))
             case "open":
                 path = Path(request["path"]).resolve()
-                self.set_project(load_project(path), path)
+                project = load_project(path)
+                workflow = load_workflow(path, project)
+                self.set_project(project, path)
+                self.workflow = workflow
                 imported = self.project.last_import_path
                 self.remember_paths(
                     import_path=imported if imported and Path(imported).parent.is_dir() else None,
@@ -338,9 +491,62 @@ class Workspace:
                 fonts = Path(__file__).with_name("fonts")
                 write_figure(Path(request["path"]), request["svg"], request["scale"], fonts)
                 return {}
+            case "execute_plugin" | "run_plugin":
+                definition = self.plugins.plugins.get((request["plugin_id"], request["version"], request["checksum"]))
+                label = definition.manifest["name"] if definition else request["plugin_id"]
+                self.enqueue(request, label)
+            case "scale_column":
+                source = self.project.raw_sources.get(self.source_id)
+                operation = ScaleColumn(request["column"], request["factor"])
+                if source is None or operation.column >= len(source.worksheet.columns):
+                    raise ValueError("Choose a raw data column.")
+                self.enqueue(request, f"Multiply {source.worksheet.columns[operation.column]}")
+            case "correct" | "fit" | "plot" | "color" | "figure_style" | "edit_item" | "run_batch":
+                labels = {"correct": "Correct worksheet cell", "fit": "Linear Fit", "plot": "Create plot",
+                          "color": "Change trace color", "figure_style": "Change figure settings",
+                          "edit_item": "Rename or remove item", "run_batch": "Run analysis batch"}
+                self.enqueue(request, labels[request["action"]])
             case _:
                 self.apply(request)
         return self.snapshot(paged=request.get("_paged", False), known_figures=request.get("_known_figures"))
+
+    def export_recipe(self) -> dict:
+        if self.workflow.completed < len(self.workflow.steps) or self.workflow.error:
+            raise ValueError("Run all recorded steps before exporting a Python script.")
+        project = self.project
+        state = self.snapshot(paged=True)
+        recipes = {}
+        for key, record in project.figures.items():
+            if record.overlay or record.fit_id is not None:
+                continue
+            step = plugin_step(record.recipe)
+            plugin = self.plugins.resolve(step)
+            recipes[key] = {**asdict(step), "source": plugin.source,
+                            "analysis": plugin.manifest["menu"] == "analysis"}
+        names = self.figure_names(project)
+        outputs = {}
+        for key, record in project.figures.items():
+            if record.overlay or record.layers:
+                members = record.members(key)
+                outputs[key] = {
+                    "members": members,
+                    "labels": [
+                        self.source_name(project, plugin_step(project.figures[member].recipe).source_id, self.sources, names)
+                        for member in members
+                    ],
+                    "preserve_first": record.overlay is None,
+                }
+        state["project"]["script_recipe"] = {
+            "figure_id": self.figure_id,
+            "sources": [
+                {"name": source.name, "content": b64encode(source.content).decode("ascii"),
+                 "encoding": source.encoding, "delimiter": source.delimiter}
+                for source in project.raw_sources.values()
+            ],
+            "plugins": recipes,
+            "overlays": outputs,
+        }
+        return state
 
     def dialog_directory(self) -> str | None:
         for value in (
@@ -359,7 +565,7 @@ class Workspace:
         except OSError as exc:
             print(f"Could not save the last file folder. {exc}", file=sys.stderr)
 
-    def import_sources(self, additions: tuple[Source, ...], *, import_path: str | None = None) -> None:
+    def import_sources(self, additions: tuple[Source, ...], *, import_path: str | None = None, remember: bool = True) -> None:
         if not additions:
             raise ValueError("Choose at least one CSV file.")
         project = self.project
@@ -371,7 +577,7 @@ class Workspace:
             updated = replace(updated, last_import_path=import_path)
         self.project = updated
         self.dirty = True
-        if import_path is not None:
+        if import_path is not None and remember:
             self.remember_paths(import_path=import_path)
 
     def apply(self, request: dict) -> None:
@@ -409,12 +615,18 @@ class Workspace:
                 if updated.item_deleted("source", self.source_id):
                     self.source_id = None
                 self.dirty = True
+            case "scale_column":
+                updated = project.apply(ScaleColumn(request["column"], request["factor"], request.get("source_id")))
+                updated.working_worksheets
+                self.project = updated
+                self.dirty = True
             case "correct":
-                if self.source_id not in project.raw_sources:
+                source_id = request.get("source_id", self.source_id)
+                if source_id not in project.raw_sources:
                     raise ValueError("Select the imported source to correct its worksheet.")
-                operation = Correction(request["row"], request["column"], request["value"], self.source_id)
+                operation = Correction(request["row"], request["column"], request["value"], source_id)
                 updated = project.apply(operation)
-                if project.working_worksheets[self.source_id].rows[operation.row][operation.column] != operation.value:
+                if project.working_worksheets[source_id].rows[operation.row][operation.column] != operation.value:
                     self.render(updated, fallback=self.sources)
                     self.project = updated
                     self.dirty = True
@@ -427,7 +639,7 @@ class Workspace:
                 selection = figure_id
                 if request["action"] == "run_plugin":
                     target = request.get("figure_id")
-                    source_id = self.source_id
+                    source_id = request.get("source_id", self.source_id)
                     if target is not None:
                         if type(target) is not int or target not in project.visible_figures:
                             raise ValueError("Select an available figure.")
@@ -453,7 +665,7 @@ class Workspace:
                 updated = project.apply(recipe)
                 if isinstance(recipe, PluginStep) and recipe.figure_id is None and recipe.pin == ("nigiro.linear_fit", "1", None):
                     updated = updated.apply(ResidualFigure(figure_id))
-                updated = self.apply_global_defaults(project, updated)
+                updated = self.apply_global_defaults(project, updated, request.get("default_style"))
                 self.render(updated, changed={figure_id}, fallback=self.sources)
                 self.figure_id = selection
                 self.project = updated
@@ -478,7 +690,7 @@ class Workspace:
                 path = Path(request["path"]) if "path" in request else self.path
                 if path is None or path.suffix.lower() != ".nigiro":
                     raise ValueError("Choose a file name with the .nigiro extension.")
-                save_project(path, replace(project, saved_sources=self.sources))
+                save_project(path, replace(project, saved_sources=self.sources), self.workflow)
                 self.path = path
                 self.dirty = False
             case "export":
@@ -536,22 +748,20 @@ class Workspace:
                     changed.add(len(operations))
                     operations.append(OverlayFigure(residuals, fit_id=selection if destination is None else None))
         updated = replace(project, operations=tuple(operations))
-        updated = self.apply_global_defaults(project, updated)
+        updated = self.apply_global_defaults(project, updated, request.get("default_style"))
         updated.validate()
         self.render(updated, changed=changed, fallback=self.sources, destinations=destinations)
         self.project = updated
         self.figure_id = selection
         self.dirty = True
 
-    def default_style(self, record: FigureRecord | None) -> FigureStyle:
-        style = self.settings.figure_style
-        return replace(style, y=replace(style.y, zero_line=True)) if record and record.part == "residual" else style
-
-    def apply_global_defaults(self, previous: Project, updated: Project) -> Project:
-        if self.settings.figure_style == FigureStyle():
+    def apply_global_defaults(self, previous: Project, updated: Project, defaults: dict | None) -> Project:
+        style = FigureStyle(**defaults) if defaults is not None else self.settings.figure_style
+        if style == FigureStyle():
             return updated
+        residual_style = replace(style, y=replace(style.y, zero_line=True))
         operations = tuple(
-            FigureAppearance(key, self.default_style(record))
+            FigureAppearance(key, residual_style if record.part == "residual" else style)
             for key, record in updated.figures.items() if key not in previous.figures
         )
         return replace(updated, operations=(*updated.operations, *operations))

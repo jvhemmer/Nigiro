@@ -59,6 +59,16 @@ Linear Fit produces a fit and a separate residual figure. Use the tabs in **Figu
 
 Save the project to keep the figures, their settings, and the analysis tables. Nigiro recalculates linked results after a worksheet correction.
 
+## Run recorded steps
+
+Nigiro records imports, plots, analyses, and worksheet changes in **Recorded Steps**. Use **Edit → Multiply Column** to scale a working column without changing the imported CSV.
+
+1. Right-click a recorded step to edit its options or move it earlier or later.
+2. Select **Run all** to rerun the workflow in order. Select **Run next** from the dropdown to run the first queued or stale step.
+3. Use **Edit → Settings → Workflow** to turn off automatic execution and queue new steps for manual execution.
+
+When you edit or move a step, Nigiro marks affected results as stale. If a step uses an output from another step, put the producer first. A project saved before this feature supplies the starting point for new steps.
+
 ## Install a plugin
 
 1. Download a Nigiro plugin as a `.py` file. You can try [Scaled XY](examples/plugins/scaled_xy.py).
@@ -106,7 +116,7 @@ Select **File → Export Python Script** and choose the default figure format. T
 
 The script keeps its inputs and figure settings near the top. It loads Plotly and the default font from pinned Python packages.
 
-The Python export reruns the selected figure's plugin. If the figure uses a derived source, the script includes the values of that source.
+Run all recorded steps before you export a Python script. The script starts with the original CSV data and reruns analysis plugins to regenerate derived sources and the selected figure.
 
 ```sh
 uvx --from playwright==1.65.1 playwright install chromium

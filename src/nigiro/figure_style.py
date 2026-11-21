@@ -54,6 +54,7 @@ class AxisStyle:
     line: bool = True
     line_width: float = 1
     mirror: bool = False
+    opposite_ticks: bool | None = None
     grid: bool = False
     zero_line: bool = False
     hover_ruler: bool = False
@@ -79,7 +80,9 @@ class AxisStyle:
             if not _finite(value) or not minimum <= value <= maximum:
                 raise ValueError("Check the tick angle, tick length, and axis line width.")
         toggles = (self.tick_labels, self.minor_ticks, self.line, self.mirror, self.grid, self.zero_line, self.hover_ruler)
-        if any(type(value) is not bool for value in toggles):
+        if any(type(value) is not bool for value in toggles) or (
+            self.opposite_ticks is not None and type(self.opposite_ticks) is not bool
+        ):
             raise ValueError("Invalid axis display settings.")
 
 
@@ -89,6 +92,8 @@ class FigureStyle:
     axes_width: float | None = None
     axes_height: float | None = None
     font_family: str = "DejaVu Sans"
+    font_bold: bool = False
+    font_italic: bool = False
     label_size: float = 13
     tick_size: float = 11
     text_color: str = "#181818"
@@ -115,6 +120,8 @@ class FigureStyle:
             and re.fullmatch(r"[\w .'-]+", self.font_family)
         ):
             raise ValueError("Enter one font family name and a text title.")
+        if type(self.font_bold) is not bool or type(self.font_italic) is not bool:
+            raise ValueError("Choose a valid font style.")
         for color in (self.text_color, self.background):
             if not isinstance(color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
                 raise ValueError("Choose a valid figure color.")
