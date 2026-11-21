@@ -20,6 +20,7 @@ class Source:
     content: bytes
     encoding: str = "utf-8-sig"
     delimiter: str = ","
+    original_path: str | None = None
 
     @cached_property
     def worksheet(self) -> Worksheet:

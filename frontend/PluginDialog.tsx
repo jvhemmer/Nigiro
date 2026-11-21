@@ -1,5 +1,6 @@
+import { SourceChecklist, type SourceChoice } from "./SourceChecklist";
 import { useEffect, useId, useRef, useState } from "react";
-import type { PluginDefinition, PluginField, PluginOptions, PluginSubmission, Project, ProjectSource } from "./workspace";
+import type { PluginDefinition, PluginField, PluginOptions, PluginSubmission, Project } from "./workspace";
 
 export function columnFields(plugin: PluginDefinition) {
   return plugin.fields.filter((field) => field.type === "column");
@@ -45,12 +46,12 @@ function PluginOptionField({ field, columns, value, onChange }: {
   );
 }
 
-type SourceId = ProjectSource["id"];
+type SourceId = SourceChoice["id"];
 const tabs = ["Inputs", "Configuration", "Output"] as const;
 const sourceKey = (id: SourceId) => id ?? "primary";
 const columnName = (name: string, index: number) => name || `Column ${index + 1}`;
 
-function matchColumn(source: ProjectSource, reference: ProjectSource, index: number) {
+function matchColumn(source: SourceChoice, reference: SourceChoice, index: number) {
   if (source.id === reference.id) return index < source.columns.length ? index : -1;
   const name = reference.columns[index]?.trim().toLowerCase();
   if (!name) return -1;
@@ -79,7 +80,7 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
   plugin: PluginDefinition;
   project: Project;
   previous?: PluginOptions;
-  editingSource?: ProjectSource;
+  editingSource?: SourceChoice;
   configuring: boolean;
   busy: boolean;
   error: string;
@@ -163,22 +164,7 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
           ))}
         </div>
         <section role="tabpanel" id={`${id}-panel-Inputs`} aria-labelledby={`${id}-tab-Inputs`} hidden={tab !== "Inputs"}>
-          <fieldset>
-            <legend>Sources</legend>
-            <div className="batch-sources">
-              {sources.map(({ id, name }) => <label key={sourceKey(id)}>
-                <input type="checkbox" disabled={configuring || busy} checked={picked.has(id)} onChange={(event) => {
-                  const include = event.target.checked;
-                  setPicked((current) => {
-                    const next = new Set(current);
-                    if (include) next.add(id);
-                    else next.delete(id);
-                    return next;
-                  });
-                }} /><span>{name}</span>
-              </label>)}
-            </div>
-          </fieldset>
+          <SourceChecklist sources={sources} picked={picked} disabled={configuring || busy} onChange={setPicked} />
           {reference && fields.length > 0 && <>
             <div className="batch-controls fit-settings plugin-fields">
               {inputs.length > 1 && <label><span>Match columns from</span>

@@ -9,6 +9,28 @@ from nigiro.desktop import Workspace
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_batch_scaling_and_source_order_survive_replay_and_save(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first, second, archive = (Path(directory) / name for name in ("a.csv", "b.csv", "project.nigiro"))
+            first.write_text("X,Y\n1,2\n2,3\n")
+            second.write_text("Y,X\n3,1\n4,2\n")
+            worker = Workspace()
+            worker.dispatch({"action": "import_data", "paths": [str(first), str(second)]})
+            scaled = worker.dispatch({"action": "scale_column", "factor": 2, "runs": [
+                {"source_id": None, "column": 1}, {"source_id": "raw:0", "column": 0},
+            ]})["project"]
+            self.assertEqual(scaled["rows"][0], ("1", "4.0"))
+            reordered = worker.dispatch({"action": "move_source", "source_id": "raw:0", "destination": 0})["project"]
+            self.assertEqual(reordered["workflow"]["completed"], 2)
+            self.assertEqual(reordered["sources"][0]["name"], second.name)
+            worker.dispatch({"action": "save", "path": str(archive)})
+            reopened = Workspace()
+            reopened.dispatch({"action": "open", "path": str(archive)})
+            replayed = reopened.dispatch({"action": "run_all"})["project"]
+            self.assertEqual(replayed["sources"][0]["original_path"], str(second))
+            result = reopened.dispatch({"action": "select_source", "source_id": "raw:0"})["project"]
+            self.assertEqual(result["source_table"]["rows"][0], ("6.0", "1"))
+
     def test_replay_keeps_recorded_figure_defaults(self):
         worker = Workspace()
         worker.settings.run_automatically = True

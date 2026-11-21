@@ -53,7 +53,7 @@ Open **Edit → Settings → Global Figure Settings** to set defaults for new fi
 
 In **Edit → Settings → Appearance**, choose **System**, **Light**, or **Dark** and an accent color, then select **Save settings**. System follows the operating system's color scheme. Expand or collapse **Global Figure Settings** in the left sidebar to show its figure and axis sections.
 
-Use the tabs in **Worksheet** to switch between imported data and analysis results. The dockable **Sources** panel lists all sources. Select an entry to open it in **Worksheet**. Linear Fit creates separate tables for coefficients and fitted values. The fitted values table includes X, observed Y, fitted Y, and residuals.
+Use the tabs in **Worksheet** to switch between imported data and analysis results. Drag entries in **Sources** to change their display order. Select a source or click a plot trace to see its details in **Inspect**. The dockable **Sources** panel lists all sources. Select an entry to open it in **Worksheet**. Linear Fit creates separate tables for coefficients and fitted values. The fitted values table includes X, observed Y, fitted Y, and residuals.
 
 Linear Fit produces a fit and a separate residual figure. Use the tabs in **Figure** to switch between them or return to any earlier figure. Each figure has its own appearance settings. For a fit from one source, **Plugin settings** updates its fit and residual figures.
 
@@ -61,9 +61,9 @@ Save the project to keep the figures, their settings, and the analysis tables. N
 
 ## Run recorded steps
 
-Nigiro records imports, plots, analyses, and worksheet changes in **Recorded Steps**. Use **Analysis → Operations → Scalar multiplication** to scale a working column without changing the imported CSV. **Filter** creates a new source with matching rows or matching values from one column. For example, enter `0 < value <= 10` to keep values in that interval.
+Nigiro records imports, plots, analyses, and worksheet changes in **Recorded Steps**. Use **Analysis → Operations → Scalar multiplication** to scale a working column in each selected source without changing the imported CSV files. **Filter** creates a new source with matching rows or matching values from one column. For example, enter `0 < value <= 10` to keep values in that interval.
 
-1. Right-click a recorded step to edit its options or move it earlier or later.
+1. Drag a recorded step to change the execution order. Right-click a step to edit its options or move it earlier or later.
 2. Select **Run all** to rerun the workflow in order. Select **Run next** from the dropdown to run the first queued or stale step.
 3. Use **Edit → Settings → Workflow** to turn off automatic execution and queue new steps for manual execution.
 

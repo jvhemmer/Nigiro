@@ -66,7 +66,10 @@ function readLayout(panels: DockPanel[]): SerializedDockview | null {
       return null;
     }
     // Older layouts stored the React tab renderer in each panel.
-    for (const [, panel] of entries) delete panel.tabComponent;
+    for (const [id, panel] of entries) {
+      delete panel.tabComponent;
+      panel.title = panels.find((item) => item.id === id)?.title ?? panel.title;
+    }
     return layout;
   } catch {
     return null;

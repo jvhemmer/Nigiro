@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState, type MouseEvent, type 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
-  ChartNoAxesCombined, Database, FileSpreadsheet, History, SlidersHorizontal, Table2,
+  ChartNoAxesCombined, Database, FileSpreadsheet, History, ScanSearch, Table2,
 } from "lucide-react";
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
@@ -15,6 +15,7 @@ import { ItemDialog, type ItemAction } from "./ItemDialog";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
 import { MenuBar, type MenuCommand, type MenuRequest } from "./MenuBar";
 import { columnFields, PluginDialog } from "./PluginDialog";
+import { useListDrag } from "./useListDrag";
 import { ViewTabs, viewTabId } from "./ViewTabs";
 import { WorkflowPanel, WorkflowStepDialog } from "./WorkflowPanel";
 import { Worksheet } from "./Worksheet";
@@ -71,9 +72,14 @@ function ColorField({
   );
 }
 
-function FigurePanel({ project, onSelect, onEdit, busy, capture, run }: {
+type Inspection =
+  | { kind: "source"; id: string | null }
+  | { kind: "figure"; id: number; trace?: number };
+
+function FigurePanel({ project, onSelect, onInspect, onEdit, busy, capture, run }: {
   project: Project;
-  onSelect: (element: FigureElement) => void;
+  onSelect: (id: number, trace: number) => void;
+  onInspect: (id: number) => void;
   onEdit: (section: StyleSection) => void;
   busy: boolean;
   run: Run;
@@ -106,7 +112,7 @@ function FigurePanel({ project, onSelect, onEdit, busy, capture, run }: {
       {project.figures.length > 0 && (
         <div className="view-picker">
           <ViewTabs id={panelId} label="Figures" kind="figure" items={project.figures} selected={figureId} busy={busy}
-            onSelect={(id) => { if (id !== null) void run({ action: "select_figure", figure_id: id }); }} />
+            onSelect={(id) => { if (id !== null) { onInspect(id); if (id !== figureId) void run({ action: "select_figure", figure_id: id }); } }} />
           {data && <button type="button" disabled={busy} onClick={() => onEdit("figure")}>Figure settings…</button>}
         </div>
       )}
@@ -146,66 +152,73 @@ function FigurePanel({ project, onSelect, onEdit, busy, capture, run }: {
   );
 }
 
-function AnalysisPanel({ project, busy, run, element, onSelect, onConfigure }: {
+function InspectPanel({ project, inspection, busy, run, onConfigure }: {
   project: Project;
+  inspection: Inspection | null;
   busy: boolean;
   run: Run;
-  element: FigureElement;
-  onSelect: (element: FigureElement) => void;
   onConfigure?: () => void;
 }) {
-  const available = (["observations", "fit"] as const).filter((role) => project.figure?.elements?.includes(role));
-  const selected = available.includes(element) ? element : available[0];
-  const input = project.sources.find((source) => source.id === (project.figure?.recipe.source_id ?? null));
-  return (
-    <div className="inspector">
-      {project.figure && <section className="fit-settings">
-        <div className="section-header"><h2>{project.figure.definition.name}</h2></div>
-        {project.figure.overlay_inputs
-          ? <p className="figure-input muted">Inputs · {project.figure.overlay_inputs.map(({ label }) => label).join(", ")}</p>
-          : input && <p className="figure-input muted">Input · {input.name}</p>}
-        {onConfigure && <button type="button" disabled={busy} onClick={onConfigure}>Plugin settings…</button>}
-      </section>}
-      {selected && !project.figure?.overlay_inputs && project.figure_id !== null && (
-        <section className="element-settings" aria-labelledby="element-heading">
-          <div className="section-header"><h2 id="element-heading">Figure element</h2></div>
-          <div className="element-list">
-            {available.map((item) => (
-              <button
-                key={item}
-                aria-pressed={item === selected}
-                onClick={() => onSelect(item)}
-              >
-                <span
-                  className={item === "fit" ? "swatch line-swatch" : "swatch"}
-                  style={{ backgroundColor: project.colors[item] }}
-                />
-                {elementNames[item]}
-              </button>
-            ))}
-          </div>
-          <ColorField
-            key={`${project.figure_id}:${selected}:${project.colors[selected]}`}
-            figureId={project.figure_id}
-            element={selected}
-            color={project.colors[selected]}
-            busy={busy}
-            run={run}
-          />
-        </section>
-      )}
-    </div>
-  );
+  const source = inspection?.kind === "source" ? project.sources.find(({ id }) => id === inspection.id) : undefined;
+  if (source) {
+    return <div className="inspector inspect-details">
+      <h2>{source.name}</h2>
+      <dl>
+        <dt>Type</dt><dd>{source.kind === "raw" ? "Imported data" : "Derived data"}</dd>
+        <dt>Original path</dt><dd>{source.original_path ?? "Unavailable"}</dd>
+        <dt>Rows</dt><dd>{source.row_count.toLocaleString()}</dd>
+        <dt>Columns</dt><dd>{source.columns.join(", ")}</dd>
+      </dl>
+    </div>;
+  }
+  const figure = inspection?.kind === "figure" && inspection.id === project.figure_id ? project.figure : null;
+  if (!figure || inspection?.kind !== "figure") {
+    return <p className="dock-empty">Select a source, figure, or trace to inspect it.</p>;
+  }
+  const index = inspection.trace;
+  const trace = index === undefined ? undefined : figure.traces[index];
+  const role = index === undefined ? undefined : figure.elements?.[index];
+  const seriesColor = index === undefined ? undefined : figure.series_colors?.[index];
+  const line = trace && "line" in trace ? trace.line : undefined;
+  const marker = trace && "marker" in trace ? trace.marker : undefined;
+  const traceColor = (line && "color" in line ? line.color : undefined)
+    ?? (marker && "color" in marker ? marker.color : undefined);
+  const scatter = trace?.type === "scatter" || trace?.type === "scattergl";
+  const traceMode = scatter ? trace.mode : undefined;
+  const color = seriesColor ?? (role ? project.colors[role] : typeof traceColor === "string" ? traceColor : undefined);
+  const figureName = project.figures.find(({ id }) => id === inspection.id)?.name;
+  const input = project.sources.find(({ id }) => id === (figure.recipe.source_id ?? null));
+  return <div className="inspector inspect-details">
+    <h2>{trace ? trace.name || `Trace ${(index ?? 0) + 1}` : figureName}</h2>
+    <dl>
+      <dt>Plugin</dt><dd>{figure.definition.name}</dd>
+      {figure.overlay_inputs ? <><dt>Inputs</dt><dd>{figure.overlay_inputs.map(({ label }) => label).join(", ")}</dd></>
+        : input && <><dt>Input</dt><dd>{input.name}</dd></>}
+      {trace && <>
+        <dt>Legend label</dt><dd>{trace.name ?? "Unnamed"}</dd>
+        <dt>Trace type</dt><dd>{trace.type ?? "Scatter"}</dd>
+        {color && <><dt>Color</dt><dd><span className="swatch" style={{ backgroundColor: color }} /> {color}</dd></>}
+        {role && traceMode?.includes("lines") && project.figure_style.show_lines &&
+          <><dt>Line</dt><dd>{project.figure_style.line_width} px · {project.figure_style.line_dash}</dd></>}
+        {role && traceMode?.includes("markers") && project.figure_style.show_markers &&
+          <><dt>Markers</dt><dd>{project.figure_style.marker_size} px · {project.figure_style.marker_symbol}</dd></>}
+      </>}
+    </dl>
+    {trace && role && color && !figure.overlay_inputs && <ColorField
+      key={`${inspection.id}:${role}:${color}`} figureId={inspection.id}
+      element={role} color={color} busy={busy} run={run} />}
+    {onConfigure && <button type="button" disabled={busy} onClick={onConfigure}>Plugin settings…</button>}
+  </div>;
 }
 
-function WorksheetPanel({ project, busy, run }: { project: Project; busy: boolean; run: Run }) {
+function WorksheetPanel({ project, busy, run, onInspect }: { project: Project; busy: boolean; run: Run; onInspect: (id: string | null) => void }) {
   const panelId = useId();
   if (!project.sources.length) return <p className="dock-empty">Use File → Import Data… to add a worksheet.</p>;
   return (
     <div className="source-pane">
       <div className="view-picker">
         <ViewTabs id={panelId} label="Worksheet sources" kind="source" items={project.sources} selected={project.source_id}
-          busy={busy} onSelect={(id) => void run({ action: "select_source", source_id: id })} />
+          busy={busy} onSelect={(id) => { onInspect(id); if (id !== project.source_id) void run({ action: "select_source", source_id: id }); }} />
       </div>
       <div className="source-content" id={panelId} role="tabpanel" aria-labelledby={viewTabId(panelId, project.source_id)}>
         <Worksheet key={project.source_id ?? "raw"}
@@ -221,16 +234,20 @@ function WorksheetPanel({ project, busy, run }: { project: Project; busy: boolea
   );
 }
 
-function SourcesPanel({ project, busy, run }: { project: Project; busy: boolean; run: Run }) {
+function SourcesPanel({ project, busy, run, onInspect }: { project: Project; busy: boolean; run: Run; onInspect: (id: string | null) => void }) {
   const reveal = useRevealDockPanel();
+  const drag = useListDrag(busy, (from, to) => {
+    void run({ action: "move_source", source_id: project.sources[from].id, destination: to });
+  });
   if (!project.sources.length) return <p className="dock-empty">No sources in this project.</p>;
   return (
     <ul className="source-list" aria-label="Project sources">
-      {project.sources.map((source) => (
-        <li key={source.id ?? "raw"}>
+      {project.sources.map((source, index) => (
+        <li key={source.id ?? "raw"} {...drag(index)}>
           <button type="button" title={source.name} aria-current={source.id === project.source_id} disabled={busy}
             data-item-kind="source" data-item-id={source.id ?? ""}
             onClick={async () => {
+              onInspect(source.id);
               if (source.id !== project.source_id) await run({ action: "select_source", source_id: source.id });
               reveal("worksheet");
             }}>
@@ -251,24 +268,27 @@ function ProjectEditor({ project, busy, run, onConfigure, onEdit, capture }: {
   onConfigure?: () => void;
   onEdit: (section: StyleSection) => void;
 }) {
-  const [element, setElement] = useState<FigureElement>("fit");
+  const [inspection, setInspection] = useState<Inspection | null>(null);
+  const inspectSource = (id: string | null) => setInspection({ kind: "source", id });
+  const inspectTrace = useCallback((id: number, trace: number) => setInspection({ kind: "figure", id, trace }), []);
+  const inspectFigure = (id: number) => setInspection({ kind: "figure", id });
   return (
     <DockWorkspace panels={[
       {
         id: "figure", title: "Figure", icon: ChartNoAxesCombined, minimumWidth: 210,
-        content: <FigurePanel project={project} onSelect={setElement} onEdit={onEdit} busy={busy} capture={capture} run={run} />,
+        content: <FigurePanel project={project} onSelect={inspectTrace} onInspect={inspectFigure} onEdit={onEdit} busy={busy} capture={capture} run={run} />,
       },
       {
         id: "worksheet", title: "Worksheet", icon: Table2,
         position: { referencePanel: "figure", direction: "within" },
         minimumWidth: 170, minimumHeight: 150,
-        content: <WorksheetPanel project={project} busy={busy} run={run} />,
+        content: <WorksheetPanel project={project} busy={busy} run={run} onInspect={inspectSource} />,
       },
       {
         id: "sources", title: "Sources", icon: Database,
         position: { referencePanel: "figure", direction: "left" },
         initialWidth: 260, minimumWidth: 150, minimumHeight: 65,
-        content: <SourcesPanel project={project} busy={busy} run={run} />,
+        content: <SourcesPanel project={project} busy={busy} run={run} onInspect={inspectSource} />,
       },
       {
         id: "history", title: "Recorded steps", icon: History,
@@ -277,11 +297,11 @@ function ProjectEditor({ project, busy, run, onConfigure, onEdit, capture }: {
         content: <WorkflowPanel workflow={project.workflow} busy={busy} run={run} />,
       },
       {
-        id: "analysis", title: "Analysis", icon: SlidersHorizontal,
+        id: "analysis", title: "Inspect", icon: ScanSearch,
         position: { referencePanel: "figure", direction: "right" },
         initialWidth: 230, minimumWidth: 186,
         content: (
-          <AnalysisPanel {...{ project, busy, run, element, onConfigure }} onSelect={setElement} />
+          <InspectPanel {...{ project, busy, run, inspection, onConfigure }} />
         ),
       },
     ]} />
@@ -442,10 +462,9 @@ export function App() {
   const figureSettings: MenuCommand = {
     label: "Figure Settings…", request: exportName ? { action: "figure_settings" } : null,
   };
-  const activeSource = project?.sources.find((source) => source.id === project.source_id);
   const scaleCommand: MenuCommand = {
     label: "Scalar multiplication…",
-    request: activeSource && (activeSource.id === null || activeSource.id.startsWith("raw:")) && activeSource.columns.length
+    request: project?.sources.some((source) => source.kind === "raw" && source.columns.length)
       ? { action: "choose_scale" } : null,
   };
   const plotCommands = pluginCommands("plot");
@@ -485,11 +504,15 @@ export function App() {
         { label: "Move Earlier", request: index > 0 ? { action: "move_step", step_id: step.id, direction: -1 } : null },
         { label: "Move Later", request: index < project.workflow.steps.length - 1 ? { action: "move_step", step_id: step.id, direction: 1 } : null },
       ]];
-    } else if (clicked?.dataset.itemKind === "source") {
-      const source = project?.sources.find(({ id }) => (id ?? "") === clicked.dataset.itemId);
+    } else if (clicked?.dataset.itemKind === "source" && project) {
+      const index = project.sources.findIndex(({ id }) => (id ?? "") === clicked.dataset.itemId);
+      const source = project.sources[index];
       if (!source) return;
       label = "Source actions";
-      groups = [itemCommands({ kind: "source", id: source.id }, source.name)];
+      groups = [itemCommands({ kind: "source", id: source.id }, source.name), [
+        { label: "Move Earlier", request: index > 0 ? { action: "move_source", source_id: source.id, destination: index - 1 } : null },
+        { label: "Move Later", request: index < project.sources.length - 1 ? { action: "move_source", source_id: source.id, destination: index + 1 } : null },
+      ]];
     } else if (clicked?.dataset.itemKind === "figure" || (activeFigure && event.target.closest(".figure-pane"))) {
       const target = clicked ? project?.figures.find(({ id }) => String(id) === clicked.dataset.itemId) : activeFigure;
       if (!target) return;
@@ -567,7 +590,7 @@ export function App() {
         )}
       </header>
       {stepDialog && <WorkflowStepDialog step={stepDialog === "scale" ? undefined : stepDialog}
-        columns={activeSource?.columns ?? []} busy={busy} error={error} onRun={run}
+        sources={project?.sources ?? []} activeSourceId={project?.source_id ?? null} busy={busy} error={error} onRun={run}
         onClose={() => { setStepDialog(null); setError(""); }} />}
       {contextMenu && <ContextMenu menu={contextMenu} onClose={closeContextMenu} onRun={runMenu} />}
       {itemDialog && (

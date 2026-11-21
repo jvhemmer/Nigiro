@@ -48,7 +48,7 @@ interface FigurePlotProps {
   style: FigureStyle;
   revision: number;
   onEdit: (section: StyleSection) => void;
-  onSelect: (element: FigureElement) => void;
+  onSelect: (id: number, index: number) => void;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -165,12 +165,11 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
     let chart: PlotlyHTMLElement | undefined;
     const elements = data.elements ?? [];
     function selectPoint(event: PlotMouseEvent) {
-      const element = elements[event.points[0]?.curveNumber];
-      if (element) onSelect(element);
+      const index = event.points[0]?.curveNumber;
+      if (index !== undefined) onSelect(revision, index);
     }
     function selectLegend(event: LegendClickEvent) {
-      const element = elements[event.curveNumber];
-      if (element) onSelect(element);
+      onSelect(revision, event.curveNumber);
       return false;
     }
 

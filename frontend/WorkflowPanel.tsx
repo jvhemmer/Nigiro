@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { PluginOptions, Request, Workflow, WorkflowStep } from "./workspace";
+import { SourceChecklist, type SourceId } from "./SourceChecklist";
+import { useListDrag } from "./useListDrag";
+import type { PluginOptions, ProjectSource, Request, Workflow, WorkflowStep } from "./workspace";
 
 const statusLabels = { done: "Done", stale: "Stale", pending: "Queued", failed: "Failed" };
 
@@ -12,6 +14,9 @@ export function WorkflowPanel({ workflow, busy, run }: {
   const [action, setAction] = useState<"run_all" | "run_next">("run_all");
   const disabled = busy || !workflow.steps.length
     || (action === "run_next" && workflow.completed === workflow.steps.length);
+  const drag = useListDrag(busy, (from, to) => {
+    void run({ action: "move_step", step_id: workflow.steps[from].id, direction: to - from });
+  });
   return <div className="history">
     <div className="history-actions">
       <div className="run-split">
@@ -44,7 +49,7 @@ export function WorkflowPanel({ workflow, busy, run }: {
       && <p className="workflow-base muted" role="status">Rerun stale steps to update their results.</p>}
     {workflow.has_base && <p className="workflow-base muted">Starts from existing project data.</p>}
     <ol>
-      {workflow.steps.map((step) => <li key={step.id}>
+      {workflow.steps.map((step, index) => <li key={step.id} {...drag(index)}>
         <button className="workflow-step" type="button" disabled={busy} data-workflow-id={step.id}
           aria-haspopup="menu" title="Step actions">
           <span>{step.label}</span><small data-status={step.status}>{statusLabels[step.status]}</small>
@@ -54,9 +59,10 @@ export function WorkflowPanel({ workflow, busy, run }: {
   </div>;
 }
 
-export function WorkflowStepDialog({ step, columns, busy, error, onClose, onRun }: {
+export function WorkflowStepDialog({ step, sources, activeSourceId, busy, error, onClose, onRun }: {
   step?: WorkflowStep;
-  columns: string[];
+  sources: ProjectSource[];
+  activeSourceId: SourceId;
   busy: boolean;
   error: string;
   onClose: () => void;
@@ -65,7 +71,13 @@ export function WorkflowStepDialog({ step, columns, busy, error, onClose, onRun 
   const dialog = useRef<HTMLDialogElement>(null);
   const [options, setOptions] = useState<PluginOptions[]>(step?.options ?? []);
   const [tab, setTab] = useState("Inputs");
-  const [column, setColumn] = useState(0);
+  const raw = sources.filter((source) => source.kind === "raw");
+  const [picked, setPicked] = useState(() => new Set<SourceId>(
+    raw.some(({ id }) => id === activeSourceId) ? [activeSourceId] : raw.slice(0, 1).map(({ id }) => id),
+  ));
+  const [columns, setColumns] = useState(new Map<SourceId, number>());
+  const selected = raw.filter(({ id }) => picked.has(id));
+  const runs = selected.map(({ id }) => ({ source_id: id, column: columns.get(id) ?? 0 }));
   const [factor, setFactor] = useState(1);
   useEffect(() => { dialog.current?.showModal(); }, []);
 
@@ -75,7 +87,7 @@ export function WorkflowStepDialog({ step, columns, busy, error, onClose, onRun 
       event.preventDefault();
       const request: Request = step
         ? { action: "edit_step", step_id: step.id, options }
-        : { action: "scale_column", column, factor };
+        : { action: "scale_column", runs, factor };
       if (await onRun(request)) onClose();
     }}>
       <h2 id="workflow-dialog-title">{step?.label ?? "Scalar multiplication"}</h2>
@@ -101,11 +113,14 @@ export function WorkflowStepDialog({ step, columns, busy, error, onClose, onRun 
         </div>
         <section className="fit-settings" hidden={tab !== "Inputs"} role="tabpanel"
           id="scale-panel-Inputs" aria-labelledby="scale-tab-Inputs">
-          <label><span>Column</span>
-            <select value={column} onChange={(event) => setColumn(Number(event.target.value))}>
-              {columns.map((name, index) => <option key={index} value={index}>{name || `Column ${index + 1}`}</option>)}
+          <SourceChecklist sources={raw} picked={picked} onChange={setPicked} disabled={busy} />
+          {selected.map((source) => <label key={source.id ?? "primary"}>
+            <span>Column for {source.name}</span>
+            <select value={columns.get(source.id) ?? 0} onChange={(event) =>
+              setColumns(new Map(columns).set(source.id, Number(event.target.value)))}>
+              {source.columns.map((name, index) => <option key={index} value={index}>{name || `Column ${index + 1}`}</option>)}
             </select>
-          </label>
+          </label>)}
         </section>
         <section className="fit-settings" hidden={tab !== "Configuration"} role="tabpanel"
           id="scale-panel-Configuration" aria-labelledby="scale-tab-Configuration">
@@ -121,7 +136,7 @@ export function WorkflowStepDialog({ step, columns, busy, error, onClose, onRun 
       {error && <p role="alert" className="figure-settings-error">{error}</p>}
       <footer>
         <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
-        <button type="submit" className="primary" disabled={busy || (!step && !Number.isFinite(factor))}>{step ? "Save step" : "Add step"}</button>
+        <button type="submit" className="primary" disabled={busy || (!step && (!runs.length || !Number.isFinite(factor)))}>{step ? "Save step" : "Add step"}</button>
       </footer>
     </form>
   </dialog>;

@@ -62,7 +62,7 @@ export function ViewTabs<T extends string | number | null>({ id, label, kind, it
             data-item-kind={kind} data-item-id={item.id ?? ""}
             aria-selected={position === index} aria-controls={id} aria-disabled={busy}
             tabIndex={position === Math.max(0, index) ? 0 : -1} title={item.name}
-            onClick={() => { if (!busy && item.id !== selected) onSelect(item.id); }}
+            onClick={() => { if (!busy) onSelect(item.id); }}
             onKeyDown={(event) => {
               const last = items.length - 1;
               let next: number;

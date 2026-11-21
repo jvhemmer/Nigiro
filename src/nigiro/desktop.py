@@ -273,8 +273,11 @@ class Workspace:
             "figure_input": {"name": figure_input.name, "columns": figure_input.columns, "rows": () if paged else figure_input.rows} if figure_input else None,
             "sources": [
                 {"id": key, "name": self.source_name(project, key, self.sources, names), "columns": table.worksheet.columns
-                 if isinstance(table, Source) else table.columns}
-                for key, table in available.items() if not project.item_deleted("source", key)
+                 if isinstance(table, Source) else table.columns,
+                 "original_path": table.original_path if isinstance(table, Source) else None,
+                 "kind": "raw" if isinstance(table, Source) else "derived",
+                 "row_count": len(table.worksheet.rows if isinstance(table, Source) else table.rows)}
+                for key in self.ordered_sources() for table in (available[key],)
             ],
             "source_id": self.source_id,
             "source_table": {"name": selected_table.name, "columns": selected_table.columns, "rows": selected_table.rows[offset:end] if paged else selected_table.rows} if selected_table else None,
@@ -303,6 +306,28 @@ class Workspace:
             },
         }
         return state
+
+    def ordered_sources(self) -> list[str | None]:
+        active = dict.fromkeys(key for key in (*self.project.raw_sources, *self.sources)
+                               if not self.project.item_deleted("source", key))
+        ordered = {}
+        for reference in self.workflow.source_order:
+            try:
+                key = self.workflow.resolve("source", reference)
+            except ValueError:
+                continue
+            if key in active:
+                ordered[key] = None
+        return list(ordered | active)
+
+    def move_source(self, source_id: str | None, destination: int) -> None:
+        sources = self.ordered_sources()
+        if source_id not in sources or type(destination) is not int or not 0 <= destination < len(sources):
+            raise ValueError("Choose an available source and position.")
+        sources.remove(source_id)
+        sources.insert(destination, source_id)
+        self.workflow.source_order = [self.workflow.reference("source", key) for key in sources]
+        self.dirty = True
 
     def workflow_snapshot(self) -> dict:
         plan = self.workflow
@@ -336,7 +361,7 @@ class Workspace:
         command = {key: value for key, value in request.items() if not key.startswith("_")}
         if command["action"] in ("execute_plugin", "run_batch", "run_plugin", "fit", "plot"):
             command["default_style"] = asdict(self.settings.figure_style)
-        if command["action"] in ("correct", "scale_column", "run_plugin") and "source_id" not in command:
+        if command["action"] in ("correct", "scale_column", "run_plugin") and "source_id" not in command and "runs" not in command:
             command["source_id"] = self.source_id
         if command["action"] in ("figure_style", "color") and "figure_id" not in command:
             command["figure_id"] = self.figure_id
@@ -417,7 +442,7 @@ class Workspace:
             else:
                 command.update(options[0])
             if action == "scale_column":
-                ScaleColumn(command["column"], command["factor"])
+                ScaleColumn(0, command["factor"])
             plan.steps[index] = replace(step, request=command)
             plan.invalidate(index)
         self.dirty = True
@@ -466,6 +491,8 @@ class Workspace:
             case "run_next":
                 if self.workflow.completed < len(self.workflow.steps):
                     self.run_workflow(limit=self.workflow.completed + 1)
+            case "move_source":
+                self.move_source(request["source_id"], request["destination"])
             case "edit_step" | "move_step":
                 self.edit_workflow(request)
             case "state":
@@ -478,7 +505,7 @@ class Workspace:
                 paths = [Path(value).resolve() for value in (request["paths"] if "paths" in request else [request["path"]])]
                 if not paths:
                     raise ValueError("Choose at least one CSV file.")
-                sources = tuple(Source(path.name, path.read_bytes()) for path in paths)
+                sources = tuple(Source(path.name, path.read_bytes(), original_path=str(path)) for path in paths)
                 for source in sources:
                     source.worksheet
                 self.enqueue({"action": "import_data", "import_path": str(paths[-1])},
@@ -510,11 +537,13 @@ class Workspace:
                 label = definition.manifest["name"] if definition else request["plugin_id"]
                 self.enqueue(request, label)
             case "scale_column":
-                source = self.project.raw_sources.get(self.source_id)
-                operation = ScaleColumn(request["column"], request["factor"])
-                if source is None or operation.column >= len(source.worksheet.columns):
-                    raise ValueError("Choose a raw data column.")
-                self.enqueue(request, f"Multiply {source.worksheet.columns[operation.column]}")
+                operations = self.scale_operations(request)
+                if len(operations) == 1:
+                    op = operations[0]
+                    label = f"Multiply {self.project.raw_sources[op.source_id].worksheet.columns[op.column]}"
+                else:
+                    label = f"Multiply columns in {len(operations)} sources"
+                self.enqueue(request, label)
             case "correct" | "fit" | "plot" | "color" | "figure_style" | "edit_item" | "run_batch":
                 labels = {"correct": "Correct worksheet cell", "fit": "Linear Fit", "plot": "Create plot",
                           "color": "Change trace color", "figure_style": "Change figure settings",
@@ -630,7 +659,7 @@ class Workspace:
                     self.source_id = None
                 self.dirty = True
             case "scale_column":
-                updated = project.apply(ScaleColumn(request["column"], request["factor"], request.get("source_id")))
+                updated = replace(project, operations=(*project.operations, *self.scale_operations(request)))
                 updated.working_worksheets
                 self.project = updated
                 self.dirty = True
@@ -711,6 +740,21 @@ class Workspace:
                 self.export(Path(request["path"]))
             case _:
                 raise ValueError("Unknown workspace command.")
+
+    def scale_operations(self, request: dict) -> list[ScaleColumn]:
+        runs = request.get("runs")
+        if runs is None:
+            runs = [{"source_id": request.get("source_id", self.source_id), "column": request["column"]}]
+        if not runs or len({run["source_id"] for run in runs}) != len(runs):
+            raise ValueError("Select different raw sources to multiply.")
+        operations = []
+        for run in runs:
+            operation = ScaleColumn(run["column"], request["factor"], run["source_id"])
+            source = self.project.raw_sources.get(operation.source_id)
+            if source is None or operation.column >= len(source.worksheet.columns):
+                raise ValueError("Choose a column for each raw source.")
+            operations.append(operation)
+        return operations
 
     def run_batch(self, project: Project, request: dict) -> None:
         output, steps = request["output"], request["steps"]

@@ -26,6 +26,7 @@ class Workflow:
     bindings: dict[str, str | int | None] = field(default_factory=dict)
     needs_replay: bool = False
     error: str | None = None
+    source_order: list[str | dict | None] = field(default_factory=list)
 
     def reference(self, kind: str, value):
         if kind == "source" and value is not None:

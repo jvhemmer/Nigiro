@@ -18,14 +18,18 @@ enum Action {
     ExportRecipe,
     MoveStep {
         step_id: usize,
-        direction: i8,
+        direction: i64,
+    },
+    MoveSource {
+        source_id: Option<String>,
+        destination: usize,
     },
     EditStep {
         step_id: usize,
         options: Value,
     },
     ScaleColumn {
-        column: usize,
+        runs: Value,
         factor: f64,
     },
     SystemFonts {
@@ -186,11 +190,17 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         Action::MoveStep { step_id, direction } => {
             json!({ "action": "move_step", "step_id": step_id, "direction": direction })
         }
+        Action::MoveSource {
+            source_id,
+            destination,
+        } => {
+            json!({ "action": "move_source", "source_id": source_id, "destination": destination })
+        }
         Action::EditStep { step_id, options } => {
             json!({ "action": "edit_step", "step_id": step_id, "options": options })
         }
-        Action::ScaleColumn { column, factor } => {
-            json!({ "action": "scale_column", "column": column, "factor": factor })
+        Action::ScaleColumn { runs, factor } => {
+            json!({ "action": "scale_column", "runs": runs, "factor": factor })
         }
         Action::SystemFonts { refresh } => json!({ "action": "system_fonts", "refresh": refresh }),
         Action::ExportFonts => json!({ "action": "export_fonts" }),

@@ -102,6 +102,9 @@ export interface ProjectSource {
   id: string | null;
   name: string;
   columns: string[];
+  original_path: string | null;
+  kind: "raw" | "derived";
+  row_count: number;
 }
 
 export interface Appearance {
@@ -158,9 +161,10 @@ export interface Project {
 
 export type Request =
   | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "save" | "install_plugin" }
-  | { action: "move_step"; step_id: number; direction: -1 | 1 }
+  | { action: "move_step"; step_id: number; direction: number }
   | { action: "edit_step"; step_id: number; options: PluginOptions[] }
-  | { action: "scale_column"; column: number; factor: number }
+  | { action: "move_source"; source_id: ProjectSource["id"]; destination: number }
+  | { action: "scale_column"; runs: { source_id: ProjectSource["id"]; column: number }[]; factor: number }
   | { action: "worksheet_page"; offset: number }
   | { action: "correct"; row: number; column: number; value: string }
   | ({ action: "run_plugin"; figure_id?: number } & PluginRun)

@@ -52,6 +52,7 @@ def source_metadata(source: Source) -> dict:
     return {
         "name": source.name, "encoding": source.encoding, "delimiter": source.delimiter,
         "sha256": hashlib.sha256(source.content).hexdigest(),
+        **({"original_path": source.original_path} if source.original_path else {}),
     }
 
 
@@ -61,7 +62,7 @@ def read_source(archive: ZipFile, path: str, metadata: dict) -> Source:
         raise ValueError("The embedded source does not match its checksum.")
     if not isinstance(metadata["name"], str):
         raise ValueError("Invalid source file name.")
-    return Source(metadata["name"], content, metadata["encoding"], metadata["delimiter"])
+    return Source(metadata["name"], content, metadata["encoding"], metadata["delimiter"], metadata.get("original_path"))
 
 
 def save_project(path: Path, project: Project, workflow: Workflow | None = None) -> None:
@@ -100,7 +101,7 @@ def write_project(destination: Path | BytesIO, project: Project, workflow: Workf
             archive.writestr("source.csv", source.content)
         for index, item in enumerate(project.additional_sources):
             archive.writestr(f"sources/{index}.csv", item.content)
-        if workflow and workflow.steps:
+        if workflow and (workflow.steps or workflow.source_order):
             base = BytesIO()
             write_project(base, workflow.base)
             archive.writestr("workflow/base.nigiro", base.getvalue())
@@ -125,6 +126,7 @@ def write_project(destination: Path | BytesIO, project: Project, workflow: Workf
                 "bindings": workflow.bindings,
                 "needs_replay": workflow.needs_replay,
                 "error": workflow.error,
+                "source_order": workflow.source_order,
             }, allow_nan=False))
 
 
@@ -144,6 +146,7 @@ def load_workflow(path: Path, project: Project) -> Workflow:
             raise ValueError("Invalid workflow progress.")
         return Workflow(
             base, steps, completed, set(record["executed"]), record["bindings"], record["needs_replay"], record.get("error"),
+            record.get("source_order", []),
         )
 
 
