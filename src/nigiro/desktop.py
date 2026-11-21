@@ -329,6 +329,21 @@ class Workspace:
         self.workflow.source_order = [self.workflow.reference("source", key) for key in sources]
         self.dirty = True
 
+    def step_label(self, request: dict, fallback: str) -> str:
+        match request["action"]:
+            case "edit_item":
+                return "Remove item" if request["name"] is None else "Rename item"
+            case "fit":
+                return "Analysis: Linear Fit"
+            case "plot":
+                return f"Plot: {request['plot_type'].title()}"
+            case "execute_plugin" | "run_plugin":
+                plugin = self.plugins.plugins.get((request["plugin_id"], request["version"], request["checksum"]))
+                if plugin:
+                    manifest = plugin.manifest
+                    return f"{manifest['menu'].title()}: {manifest['name']}"
+        return fallback
+
     def workflow_snapshot(self) -> dict:
         plan = self.workflow
         steps = []
@@ -351,7 +366,7 @@ class Workspace:
                 labels = {"factor": "Factor", "value": "Value", "x": "X column (index)", "y": "Y column (index)"}
             else:
                 options, labels = [], {}
-            steps.append({"id": step.id, "label": step.label, "status": status, "options": options, "labels": labels})
+            steps.append({"id": step.id, "label": self.step_label(step.request, step.label), "status": status, "options": options, "labels": labels})
         return {"steps": steps, "completed": plan.completed, "error": plan.error,
                 "has_base": plan.base.source is not None}
 
@@ -365,7 +380,7 @@ class Workspace:
             command["source_id"] = self.source_id
         if command["action"] in ("figure_style", "color") and "figure_id" not in command:
             command["figure_id"] = self.figure_id
-        step = Step(step_id, label, map_references(command, plan.reference), sources)
+        step = Step(step_id, self.step_label(command, label), map_references(command, plan.reference), sources)
         auto = self.settings.run_automatically and not plan.needs_replay and plan.completed == len(plan.steps)
         plan.steps.append(step)
         if auto:
@@ -407,7 +422,7 @@ class Workspace:
             try:
                 self.execute_step(step)
             except (ValueError, KeyError, TypeError, OSError) as error:
-                plan.error = f"{step.label}. {error}"
+                plan.error = f"{self.step_label(step.request, step.label)}. {error}"
                 break
         self.dirty = True
 
@@ -533,9 +548,7 @@ class Workspace:
                 write_figure(Path(request["path"]), request["svg"], request["scale"], fonts)
                 return {}
             case "execute_plugin" | "run_plugin":
-                definition = self.plugins.plugins.get((request["plugin_id"], request["version"], request["checksum"]))
-                label = definition.manifest["name"] if definition else request["plugin_id"]
-                self.enqueue(request, label)
+                self.enqueue(request, request["plugin_id"])
             case "scale_column":
                 operations = self.scale_operations(request)
                 if len(operations) == 1:
@@ -545,9 +558,9 @@ class Workspace:
                     label = f"Multiply columns in {len(operations)} sources"
                 self.enqueue(request, label)
             case "correct" | "fit" | "plot" | "color" | "figure_style" | "edit_item" | "run_batch":
-                labels = {"correct": "Correct worksheet cell", "fit": "Linear Fit", "plot": "Create plot",
+                labels = {"correct": "Correct worksheet cell", "fit": "Analysis: Linear Fit", "plot": "Plot",
                           "color": "Change trace color", "figure_style": "Change figure settings",
-                          "edit_item": "Rename or remove item", "run_batch": "Run analysis batch"}
+                          "edit_item": "Edit item", "run_batch": "Run analysis batch"}
                 self.enqueue(request, labels[request["action"]])
             case _:
                 self.apply(request)

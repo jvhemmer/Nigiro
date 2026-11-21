@@ -9,6 +9,22 @@ from nigiro.desktop import Workspace
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_recorded_labels_describe_the_action_and_plugin(self):
+        worker = Workspace()
+        worker.dispatch({"action": "sample"})
+        for identifier in ("nigiro.scatter", "nigiro.linear_fit"):
+            worker.dispatch({
+                "action": "run_plugin", "plugin_id": identifier, "version": "1", "checksum": None,
+                "options": {"x": 0, "y": 1},
+            })
+        figure_id = worker.snapshot()["project"]["figure_id"]
+        for name in ("Fit", None):
+            result = worker.dispatch({
+                "action": "edit_item", "item": {"kind": "figure", "id": figure_id}, "name": name,
+            })["project"]
+        self.assertEqual([step["label"] for step in result["workflow"]["steps"][1:]],
+                         ["Plot: Scatter", "Analysis: Linear Fit", "Rename item", "Remove item"])
+
     def test_batch_scaling_and_source_order_survive_replay_and_save(self):
         with tempfile.TemporaryDirectory() as directory:
             first, second, archive = (Path(directory) / name for name in ("a.csv", "b.csv", "project.nigiro"))
