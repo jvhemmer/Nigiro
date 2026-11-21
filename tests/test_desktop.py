@@ -403,6 +403,35 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertEqual(appended["figure"]["traces"][1]["mode"], "lines+markers")
             self.assertEqual(reloaded["state"]["project"]["figure"], appended["figure"])
 
+    def test_global_style_persists_and_new_figures_record_defaults(self):
+        from unittest.mock import patch
+        from nigiro.desktop import Workspace
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+            "NIGIRO_SETTINGS_PATH": str(Path(directory) / "settings.json"),
+        }):
+            worker = Workspace()
+            defaults = worker.snapshot()["project"]["global_figure_style"]
+            style = {**defaults, "label_size": 18, "line_width": 2.5,
+                     "x": {**defaults["x"], "grid": True}}
+            worker.dispatch({"action": "sample"})
+            worker.dispatch({"action": "plot", "plot_type": "scatter", "x": 0, "y": 1})
+            original = worker.snapshot()["project"]["figure_style"]
+            worker.dispatch({"action": "set_global_style", "style": style})
+            self.assertEqual(worker.snapshot()["project"]["figure_style"], original)
+            worker.dispatch({"action": "plot", "plot_type": "line", "x": 0, "y": 1})
+            self.assertEqual(worker.snapshot()["project"]["figure_style"], style)
+            path = Path(directory) / "styled.nigiro"
+            worker.dispatch({"action": "save", "path": str(path)})
+            restored = Workspace()
+            self.assertEqual(restored.settings.figure_style.label_size, 18)
+            restored.dispatch({"action": "set_global_style", "style": defaults})
+            restored.dispatch({"action": "open", "path": str(path)})
+            self.assertEqual(restored.snapshot()["project"]["figure_style"], style)
+            with self.assertRaises(ValueError):
+                restored.dispatch({"action": "set_global_style", "style": {**style, "marker_size": -1}})
+            self.assertEqual(restored.settings.figure_style.label_size, defaults["label_size"])
+
     def test_paged_transport_keeps_full_data_for_analysis_and_export(self):
         from nigiro.desktop import Workspace
 

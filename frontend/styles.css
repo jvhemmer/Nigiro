@@ -470,3 +470,10 @@ td input {
 
 .cached-figure { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .cached-figure[hidden] { display: none; }
+
+.figure-field-row { display: flex; align-items: end; gap: 3px; min-width: 0; }
+.figure-field-row > .figure-field { flex: 1; min-width: 0; }
+.global-field-actions { display: flex; gap: 1px; padding-bottom: 1px; }
+.global-field-actions button { min-height: 22px; width: 19px; padding: 2px; border-color: transparent; color: var(--muted); }
+.global-settings-note { margin-bottom: 9px; }
+.figure-toggles .figure-field-row { align-items: center; }

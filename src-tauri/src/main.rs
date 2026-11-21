@@ -13,6 +13,9 @@ use worker::Worker;
 #[serde(tag = "action", rename_all = "snake_case")]
 enum Action {
     State,
+    SetGlobalStyle {
+        style: Value,
+    },
     WorksheetPage {
         offset: usize,
     },
@@ -145,6 +148,7 @@ async fn save_rendered_figure(
 fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Value>, String> {
     let request = match action {
         Action::WorksheetPage { offset } => json!({ "action": "worksheet_page", "offset": offset }),
+        Action::SetGlobalStyle { style } => json!({ "action": "set_global_style", "style": style }),
         Action::State => json!({ "action": "state" }),
         Action::New => json!({ "action": "new" }),
         Action::Sample => json!({ "action": "sample" }),

@@ -26,6 +26,7 @@ from nigiro.project import (
     ResidualFigure, Source, Worksheet,
 )
 from nigiro.source_tables import SourceTable, output_tables, source_origin
+from nigiro.settings import Settings
 from nigiro.storage import load_project, operation_record, save_project
 
 
@@ -56,6 +57,9 @@ class Workspace:
         self.path: Path | None = None
         self.dirty = False
         folder = os.environ.get("NIGIRO_PLUGIN_DIR")
+        settings_path = os.environ.get("NIGIRO_SETTINGS_PATH")
+        config = Path(folder).parent if folder else Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "nigiro"
+        self.settings = Settings(Path(settings_path) if settings_path else config / "settings.json")
         self.plugins = PluginRegistry(Path(folder) if folder else None)
         self.results: dict[int, Execution] = {}
         self.combined: dict[int, Execution] = {}
@@ -276,9 +280,10 @@ class Workspace:
             "plot_error": figure_error if isinstance(recipe, Plot) else None,
             "colors": record.colors if record else project.colors,
             "figure_style": asdict(record.style if record else FigureStyle()),
-            "default_figure_style": asdict(
-                FigureStyle(y=AxisStyle(zero_line=True)) if record and record.part == "residual" else FigureStyle()
-            ),
+            "global_figure_style": asdict(self.settings.figure_style),
+            "factory_figure_style": asdict(FigureStyle()),
+            "default_figure_style": asdict(self.settings.figure_style),
+
             "versions": {
                 "python": f"{sys.version_info.major}.{sys.version_info.minor}",
                 "numpy": numpy.__version__,
@@ -296,6 +301,8 @@ class Workspace:
                 if type(offset) is not int or offset < 0:
                     raise ValueError("Choose a valid worksheet page.")
                 self.row_offset = (offset // 100) * 100
+            case "set_global_style":
+                self.settings.save(FigureStyle(**request["style"]))
             case "state":
                 pass
             case "new":
@@ -412,6 +419,7 @@ class Workspace:
                 updated = project.apply(recipe)
                 if isinstance(recipe, PluginStep) and recipe.figure_id is None and recipe.pin == ("nigiro.linear_fit", "1", None):
                     updated = updated.apply(ResidualFigure(figure_id))
+                updated = self.apply_global_defaults(project, updated)
                 self.render(updated, changed={figure_id}, fallback=self.sources)
                 self.figure_id = selection
                 self.project = updated
@@ -494,11 +502,25 @@ class Workspace:
                     changed.add(len(operations))
                     operations.append(OverlayFigure(residuals, fit_id=selection if destination is None else None))
         updated = replace(project, operations=tuple(operations))
+        updated = self.apply_global_defaults(project, updated)
         updated.validate()
         self.render(updated, changed=changed, fallback=self.sources, destinations=destinations)
         self.project = updated
         self.figure_id = selection
         self.dirty = True
+
+    def default_style(self, record: FigureRecord | None) -> FigureStyle:
+        style = self.settings.figure_style
+        return replace(style, y=replace(style.y, zero_line=True)) if record and record.part == "residual" else style
+
+    def apply_global_defaults(self, previous: Project, updated: Project) -> Project:
+        if self.settings.figure_style == FigureStyle():
+            return updated
+        operations = tuple(
+            FigureAppearance(key, self.default_style(record))
+            for key, record in updated.figures.items() if key not in previous.figures
+        )
+        return replace(updated, operations=(*updated.operations, *operations))
 
     def validate_destination(self, project: Project, figure_id: int) -> None:
         if type(figure_id) is not int or figure_id not in project.visible_figures:

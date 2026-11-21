@@ -217,7 +217,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
           if (!(target instanceof Element)) return;
           if (target.closest(".xtitle, .x2title")) onEdit("x");
           else if (target.closest(".ytitle")) onEdit("y");
-          else if (target.closest(".y2title")) onEdit("residual");
+          else if (target.closest(".y2title")) onEdit("y");
           else if (target.closest(".gtitle")) onEdit("figure");
         }}
         />

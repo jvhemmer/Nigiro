@@ -128,6 +128,8 @@ export interface Project {
   colors: Record<FigureElement, string>;
   figure_style: FigureStyle;
   default_figure_style: FigureStyle;
+  global_figure_style: FigureStyle;
+  factory_figure_style: FigureStyle;
   versions: { python: string; numpy: string; scipy: string };
 }
 
@@ -141,6 +143,7 @@ export type Request =
   | { action: "select_figure"; figure_id: number }
   | { action: "edit_item"; item: WorkspaceItem; name: string | null }
   | { action: "color"; element: FigureElement; color: string; figure_id: number }
+  | { action: "set_global_style"; style: FigureStyle }
   | { action: "figure_style"; style: FigureStyle; figure_id: number }
   | { action: "save_as"; name: string };
 

@@ -324,6 +324,7 @@ export function App() {
   const [projectKey, setProjectKey] = useState(0);
   const [plugins, setPlugins] = useState<PluginDefinition[]>([]);
   const [pluginDialog, setPluginDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | null>(null);
+  const [settingsDialog, setSettingsDialog] = useState(false);
   const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
   const [exportDialog, setExportDialog] = useState<ExportTarget | null>(null);
   const [itemDialog, setItemDialog] = useState<ItemAction | null>(null);
@@ -437,13 +438,14 @@ export function App() {
       setError("");
       setPluginDialog({ plugin: request.plugin });
     }
-    else if (request.action === "figure_settings") setFigureDialog("figure");
+    else if (request.action === "settings") { setError(""); setSettingsDialog(true); }
+    else if (request.action === "figure_settings") { setError(""); setFigureDialog("figure"); }
     else if (request.action === "choose_export") setExportDialog(request.target);
     else if (request.action === "manage_item") setItemDialog(request.change);
     else void run(request);
   }
 
-  const menuBusy = busy || pluginDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
+  const menuBusy = busy || settingsDialog || pluginDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
   const openCommands: MenuCommand[] = [
     { label: "New…", request: { action: "new" }, shortcut: "N" },
     { label: "Import Data…", request: { action: "import_data" } },
@@ -529,6 +531,10 @@ export function App() {
               ],
             },
             {
+              label: "Edit",
+              groups: [[{ label: "Settings…", request: { action: "settings" } }]],
+            },
+            {
               label: "Plot",
               groups: [
                 plotCommands,
@@ -586,25 +592,44 @@ export function App() {
           }}
         />
       )}
+      {project && settingsDialog && (
+        <FigureSettings global initial={project.global_figure_style} defaults={project.factory_figure_style}
+          initialSection="figure" labels={{ x: "", y: "" }}
+          categoricalX={false} bar markers line busy={busy} saveError={error}
+          onClose={() => { setSettingsDialog(false); setError(""); }}
+          onApply={async (style) => {
+            if (await run({ action: "set_global_style", style })) setSettingsDialog(false);
+          }} />
+      )}
       {project && figure && project.figure_id !== null && figureDialog && (
         <FigureSettings
           initial={project.figure_style}
+          busy={busy} saveError={error}
+          onSaveGlobal={async (section, key, value, unit) => {
+            const global = project.global_figure_style;
+            const axis = section;
+            const units = { ...(axis === "figure" ? global.units : global[axis].units) };
+            if (unit) units[key] = unit;
+            else delete units[key];
+            const style = axis === "figure" ? { ...global, [key]: value, units }
+              : { ...global, [axis]: { ...global[axis], [key]: value, units } };
+            return run({ action: "set_global_style", style });
+          }}
           defaults={project.default_figure_style}
           initialSection={figureDialog}
-          labels={{ x: figure.x_label ?? "", y: figure.y_label ?? "", residual: "Residual" }}
-          fit={!!figure.residual_panel}
+          labels={{ x: figure.x_label ?? "", y: figure.y_label ?? "" }}
           categoricalX={!!figure.categorical_x}
           bar={editableTraces.some((trace) => trace.type === "bar")}
           markers={editableTraces.some((trace) => trace.type === "scatter" && trace.mode?.includes("markers"))}
           line={editableTraces.some((trace) => trace.type === "scatter" && trace.mode?.includes("lines"))}
-          onClose={() => setFigureDialog(null)}
+          onClose={() => { setFigureDialog(null); setError(""); }}
           onApply={(style) => {
             setFigureDialog(null);
             if (project.figure_id !== null) void run({ action: "figure_style", style, figure_id: project.figure_id });
           }}
         />
       )}
-      {error && !pluginDialog && <div className="error-banner" role="alert">{error}</div>}
+      {error && !pluginDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
         <ProjectEditor key={projectKey} {...{ project, plugins, busy, run, capture }}
           onConfigure={figure && !figure.overlay_inputs && project.figure_id !== null

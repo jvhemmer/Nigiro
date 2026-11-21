@@ -7,6 +7,7 @@ import type { PluginDefinition, Request } from "./workspace";
 export type MenuRequest = Request
   | { action: "choose_plugin"; plugin: PluginDefinition }
   | { action: "figure_settings" }
+  | { action: "settings" }
   | { action: "choose_export"; target: ExportTarget }
   | { action: "manage_item"; change: ItemAction };
 

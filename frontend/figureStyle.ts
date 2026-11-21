@@ -1,9 +1,10 @@
 import type { Layout, LayoutAxis } from "plotly.js";
 
-export type AxisKey = "x" | "y" | "residual";
+export type AxisKey = "x" | "y";
 export type StyleSection = "figure" | AxisKey;
 
 export interface AxisStyle {
+  units?: Record<string, string>;
   label: string | null;
   scale: "linear" | "log";
   lower: number | null;
@@ -24,6 +25,7 @@ export interface AxisStyle {
 }
 
 export interface FigureStyle {
+  units?: Record<string, string>;
   title: string;
   axes_width: number | null;
   axes_height: number | null;
@@ -40,7 +42,6 @@ export interface FigureStyle {
   bar_width: number;
   x: AxisStyle;
   y: AxisStyle;
-  residual: AxisStyle;
 }
 
 export const figureFont = "DejaVu Sans";
@@ -143,7 +144,7 @@ export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string,
           xaxis: { ...x, matches: "x2", title: { text: "" }, showticklabels: false },
           yaxis: { ...y, domain: [0.36, 1] },
           xaxis2: { ...x, anchor: "y2" },
-          yaxis2: { ...axisLayout(style, style.residual, "Residual", revision), domain: [0, 0.26] },
+          yaxis2: { ...axisLayout(style, style.y, "Residual", revision), domain: [0, 0.26] },
         }
       : { xaxis: x, yaxis: y }),
   };

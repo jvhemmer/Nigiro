@@ -4,11 +4,38 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass, field
 
 
 def _finite(value: object) -> bool:
     return type(value) in (int, float) and -math.inf < value < math.inf
+
+
+LENGTH_UNITS = {"px": 1, "pt": 96 / 72, "pc": 16, "in": 96, "cm": 96 / 2.54, "mm": 96 / 25.4, "q": 96 / 101.6}
+ANGLE_UNITS = {"deg": 1, "°": 1, "rad": 180 / math.pi, "turn": 360}
+
+
+def normalize_units(style, lengths, angles=()):
+    units = style.units
+    if not isinstance(units, dict):
+        raise ValueError("Invalid measurement units.")
+    units = units.copy()
+    for key in lengths + angles:
+        factors = ANGLE_UNITS if key in angles else LENGTH_UNITS
+        default = "deg" if key in angles else "px"
+        value = getattr(style, key)
+        if isinstance(value, str):
+            match = re.fullmatch(r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*([a-zA-Z°]*)\s*", value)
+            if not match or (match[2].lower() or default) not in factors:
+                raise ValueError("Enter a number with a supported unit.")
+            unit = match[2].lower() or default
+            object.__setattr__(style, key, float(match[1]) * factors[unit])
+            units[key] = unit
+        if key in units and units[key] not in factors:
+            raise ValueError("Unsupported measurement unit.")
+    if any(key not in lengths + angles for key in units):
+        raise ValueError("Invalid measurement field.")
+    object.__setattr__(style, "units", units)
 
 
 @dataclass(frozen=True)
@@ -31,7 +58,10 @@ class AxisStyle:
     zero_line: bool = False
     hover_ruler: bool = False
 
+    units: dict[str, str] = field(default_factory=dict)
+
     def __post_init__(self) -> None:
+        normalize_units(self, ("tick_length", "line_width"), ("angle",))
         if self.label is not None and not isinstance(self.label, str):
             raise ValueError("Enter text for the axis label.")
         if self.scale not in ("linear", "log"):
@@ -56,8 +86,8 @@ class AxisStyle:
 @dataclass(frozen=True)
 class FigureStyle:
     title: str = ""
-    axes_width: int | None = None
-    axes_height: int | None = None
+    axes_width: float | None = None
+    axes_height: float | None = None
     font_family: str = "DejaVu Sans"
     label_size: float = 13
     tick_size: float = 11
@@ -71,12 +101,15 @@ class FigureStyle:
     bar_width: float = 0.8
     x: AxisStyle = AxisStyle()
     y: AxisStyle = AxisStyle()
-    residual: AxisStyle = AxisStyle(zero_line=True)
+    residual: InitVar[AxisStyle | dict | None] = None
 
-    def __post_init__(self) -> None:
+    units: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self, residual=None) -> None:
+        normalize_units(self, ("axes_width", "axes_height", "label_size", "tick_size", "line_width", "marker_size"))
         for size in (self.axes_width, self.axes_height):
-            if size is not None and (type(size) is not int or not 1 <= size <= 8000):
-                raise ValueError("Enter whole axes dimensions from 1 to 8000 pixels.")
+            if size is not None and (not _finite(size) or not 1 <= size <= 8000):
+                raise ValueError("Enter axes dimensions from 1 to 8000 px.")
         if not isinstance(self.title, str) or not (
             isinstance(self.font_family, str) and self.font_family.strip()
             and re.fullmatch(r"[\w .'-]+", self.font_family)
@@ -97,7 +130,7 @@ class FigureStyle:
         ):
             if not _finite(value) or not minimum <= value <= maximum:
                 raise ValueError("Check the font sizes, line width, marker size, and bar width.")
-        for name in ("x", "y", "residual"):
+        for name in ("x", "y"):
             axis = getattr(self, name)
             if isinstance(axis, dict):
                 object.__setattr__(self, name, AxisStyle(**axis))

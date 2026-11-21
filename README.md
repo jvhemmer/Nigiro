@@ -47,6 +47,8 @@ The **Configuration** tab contains the plugin's settings. The **Output** tab lis
 
 ## Switch sources and figures
 
+Open **Edit → Settings → Global Figure Settings** to set defaults for new figures. Settings persist across app restarts. Each value in an individual figure's settings has a save icon to make it the global default and a restore icon to copy the current global default into that figure. Select **Apply** to save changes to the figure.
+
 Use the tabs in **Worksheet** to switch between imported data and analysis results. The dockable **Sources** panel lists all sources. Select an entry to open it in **Worksheet**. Linear Fit creates separate tables for coefficients and fitted values. The fitted values table includes X, observed Y, fitted Y, and residuals.
 
 Linear Fit produces a fit and a separate residual figure. Use the tabs in **Figure** to switch between them or return to any earlier figure. Each figure has its own appearance settings. For a fit from one source, **Plugin settings** updates its fit and residual figures.
@@ -79,7 +81,9 @@ Install plugins as single files. The desktop worker supplies bundled modules suc
 
 ## Edit the figure
 
-Open **Plot → Figure Settings**. Double-click an axis label to open its settings. Choose **Figure**, **X axis**, **Y axis**, or **Residual Y axis** on a linear fit.
+Open **Plot → Figure Settings**. Double-click an axis label to open its settings. Choose **Figure**, **X axis**, or **Y axis**. Residual figures use the regular Y-axis settings.
+
+Enter sizes with units, such as `9 pt`, `8 cm`, or `400 px`. Bare numbers use pixels. Supported lengths are `px`, `pt`, `cm`, `mm`, `in`, `pc`, and `q`, using 96 pixels per inch. Angles accept `deg`, `°`, `rad`, or `turn`, with degrees as the default. The selected units are saved with the figure and global defaults.
 
 - Set the title, font, legend position, and trace appearance in **Figure**.
 - Set **Axes width** and **Axes height** in **Figure**. Leave either field blank for **Auto**. A set dimension stays fixed when you resize the window. Labels and margins sit outside the axes area.
