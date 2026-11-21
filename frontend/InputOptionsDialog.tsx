@@ -76,8 +76,13 @@ function Destination({ label, figures, value, onChange }: {
   </label>;
 }
 
-export function PluginDialog({ plugin, project, previous, editingSource, configuring, busy, error, onClose, onRun }: {
-  plugin: PluginDefinition;
+const scalarFields: PluginField[] = [
+  { key: "column", label: "Column", type: "column", default: 0 },
+  { key: "factor", label: "Factor", type: "number", default: 1 },
+];
+
+export function InputOptionsDialog({ target, project, previous, editingSource, configuring, busy, error, onClose, onRun }: {
+  target: PluginDefinition | "scale";
   project: Project;
   previous?: PluginOptions;
   editingSource?: SourceChoice;
@@ -89,12 +94,17 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
 }) {
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
-  const initialSource = editingSource ?? project.sources.find((source) => source.id === project.source_id) ?? project.sources[0];
-  const sources = editingSource ? [editingSource] : project.sources;
+  const scale = target === "scale";
+  const plugin = scale ? null : target;
+  const sources = editingSource ? [editingSource] : scale
+    ? project.sources.filter((source) => source.kind === "raw")
+    : project.sources;
+  const initialSource = sources.find((source) => source.id === project.source_id) ?? sources[0];
+  const definitionFields = plugin?.fields ?? scalarFields;
   const [tab, setTab] = useState<(typeof tabs)[number]>("Inputs");
   const [picked, setPicked] = useState(() => new Set(initialSource ? [initialSource.id] : []));
   const [referenceId, setReferenceId] = useState<SourceId>(initialSource?.id ?? null);
-  const [options, setOptions] = useState<PluginOptions>(() => Object.fromEntries(plugin.fields.map((field) => {
+  const [options, setOptions] = useState<PluginOptions>(() => Object.fromEntries(definitionFields.map((field) => {
     const value = previous?.[field.key] ?? field.default;
     return [field.key, field.type === "column" ? Math.min(Number(value), (initialSource?.columns.length ?? 0) - 1) : value];
   })));
@@ -104,11 +114,11 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
   const [destinations, setDestinations] = useState(new Map<SourceId, number | null>());
   const inputs = sources.filter(({ id }) => picked.has(id));
   const reference = inputs.find(({ id }) => id === referenceId) ?? inputs[0];
-  const fields = columnFields(plugin);
-  const filter = plugin.id === "nigiro.filter";
-  const outputField = filter ? plugin.fields.find(({ key }) => key === "output") : undefined;
-  const config = plugin.fields.filter((field) => field.type !== "column" && field !== outputField);
-  const output = filter ? "separate" : inputs.length > 1 ? mode : "overlay";
+  const fields = definitionFields.filter((field) => field.type === "column");
+  const filter = plugin?.id === "nigiro.filter";
+  const outputField = filter ? definitionFields.find(({ key }) => key === "output") : undefined;
+  const config = definitionFields.filter((field) => field.type !== "column" && field !== outputField);
+  const output = filter || scale ? "separate" : inputs.length > 1 ? mode : "overlay";
   const runs = reference ? inputs.map((source) => {
     const mapped = { ...options };
     for (const { key } of fields) {
@@ -119,7 +129,7 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
     return {
       source_id: source.id, options: mapped, target_id: output === "separate" ? destinations.get(source.id) ?? null : null,
       valid: values.every((index) => index >= 0 && index < source.columns.length)
-        && (!plugin.distinct_columns || new Set(values).size === values.length),
+        && (!plugin?.distinct_columns || new Set(values).size === values.length),
     };
   }) : [];
   const inputError = !runs.length ? "Select a source." : runs.some((run) => !run.valid) ? "Choose valid columns for each source." : "";
@@ -136,6 +146,20 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
     setOptions((current) => ({ ...current, [key]: value }));
   }
 
+  function selectReference(source: SourceChoice) {
+    const before = sources.find(({ id }) => id === referenceId);
+    if (!before || source.id === before.id) return;
+    setReferenceId(source.id);
+    setOptions((current) => {
+      const next = { ...current };
+      for (const { key } of fields) {
+        const matched = matchColumn(source, before, Number(current[key]));
+        next[key] = matched >= 0 ? matched : Math.min(Number(current[key]), source.columns.length - 1);
+      }
+      return next;
+    });
+  }
+
   return (
     <dialog ref={dialog} className="settings-dialog plugin-dialog" aria-labelledby={`${id}-title`}
       onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
@@ -146,9 +170,9 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
           runs: runs.map(({ source_id, options, target_id }) => ({ source_id, options, target_id })),
         });
       }}>
-        <h2 id={`${id}-title`}>{plugin.menu === "plot" ? `${plugin.name} plot` : plugin.name}</h2>
+        <h2 id={`${id}-title`}>{!plugin ? "Scalar multiplication" : plugin.menu === "plot" ? `${plugin.name} plot` : plugin.name}</h2>
         <div className="plugin-body">
-        <div className="plugin-tabs" role="tablist" aria-label="Plugin setup" aria-orientation="vertical">
+        <div className="plugin-tabs" role="tablist" aria-label="Input options" aria-orientation="vertical">
           {tabs.map((name, index) => (
             <button key={name} id={`${id}-tab-${name}`} role="tab" aria-selected={tab === name}
               aria-controls={`${id}-panel-${name}`} tabIndex={tab === name ? 0 : -1} type="button"
@@ -164,23 +188,17 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
           ))}
         </div>
         <section role="tabpanel" id={`${id}-panel-Inputs`} aria-labelledby={`${id}-tab-Inputs`} hidden={tab !== "Inputs"}>
-          <SourceChecklist sources={sources} picked={picked} disabled={configuring || busy} onChange={setPicked} />
+          <SourceChecklist sources={sources} picked={picked} disabled={configuring || busy} onChange={(next) => {
+            const first = sources.find(({ id }) => next.has(id));
+            if (!next.has(referenceId) && first) selectReference(first);
+            setPicked(next);
+          }} />
           {reference && fields.length > 0 && <>
             <div className="batch-controls fit-settings plugin-fields">
               {inputs.length > 1 && <label><span>Match columns from</span>
                 <select aria-label="Match columns from" value={sourceKey(reference.id)} onChange={(event) => {
                   const source = inputs.find(({ id }) => sourceKey(id) === event.target.value);
-                  if (source) {
-                    setReferenceId(source.id);
-                    setOptions((current) => {
-                      const next = { ...current };
-                      for (const { key } of fields) {
-                        const matched = matchColumn(source, reference, Number(current[key]));
-                        next[key] = matched >= 0 ? matched : Math.min(Number(current[key]), source.columns.length - 1);
-                      }
-                      return next;
-                    });
-                  }
+                  if (source) selectReference(source);
                 }}>
                   {inputs.map(({ id, name }) => <option key={sourceKey(id)} value={sourceKey(id)}>{name}</option>)}
                 </select>
@@ -227,9 +245,10 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
           </div> : <p className="muted">This plugin has no additional settings.</p>}
         </section>
         <section role="tabpanel" id={`${id}-panel-Output`} aria-labelledby={`${id}-tab-Output`} hidden={tab !== "Output"}>
+          {scale ? <p>Updates the working column in each selected source. The original CSV files stay intact.</p> : <>
           <fieldset>
             <legend>Plugin outputs</legend>
-            <ul>{(plugin.outputs?.length ? plugin.outputs : ["Figure", ...(plugin.menu === "analysis" ? ["Plugin results, if available"] : [])])
+            <ul>{(plugin?.outputs?.length ? plugin.outputs : ["Figure", ...(plugin?.menu === "analysis" ? ["Plugin results, if available"] : [])])
               .map((label, index) => <li key={index}>{label}</li>)}</ul>
           </fieldset>
           {outputField ? <div className="fit-settings">
@@ -247,8 +266,9 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
               : inputs.map(({ id, name }) => <Destination key={sourceKey(id)} label={`Destination for ${name}`}
                 figures={project.figures} value={destinations.get(id) ?? null}
                 onChange={(value) => setDestinations((current) => new Map(current).set(id, value))} />)}
-            {plugin.id === "nigiro.linear_fit" && <p className="muted">Residuals go to a separate figure. Result tables appear in Sources.</p>}
+            {plugin?.id === "nigiro.linear_fit" && <p className="muted">Residuals go to a separate figure. Result tables appear in Sources.</p>}
           </div>}
+          </>}
         </section>
         </div>
         {problem && <p className="muted">{problem}</p>}
@@ -256,7 +276,7 @@ export function PluginDialog({ plugin, project, previous, editingSource, configu
         <footer>
           <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
           <button className="primary" type="submit" disabled={!!problem || busy}>
-            {configuring ? "Update figure" : plugin.menu === "plot" ? "Create plot" : "Run analysis"}
+            {configuring ? "Update figure" : scale ? "Add step" : plugin?.menu === "plot" ? "Create plot" : "Run analysis"}
           </button>
         </footer>
       </form>

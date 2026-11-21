@@ -43,7 +43,7 @@ Import and Open dialogs start in the current project's last import folder. If it
 
 ## Plot columns
 
-Select **Plot → Scatter**, **Line**, or **Bar**. Choose sources and columns on **Inputs**. With multiple sources, Nigiro matches column headers from the reference source. Use the mapping table to change the columns for any source. Scatter and line plots use numeric X and Y values. Bar plots use the X column as labels.
+Select **Plot → Scatter**, **Line**, or **Bar**. Plots, analyses, and operations use the same input dialog. In **Inputs**, each source row shows its name, original path when available, and dimensions as rows × columns. Select the sources and columns there. With multiple sources, Nigiro matches column headers from the reference source. Use the mapping table to change the columns for any source. Scatter and line plots use numeric X and Y values. Bar plots use the X column as labels.
 
 The **Configuration** tab contains the plugin's settings. The **Output** tab lists what the plugin produces and lets you create new figures or add traces to existing figures with compatible axes. For multiple sources, you can overlay the traces or use a separate figure for each source.
 

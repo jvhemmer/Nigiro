@@ -14,7 +14,7 @@ import { FigurePlot, type CaptureFigure } from "./FitPlot";
 import { ItemDialog, type ItemAction } from "./ItemDialog";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
 import { MenuBar, type MenuCommand, type MenuRequest } from "./MenuBar";
-import { columnFields, PluginDialog } from "./PluginDialog";
+import { columnFields, InputOptionsDialog } from "./InputOptionsDialog";
 import { useListDrag } from "./useListDrag";
 import { ViewTabs, viewTabId } from "./ViewTabs";
 import { WorkflowPanel, WorkflowStepDialog } from "./WorkflowPanel";
@@ -312,8 +312,8 @@ export function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [projectKey, setProjectKey] = useState(0);
   const [plugins, setPlugins] = useState<PluginDefinition[]>([]);
-  const [pluginDialog, setPluginDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | null>(null);
-  const [stepDialog, setStepDialog] = useState<WorkflowStep | "scale" | null>(null);
+  const [inputDialog, setInputDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | "scale" | null>(null);
+  const [stepDialog, setStepDialog] = useState<WorkflowStep | null>(null);
   const [settingsDialog, setSettingsDialog] = useState(false);
   const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
   const [exportDialog, setExportDialog] = useState<ExportTarget | null>(null);
@@ -393,15 +393,17 @@ export function App() {
   const exportName = project && figure
     ? projectStem(project) + (project.figures.length > 1 ? `-figure-${figureNumber}` : "") : null;
   const editableTraces = figure?.traces.filter((_, index) => figure.elements?.[index]) ?? [];
+  const pluginDialog = inputDialog === "scale" ? null : inputDialog;
   const previous = project?.operations.slice().reverse().find((step) =>
     step.kind === "plugin" && pluginDialog && matchesPlugin(step, pluginDialog.plugin));
   const configuring = pluginDialog?.figureId !== undefined;
-  const editingSource = configuring && project && figure ? {
-    id: figure.recipe.source_id ?? null,
-    name: project.sources.find(({ id }) => id === (figure.recipe.source_id ?? null))?.name
-      ?? project.figure_input?.name ?? "Figure input",
-    columns: project.figure_input?.columns ?? project.columns,
-  } : undefined;
+  const editingSource = configuring && project && figure ? (
+    project.sources.find(({ id }) => id === (figure.recipe.source_id ?? null)) ?? {
+      id: figure.recipe.source_id ?? null,
+      name: project.figure_input?.name ?? "Figure input",
+      columns: project.figure_input?.columns ?? project.columns,
+    }
+  ) : undefined;
   const initialOptions = figure && configuring
     ? figure.recipe.options : previous?.kind === "plugin" ? previous.options : undefined;
 
@@ -437,10 +439,10 @@ export function App() {
     closeContextMenu();
     if (request.action === "choose_plugin") {
       setError("");
-      setPluginDialog({ plugin: request.plugin });
+      setInputDialog({ plugin: request.plugin });
     }
     else if (request.action === "settings") { setError(""); setSettingsDialog(true); }
-    else if (request.action === "choose_scale") { setError(""); setStepDialog("scale"); }
+    else if (request.action === "choose_scale") { setError(""); setInputDialog("scale"); }
     else if (request.action === "choose_step") { setError(""); setStepDialog(request.step); }
     else if (request.action === "figure_settings") { setError(""); setFigureDialog("figure"); }
     else if (request.action === "choose_export") setExportDialog(request.target);
@@ -448,7 +450,7 @@ export function App() {
     else void run(request);
   }
 
-  const menuBusy = busy || stepDialog !== null || settingsDialog || pluginDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
+  const menuBusy = busy || stepDialog !== null || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
   const openCommands: MenuCommand[] = [
     { label: "New…", request: { action: "new" }, shortcut: "N" },
     { label: "Import Data…", request: { action: "import_data" } },
@@ -586,8 +588,7 @@ export function App() {
           </div>
         )}
       </header>
-      {stepDialog && <WorkflowStepDialog step={stepDialog === "scale" ? undefined : stepDialog}
-        sources={project?.sources ?? []} activeSourceId={project?.source_id ?? null} busy={busy} error={error} onRun={run}
+      {stepDialog && <WorkflowStepDialog step={stepDialog} busy={busy} error={error} onRun={run}
         onClose={() => { setStepDialog(null); setError(""); }} />}
       {contextMenu && <ContextMenu menu={contextMenu} onClose={closeContextMenu} onRun={runMenu} />}
       {itemDialog && (
@@ -596,17 +597,23 @@ export function App() {
           void run({ action: "edit_item", item: itemDialog.item, name });
         }} />
       )}
-      {project && pluginDialog && (
-        <PluginDialog plugin={pluginDialog.plugin} project={project} previous={initialOptions}
+      {project && inputDialog && (
+        <InputOptionsDialog target={inputDialog === "scale" ? inputDialog : inputDialog.plugin} project={project} previous={initialOptions}
           configuring={configuring} editingSource={editingSource} busy={busy} error={error}
-          onClose={() => { setPluginDialog(null); setError(""); }}
+          onClose={() => { setInputDialog(null); setError(""); }}
           onRun={async (submission) => {
-            const { id: plugin_id, version, checksum } = pluginDialog.plugin;
-            const success = configuring ? await run({
-              action: "run_plugin", plugin_id, version, checksum, figure_id: pluginDialog.figureId,
-              options: submission.runs[0].options,
-            }) : await run({ action: "execute_plugin", plugin_id, version, checksum, ...submission });
-            if (success) setPluginDialog(null);
+            let success: boolean;
+            if (inputDialog === "scale") {
+              const runs = submission.runs.map(({ source_id, options }) => ({ source_id, column: Number(options.column) }));
+              success = await run({ action: "scale_column", runs, factor: Number(submission.runs[0].options.factor) });
+            } else {
+              const { id: plugin_id, version, checksum } = inputDialog.plugin;
+              success = configuring ? await run({
+                action: "run_plugin", plugin_id, version, checksum, figure_id: inputDialog.figureId,
+                options: submission.runs[0].options,
+              }) : await run({ action: "execute_plugin", plugin_id, version, checksum, ...submission });
+            }
+            if (success) setInputDialog(null);
           }}
         />
       )}
@@ -657,11 +664,11 @@ export function App() {
           }}
         />
       )}
-      {error && !stepDialog && !pluginDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
+      {error && !stepDialog && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
         <ProjectEditor key={projectKey} {...{ project, busy, run, capture }}
           onConfigure={figure && !figure.overlay_inputs && project.figure_id !== null
-            ? () => { setError(""); setPluginDialog({ plugin: figure.definition, figureId: project.figure_id ?? undefined }); }
+            ? () => { setError(""); setInputDialog({ plugin: figure.definition, figureId: project.figure_id ?? undefined }); }
             : undefined} onEdit={setFigureDialog} />
       ) : (
         <main className="welcome">

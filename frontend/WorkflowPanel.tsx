@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { SourceChecklist, type SourceId } from "./SourceChecklist";
 import { useListDrag } from "./useListDrag";
-import type { PluginOptions, ProjectSource, Request, Workflow, WorkflowStep } from "./workspace";
+import type { PluginOptions, Request, Workflow, WorkflowStep } from "./workspace";
 
 const statusLabels = { done: "Done", stale: "Stale", pending: "Queued", failed: "Failed" };
 
@@ -59,39 +58,25 @@ export function WorkflowPanel({ workflow, busy, run }: {
   </div>;
 }
 
-export function WorkflowStepDialog({ step, sources, activeSourceId, busy, error, onClose, onRun }: {
-  step?: WorkflowStep;
-  sources: ProjectSource[];
-  activeSourceId: SourceId;
+export function WorkflowStepDialog({ step, busy, error, onClose, onRun }: {
+  step: WorkflowStep;
   busy: boolean;
   error: string;
   onClose: () => void;
   onRun: (request: Request) => Promise<boolean>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [options, setOptions] = useState<PluginOptions[]>(step?.options ?? []);
-  const [tab, setTab] = useState("Inputs");
-  const raw = sources.filter((source) => source.kind === "raw");
-  const [picked, setPicked] = useState(() => new Set<SourceId>(
-    raw.some(({ id }) => id === activeSourceId) ? [activeSourceId] : raw.slice(0, 1).map(({ id }) => id),
-  ));
-  const [columns, setColumns] = useState(new Map<SourceId, number>());
-  const selected = raw.filter(({ id }) => picked.has(id));
-  const runs = selected.map(({ id }) => ({ source_id: id, column: columns.get(id) ?? 0 }));
-  const [factor, setFactor] = useState(1);
+  const [options, setOptions] = useState<PluginOptions[]>(step.options);
   useEffect(() => { dialog.current?.showModal(); }, []);
 
-  return <dialog ref={dialog} className={step ? "settings-dialog" : "settings-dialog plugin-dialog"} aria-labelledby="workflow-dialog-title"
+  return <dialog ref={dialog} className="settings-dialog" aria-labelledby="workflow-dialog-title"
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <form onSubmit={async (event) => {
       event.preventDefault();
-      const request: Request = step
-        ? { action: "edit_step", step_id: step.id, options }
-        : { action: "scale_column", runs, factor };
-      if (await onRun(request)) onClose();
+      if (await onRun({ action: "edit_step", step_id: step.id, options })) onClose();
     }}>
-      <h2 id="workflow-dialog-title">{step?.label ?? "Scalar multiplication"}</h2>
-      {step ? <div className="fit-settings plugin-fields">
+      <h2 id="workflow-dialog-title">{step.label}</h2>
+      <div className="fit-settings plugin-fields">
         {options.map((values, index) => <fieldset key={index}>
           {options.length > 1 && <legend>Input {index + 1}</legend>}
           {Object.entries(values).map(([key, value]) => (
@@ -105,38 +90,11 @@ export function WorkflowStepDialog({ step, sources, activeSourceId, busy, error,
             </label>
           ))}
         </fieldset>)}
-      </div> : <div className="plugin-body">
-        <div className="plugin-tabs" role="tablist" aria-orientation="vertical" aria-label="Operation setup">
-          {["Inputs", "Configuration", "Output"].map((name) => <button key={name} type="button" role="tab"
-            id={`scale-tab-${name}`} aria-controls={`scale-panel-${name}`} aria-selected={name === tab}
-            onClick={() => setTab(name)}>{name}</button>)}
-        </div>
-        <section className="fit-settings" hidden={tab !== "Inputs"} role="tabpanel"
-          id="scale-panel-Inputs" aria-labelledby="scale-tab-Inputs">
-          <SourceChecklist sources={raw} picked={picked} onChange={setPicked} disabled={busy} />
-          {selected.map((source) => <label key={source.id ?? "primary"}>
-            <span>Column for {source.name}</span>
-            <select value={columns.get(source.id) ?? 0} onChange={(event) =>
-              setColumns(new Map(columns).set(source.id, Number(event.target.value)))}>
-              {source.columns.map((name, index) => <option key={index} value={index}>{name || `Column ${index + 1}`}</option>)}
-            </select>
-          </label>)}
-        </section>
-        <section className="fit-settings" hidden={tab !== "Configuration"} role="tabpanel"
-          id="scale-panel-Configuration" aria-labelledby="scale-tab-Configuration">
-          <label><span>Factor</span>
-            <input type="number" required step="any" value={Number.isNaN(factor) ? "" : factor}
-              onChange={(event) => setFactor(event.target.valueAsNumber)} />
-          </label>
-        </section>
-        <section hidden={tab !== "Output"} role="tabpanel" id="scale-panel-Output" aria-labelledby="scale-tab-Output">
-          <p>Updates the working column for later steps. The original CSV stays intact.</p>
-        </section>
-      </div>}
+      </div>
       {error && <p role="alert" className="figure-settings-error">{error}</p>}
       <footer>
         <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
-        <button type="submit" className="primary" disabled={busy || (!step && (!runs.length || !Number.isFinite(factor)))}>{step ? "Save step" : "Add step"}</button>
+        <button type="submit" className="primary" disabled={busy}>Save step</button>
       </footer>
     </form>
   </dialog>;
