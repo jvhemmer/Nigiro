@@ -1,9 +1,31 @@
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Data, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
 import { figureFont, figureLayout, type FigureStyle, type StyleSection } from "./figureStyle";
 import type { FigureElement, PluginFigure } from "./workspace";
 
 type Colors = Record<FigureElement, string>;
+type Renderer = typeof import("plotly.js-basic-dist-min");
+
+const config = { responsive: false, displayModeBar: false, doubleClick: "reset" as const };
+const scatterFields = new Set(["type", "mode", "name", "x", "y", "xaxis", "yaxis", "showlegend", "legendgroup", "hoverinfo"]);
+let webGLAvailable: boolean | undefined;
+
+function canAccelerate(data: PluginFigure) {
+  if (data.categorical_x || data.definition.checksum !== null) return false;
+  if (!data.traces.every((trace) => trace.type === "scatter" && Object.keys(trace).every((key) => scatterFields.has(key)))) return false;
+  if (data.traces.reduce((count, trace) => count + ("x" in trace ? trace.x?.length ?? 0 : 0), 0) < 10_000) return false;
+  if (webGLAvailable === undefined) {
+    const gl = document.createElement("canvas").getContext("webgl");
+    webGLAvailable = gl !== null;
+    gl?.getExtension("WEBGL_lose_context")?.loseContext();
+  }
+  return webGLAvailable;
+}
+
+async function loadRenderer(accelerated: boolean): Promise<Renderer> {
+  const library = accelerated ? await import("plotly.js-gl2d-dist-min") : await import("plotly.js-basic-dist-min");
+  return library.default ?? library;
+}
 
 export interface FigureSnapshot {
   traces: object[];
@@ -49,13 +71,13 @@ function differences(base: object, current: object): object {
       const nested = differences(before, value);
       return Object.keys(nested).length ? [[key, nested]] : [];
     }
-    return JSON.stringify(before) === JSON.stringify(value) ? [] : [[key, value]];
+    return before === value || JSON.stringify(before) === JSON.stringify(value) ? [] : [[key, value]];
   }));
 }
 
 function styleTrace(trace: Data, style: FigureStyle, color: string): Data {
   if (trace.type === "bar") return merge(trace, { marker: { color }, width: style.bar_width });
-  if (trace.type !== "scatter") return trace;
+  if (trace.type !== "scatter" && trace.type !== "scattergl") return trace;
   const marker = { color, size: style.marker_size, symbol: style.marker_symbol };
   const line = { color, width: style.line_width, dash: style.line_dash };
   return merge(trace, { marker, line });
@@ -66,7 +88,9 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
   const container = useRef<HTMLDivElement>(null);
   const [available, setAvailable] = useState({ width: 0, height: 0 });
   const [error, setError] = useState("");
-  const plotly = useRef<typeof import("plotly.js-basic-dist-min") | null>(null);
+  const plotly = useRef<Renderer | null>(null);
+  const webGLFailed = useRef(false);
+  const traces = useMemo(() => structuredClone(data.traces), [data]);
   const rendered = useRef<PlotlyHTMLElement | null>(null);
   const drawing = useRef<Promise<void>>(Promise.resolve());
   const lastDraw = useRef<{ data: PluginFigure; colors: Colors; style: FigureStyle; width: number; height: number } | null>(null);
@@ -92,12 +116,21 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
     return {
       async svg() {
         const { graph, renderer, width, height } = currentFigure();
-        const url = await renderer.toImage(graph, { format: "svg", width, height });
+        const accelerated = graph.data.some((trace) => trace.type === "scattergl");
+        const vectorRenderer = accelerated ? await loadRenderer(false) : renderer;
+        const figure = accelerated ? {
+          data: graph.data.map((trace, index) => ({ ...trace, type: data.traces[index].type }) as Data),
+          layout: graph.layout,
+          config,
+        } : graph;
+        const url = await vectorRenderer.toImage(figure, { format: "svg", width, height });
         return decodeURIComponent(url.slice(url.indexOf(",") + 1));
       },
       snapshot() {
         const { graph, width, height } = currentFigure();
-        const traces = graph.data.map((trace, index) => differences(data.traces[index] ?? {}, trace));
+        const traces = graph.data.map((trace, index) => differences(data.traces[index] ?? {}, {
+          ...trace, type: data.traces[index].type,
+        }));
         return { traces, layout: differences(data.layout ?? {}, graph.layout), width, height };
       },
     };
@@ -139,14 +172,12 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
 
     drawing.current = drawing.current.then(async () => {
       if (!active) return;
-      const [library] = await Promise.all([
-        import("plotly.js-basic-dist-min"),
+      const accelerated = !webGLFailed.current && canAccelerate(data);
+      const [renderer] = await Promise.all([
+        loadRenderer(accelerated),
         document.fonts.load(`12px "${figureFont}"`),
       ]);
       if (!active) return;
-      // The distribution exposes Plotly as its default export in Vite.
-      const renderer = library.default ?? library;
-      plotly.current = renderer;
       const previous = lastDraw.current;
       if (previous?.data === data && previous.colors === colors && previous.style === style
         && previous.width === width && previous.height === height && rendered.current) {
@@ -168,15 +199,26 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
         node.style.height = `${canvasHeight}px`;
         return { width: canvasWidth, height: canvasHeight };
       }
-      const series = structuredClone(data.traces).map((trace, index) => {
+      const series = traces.map((trace, index) => {
         const element = elements[index];
         return element ? styleTrace(trace, style, data.series_colors?.[index] ?? colors[element]) : trace;
       });
-      const next = await renderer.react(node, series, { ...layout, ...setCanvas(), autosize: false }, {
-        responsive: false,
-        displayModeBar: false,
-        doubleClick: "reset",
-      });
+      const options = { ...layout, ...setCanvas(), autosize: false };
+      if (plotly.current && plotly.current !== renderer) plotly.current.purge(node);
+      plotly.current = renderer;
+      let next: PlotlyHTMLElement;
+      try {
+        const preview = accelerated ? series.map((trace): Data => ({ ...trace, type: "scattergl" } as Data)) : series;
+        next = await renderer.react(node, preview, options, config);
+      } catch (reason) {
+        if (!accelerated) throw reason;
+        renderer.purge(node);
+        webGLFailed.current = true;
+        const fallback = await loadRenderer(false);
+        if (!active) return;
+        plotly.current = fallback;
+        next = await fallback.react(node, series, options, config);
+      }
       // Adjust the canvas after Plotly measures the margins around the axes.
       for (let attempt = 0; active && attempt < 5 && (lockedWidth !== null || lockedHeight !== null); attempt++) {
         const actual = (next as PlotlyHTMLElement & { _fullLayout?: { _size?: { w: number; h: number } } })._fullLayout?._size;
@@ -186,7 +228,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
         if (nextWidth === canvasWidth && nextHeight === canvasHeight) break;
         canvasWidth = nextWidth;
         canvasHeight = nextHeight;
-        await renderer.relayout(next, setCanvas());
+        await plotly.current.relayout(next, setCanvas());
       }
       if (active) {
         lastDraw.current = { data, colors, style, width, height };
@@ -205,7 +247,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
       chart?.removeAllListeners?.("plotly_click");
       chart?.removeAllListeners?.("plotly_legendclick");
     };
-  }, [data, colors, style, revision, onSelect, width, height, lockedWidth, lockedHeight, visible]);
+  }, [data, traces, colors, style, revision, onSelect, width, height, lockedWidth, lockedHeight, visible]);
 
   return (
     <div className="chart-panel">
