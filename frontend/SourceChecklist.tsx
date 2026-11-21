@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ProjectSource } from "./workspace";
 
 export type SourceId = ProjectSource["id"];
@@ -5,6 +6,41 @@ export type SourceChoice = Pick<ProjectSource, "id" | "name" | "columns">
   & Partial<Pick<ProjectSource, "original_path" | "row_count">>;
 
 const pathLimit = 100;
+
+function SourcePath({ path }: { path: string }) {
+  const element = useRef<HTMLSpanElement>(null);
+  const [text, setText] = useState(path);
+  useLayoutEffect(() => {
+    const cell = element.current;
+    const context = document.createElement("canvas").getContext("2d");
+    if (!cell || !context) return;
+    function fit() {
+      if (!cell || !context) return;
+      const style = getComputedStyle(cell);
+      context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      const width = cell.getBoundingClientRect().width;
+      if (width <= 0) return;
+      if (path.length <= pathLimit && context.measureText(path).width <= width) {
+        setText(path);
+        return;
+      }
+      const tail = Array.from(path).slice(1 - pathLimit);
+      let start = 0;
+      let end = tail.length;
+      while (start < end) {
+        const middle = Math.floor((start + end) / 2);
+        if (context.measureText(`…${tail.slice(middle).join("")}`).width <= width) end = middle;
+        else start = middle + 1;
+      }
+      setText(`…${tail.slice(start).join("")}`);
+    }
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(cell);
+    return () => observer.disconnect();
+  }, [path]);
+  return <span ref={element} className="source-option-path" title={path} dir="ltr">{text}</span>;
+}
 
 export function SourceChecklist({ sources, picked, disabled, onChange }: {
   sources: SourceChoice[];
@@ -26,9 +62,7 @@ export function SourceChecklist({ sources, picked, disabled, onChange }: {
             }} />
             <span>{name}</span>
           </span>
-          <span className="source-option-path" title={path ?? undefined}>
-            <bdi dir="ltr">{path ? (path.length > pathLimit ? `…${path.slice(1 - pathLimit)}` : path) : "—"}</bdi>
-          </span>
+          {path ? <SourcePath path={path} /> : <span className="source-option-path">—</span>}
           <span className="source-option-size">{rows === undefined ? "—" : `${rows}×${columns.length}`}</span>
         </label>
       </li>)}
