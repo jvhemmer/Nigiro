@@ -55,6 +55,12 @@ export interface FigureStyle extends Typography {
   background: string;
   legend: "auto" | "none" | "above" | "top_left" | "top_right" | "bottom_left" | "bottom_right";
   line_width: number;
+  legend_frame: boolean;
+  legend_border_color: string;
+  legend_border_width: number;
+  legend_background: string | null;
+  marker_color: string | null;
+  line_color: string | null;
   line_dash: "solid" | "dash" | "dot" | "dashdot";
   marker_size: number;
   show_markers: boolean;
@@ -173,7 +179,9 @@ function legendLayout(style: FigureStyle, fit: boolean): Partial<Layout> {
     showlegend: true,
     legend: {
       font: textFont(style, "legend", style.tick_size),
-      bgcolor: style.background,
+      bgcolor: style.legend_background ?? style.background,
+      bordercolor: style.legend_border_color,
+      borderwidth: style.legend_frame ? style.legend_border_width : 0,
       itemdoubleclick: false,
       ...(position === "above"
         ? { orientation: "h", x: 0, y: 1.02, xanchor: "left", yanchor: "bottom" }

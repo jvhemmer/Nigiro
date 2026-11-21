@@ -15,8 +15,8 @@ const sectionNames: Record<SettingsTab, string> = {
 
 const figureTabFields: Record<FigureTab, (keyof FigureStyle)[]> = {
   figure: ["title", "title_renderer", "axes_width", "axes_height", "background"],
-  traces: ["bar_width", "show_markers", "marker_size", "marker_symbol", "show_lines", "line_width", "line_dash"],
-  legend: ["legend"],
+  traces: ["bar_width", "show_markers", "marker_size", "marker_symbol", "show_lines", "line_width", "line_dash", "marker_color", "line_color"],
+  legend: ["legend", "legend_frame", "legend_border_color", "legend_border_width", "legend_background"],
   fonts: ["text_color", "font_family", "font_face", "font_bold", "font_italic", "label_size", "tick_size", "math_alphabet", "math_preamble",
     ...(Object.keys(textRoles) as TextRole[]).flatMap((role) =>
       (["family", "face", "size", "bold", "italic"] as const).map((field) => `${role}_${field}` as const))],
@@ -27,7 +27,9 @@ const fieldKeys: Record<string, string> = {
   "Math alphabet": "math_alphabet", "TeX preamble": "math_preamble",
   "Figure title": "title", "Axes width (px)": "axes_width", "Axes height (px)": "axes_height",
   "Show markers": "show_markers", "Show trace lines": "show_lines", "Number notation": "notation", "Font family": "font_family", "Font style": "font_face", "Axis label size (px)": "label_size", "Tick and legend size (px)": "tick_size",
-  "Text color": "text_color", "Background": "background", "Legend": "legend",
+  "Text color": "text_color", "Background": "background", "Position": "legend",
+  "Show frame": "legend_frame", "Frame color": "legend_border_color", "Frame width (px)": "legend_border_width",
+  "Legend background": "legend_background", "Marker color": "marker_color", "Line color": "line_color",
   "Bar width (fraction)": "bar_width", "Marker size (px)": "marker_size", "Marker shape": "marker_symbol",
   "Trace line width (px)": "line_width", "Trace line style": "line_dash",
   "Axis label": "label", "Scale": "scale", "Lower limit": "lower", "Upper limit": "upper",
@@ -301,6 +303,20 @@ function TextOverrides({ style, onChange }: { style: FigureStyle; onChange: (sty
   </SettingsGroup>;
 }
 
+function OptionalColor({ label, value, fallback, onChange }: {
+  label: string;
+  value: string | null;
+  fallback: string;
+  onChange: (value: string | null) => void;
+}) {
+  return <>
+    <Field label={label}><input type="color" value={value ?? fallback} onChange={(event) => onChange(event.target.value)} /></Field>
+    <Field label={`Use automatic ${label.toLowerCase()}`} checkbox>
+      <input type="checkbox" checked={value == null} onChange={(event) => onChange(event.target.checked ? null : fallback)} />
+    </Field>
+  </>;
+}
+
 function FigureFields({ tab, style, bar, markers, line, onChange }: {
   tab: FigureTab;
   style: FigureStyle;
@@ -352,17 +368,25 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
     </SettingsGroup>
     </>}
     {tab === "legend" && <SettingsGroup title="Legend">
-    <Choice label="Legend" value={style.legend} onChange={(value) => set("legend", value)}
+    <Choice label="Position" value={style.legend} onChange={(value) => set("legend", value)}
       options={[
         ["auto", "Automatic"], ["none", "Hidden"], ["above", "Above plot"],
         ["top_left", "Top left"], ["top_right", "Top right"],
         ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"],
       ]} />
+    <OptionalColor label="Legend background" value={style.legend_background} fallback={style.background}
+      onChange={(value) => set("legend_background", value)} />
+    <Field label="Show frame" checkbox><input type="checkbox" checked={style.legend_frame}
+      onChange={(event) => set("legend_frame", event.target.checked)} /></Field>
+    <Field label="Frame color"><input type="color" value={style.legend_border_color}
+      onChange={(event) => set("legend_border_color", event.target.value)} /></Field>
+    <NumberField label="Frame width (px)" value={style.legend_border_width} onChange={(value) => set("legend_border_width", value)} />
     </SettingsGroup>}
     {tab === "traces" && <>
     {bar && <SettingsGroup title="Bars"><NumberField label="Bar width (fraction)" value={style.bar_width} onChange={(value) => set("bar_width", value)} /></SettingsGroup>}
     {markers && <SettingsGroup title="Markers">
           <Field label="Show markers" checkbox><input type="checkbox" checked={style.show_markers} onChange={(event) => set("show_markers", event.target.checked)} /></Field>
+          <OptionalColor label="Marker color" value={style.marker_color} fallback="#245e9b" onChange={(value) => set("marker_color", value)} />
           <NumberField label="Marker size (px)" value={style.marker_size} onChange={(value) => set("marker_size", value)} />
           <Choice label="Marker shape" value={style.marker_symbol} onChange={(value) => set("marker_symbol", value)}
             options={[
@@ -372,6 +396,7 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
         </SettingsGroup>}
     {line && <SettingsGroup title="Lines">
       <Field label="Show trace lines" checkbox><input type="checkbox" checked={style.show_lines} onChange={(event) => set("show_lines", event.target.checked)} /></Field>
+      <OptionalColor label="Line color" value={style.line_color} fallback="#245e9b" onChange={(value) => set("line_color", value)} />
       <NumberField label="Trace line width (px)" value={style.line_width} onChange={(value) => set("line_width", value)} />
       <Choice label="Trace line style" value={style.line_dash} onChange={(value) => set("line_dash", value)}
         options={[["solid", "Solid"], ["dash", "Dashed"], ["dot", "Dotted"], ["dashdot", "Dash-dot"]]} />
@@ -397,6 +422,7 @@ function figureError(style: FigureStyle) {
   }
   if (!/^[\p{L}\p{N}_ .'-]+$/u.test(style.font_family.trim())) return { tab: "fonts" as const, message: "Enter one font family name." };
   if (![style.label_size, style.tick_size].every((size) => size >= 6 && size <= 48)) return { tab: "fonts" as const, message: "Enter font sizes from 6 to 48 px." };
+  if (!(style.legend_border_width >= 0 && style.legend_border_width <= 12)) return { tab: "legend" as const, message: "Enter a frame width from 0 to 12 px." };
   if (!(style.line_width >= 0.1 && style.line_width <= 12)) return { tab: "traces" as const, message: "Enter a trace line width from 0.1 to 12 px." };
   if (!(style.marker_size >= 1 && style.marker_size <= 30)) return { tab: "traces" as const, message: "Enter a marker size from 1 to 30 px." };
   if (!(style.bar_width >= 0.05 && style.bar_width <= 1)) return { tab: "traces" as const, message: "Enter a bar width from 0.05 to 1." };

@@ -199,9 +199,11 @@ function InspectPanel({ project, inspection, busy, run, onConfigure }: {
         <dt>Trace type</dt><dd>{trace.type ?? "Scatter"}</dd>
         {color && <><dt>Color</dt><dd><span className="swatch" style={{ backgroundColor: color }} /> {color}</dd></>}
         {role && traceMode?.includes("lines") && project.figure_style.show_lines &&
-          <><dt>Line</dt><dd>{project.figure_style.line_width} px · {project.figure_style.line_dash}</dd></>}
+          <><dt>Line</dt><dd>{project.figure_style.line_width} px · {project.figure_style.line_dash}
+            {project.figure_style.line_color && ` · ${project.figure_style.line_color}`}</dd></>}
         {role && traceMode?.includes("markers") && project.figure_style.show_markers &&
-          <><dt>Markers</dt><dd>{project.figure_style.marker_size} px · {project.figure_style.marker_symbol}</dd></>}
+          <><dt>Markers</dt><dd>{project.figure_style.marker_size} px · {project.figure_style.marker_symbol}
+            {project.figure_style.marker_color && ` · ${project.figure_style.marker_color}`}</dd></>}
       </>}
     </dl>
     {trace && role && color && !figure.overlay_inputs && <ColorField

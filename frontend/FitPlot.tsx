@@ -80,8 +80,8 @@ function differences(base: object, current: object): object {
 function styleTrace(trace: Data, style: FigureStyle, color: string): Data {
   if (trace.type === "bar") return merge(trace, { marker: { color }, width: style.bar_width });
   if (trace.type !== "scatter" && trace.type !== "scattergl") return trace;
-  const marker = { color, size: style.marker_size, symbol: style.marker_symbol };
-  const line = { color, width: style.line_width, dash: style.line_dash };
+  const marker = { color: style.marker_color ?? color, size: style.marker_size, symbol: style.marker_symbol };
+  const line = { color: style.line_color ?? color, width: style.line_width, dash: style.line_dash };
   const mode = (trace.mode ?? "lines").split("+").filter((part) =>
     (part !== "markers" || style.show_markers) && (part !== "lines" || style.show_lines));
   return merge(trace, { marker, line, mode: mode.join("+") || "none" });

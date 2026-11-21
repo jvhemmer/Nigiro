@@ -139,6 +139,12 @@ class FigureStyle:
     text_color: str = "#181818"
     background: str = "#ffffff"
     legend: str = "auto"
+    legend_frame: bool = False
+    legend_border_color: str = "#444444"
+    legend_border_width: float = 1
+    legend_background: str | None = None
+    marker_color: str | None = None
+    line_color: str | None = None
     line_width: float = 1.5
     line_dash: str = "solid"
     marker_size: float = 5
@@ -166,7 +172,7 @@ class FigureStyle:
         )) for face in faces):
             raise ValueError("Choose a valid font style.")
         sizes = tuple(f"{role}_size" for role in roles)
-        normalize_units(self, ("axes_width", "axes_height", "label_size", "tick_size", "line_width", "marker_size", *sizes))
+        normalize_units(self, ("axes_width", "axes_height", "label_size", "tick_size", "line_width", "marker_size", "legend_border_width", *sizes))
         for role in roles:
             family = getattr(self, f"{role}_family")
             size = getattr(self, f"{role}_size")
@@ -187,11 +193,15 @@ class FigureStyle:
             raise ValueError("Enter one font family name and a text title.")
         if type(self.font_bold) is not bool or type(self.font_italic) is not bool:
             raise ValueError("Choose a valid font style.")
-        for color in (self.text_color, self.background):
+        optional_colors = (self.legend_background, self.marker_color, self.line_color)
+        for color in (self.text_color, self.background, self.legend_border_color,
+                      *(color for color in optional_colors if color is not None)):
             if not isinstance(color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
                 raise ValueError("Choose a valid figure color.")
         if self.legend not in ("auto", "none", "above", "top_left", "top_right", "bottom_left", "bottom_right"):
             raise ValueError("Choose a legend position.")
+        if type(self.legend_frame) is not bool or not _finite(self.legend_border_width) or not 0 <= self.legend_border_width <= 12:
+            raise ValueError("Check the legend frame width.")
         if self.line_dash not in ("solid", "dash", "dot", "dashdot"):
             raise ValueError("Choose a line style.")
         if type(self.show_markers) is not bool or type(self.show_lines) is not bool:
