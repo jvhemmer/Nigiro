@@ -1,5 +1,6 @@
 """Recorded command replay, ordering, and persisted progress."""
 
+import runpy
 import tempfile
 import unittest
 from dataclasses import replace
@@ -24,6 +25,54 @@ class WorkflowTest(unittest.TestCase):
             })["project"]
         self.assertEqual([step["label"] for step in result["workflow"]["steps"][1:]],
                          ["Plot: Scatter", "Analysis: Linear Fit", "Rename item", "Remove item"])
+
+    def test_python_script_references_original_paths_or_copied_csvs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            csv = root / "input.csv"
+            original = b"X,Y\n0,123456.789\n1,987654.321\n"
+            csv.write_bytes(original)
+            worker = Workspace()
+            worker.dispatch({"action": "import_data", "paths": [str(csv)]})
+            worker.dispatch({"action": "plot", "plot_type": "scatter", "x": 0, "y": 1})
+            recipe = worker.dispatch({"action": "export_recipe"})["project"]
+            self.assertNotIn("figure", recipe)
+            self.assertNotIn("sources", recipe["script_recipe"])
+            script = root / "figure.py"
+            export = {
+                "action": "export_script", "path": str(script), "template": "import json\n# Nigiro replay payload\n",
+                "payload": {"recipe": recipe["script_recipe"], "operations": recipe["operations"]},
+                "copy_raw_data": False,
+            }
+            worker.dispatch(export)
+            source = runpy.run_path(str(script))["PAYLOAD"]["recipe"]["sources"][0]
+            self.assertEqual(source["path"], str(csv))
+            self.assertNotIn("content", source)
+            self.assertNotIn("123456.789", script.read_text())
+            self.assertFalse((root / "imports").exists())
+
+            # Re-export with copies after the original input changes.
+            csv.write_bytes(b"X,Y\n0,1\n1,2\n")
+            (root / "imports").mkdir()
+            (root / "imports/source-001.csv").write_text("existing")
+            worker.dispatch({**export, "copy_raw_data": True})
+            source = runpy.run_path(str(script))["PAYLOAD"]["recipe"]["sources"][0]
+            self.assertEqual(source["path"], "imports/source-001-2.csv")
+            self.assertEqual((root / source["path"]).read_bytes(), original)
+            self.assertNotIn(str(csv), script.read_text())
+            self.assertNotIn("123456.789", script.read_text())
+
+    def test_python_script_without_an_original_path_requires_copies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worker = Workspace()
+            worker.dispatch({"action": "sample"})
+            script = Path(directory) / "sample.py"
+            with self.assertRaisesRegex(ValueError, "Enable Copy raw CSV files"):
+                worker.dispatch({
+                    "action": "export_script", "path": str(script), "template": "import json\n# Nigiro replay payload\n",
+                    "payload": {"recipe": {}}, "copy_raw_data": False,
+                })
+            self.assertFalse(script.exists())
 
     def test_batch_scaling_and_source_order_survive_replay_and_save(self):
         with tempfile.TemporaryDirectory() as directory:

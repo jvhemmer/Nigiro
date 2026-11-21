@@ -1,3 +1,4 @@
+import { plotText } from "./plotText.mjs";
 import type { Layout, LayoutAxis } from "plotly.js";
 
 export type TextRenderer = "auto" | "plain" | "latex";
@@ -97,32 +98,6 @@ export function axisSettings(style: FigureStyle, key: AxisSettingsKey): AxisStyl
 
 export const figureFont = "DejaVu Sans";
 
-const latexEscapes: Record<string, string> = {
-  "\\": "\\textbackslash{}", "{": "\\{", "}": "\\}", "%": "\\%", "$": "\\$",
-  "&": "\\&", "#": "\\#", "_": "\\_", "^": "\\textasciicircum{}", "~": "\\textasciitilde{}",
-};
-
-export function plotText(text: string, renderer: TextRenderer = "auto", math?: Pick<FigureStyle, "math_alphabet" | "math_preamble">) {
-  function formatMath(expression: string) {
-    const command = { default: "", roman: "mathrm", sans: "mathsf", mono: "mathtt" }[math?.math_alphabet ?? "default"];
-    const body = command ? `\\${command}{${expression}}` : expression;
-    const preamble = math?.math_preamble.trim();
-    return preamble ? "$" + `{${preamble}\n${body}}$` : `$${body}$`;
-  }
-  if (!text) return text;
-  if (renderer !== "plain") {
-    const parts = text.split(/(?<!\\)\$([^$]+)(?<!\\)\$/g);
-    if (parts.length > 1) {
-      const expression = parts.map((part, index) => index % 2 || !part ? part
-        : `\\text{${part.replace(/[\\{}%$&#_^~]/g, (character) => latexEscapes[character])}}`).join("");
-      return formatMath(expression);
-    }
-    if (renderer === "latex") return formatMath(text);
-  }
-  return text.replaceAll("&", "&amp;").replaceAll("$", "&#36;")
-    .replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>");
-}
-
 function fontFace(face: string | null, bold: boolean, italic: boolean) {
   const [weight, slant] = (face ?? `${bold ? 700 : 400}:${italic ? "italic" : "normal"}`).split(":");
   return { weight: Number(weight), style: slant === "normal" ? "normal" as const : "italic" as const };
@@ -150,17 +125,13 @@ function axisFont(style: FigureStyle, axis: AxisStyle, side: AxisKey, kind: "lab
   };
 }
 
-export function applyTickRenderers(layout: Partial<Layout>, style: FigureStyle) {
-  for (const [key, axis] of Object.entries(layout)) {
-    if (!/^[xy]axis\d*$/.test(key) || !axis || typeof axis !== "object" || !("ticktext" in axis) || !Array.isArray(axis.ticktext)) continue;
+export function tickRenderers(layout: object, style: FigureStyle): Record<string, TextRenderer> {
+  const separate = separateAxes(style);
+  return Object.fromEntries(Object.entries(layout).flatMap(([key, axis]) => {
+    if (!/^[xy]axis\d*$/.test(key) || !Array.isArray(axis?.ticktext)) return [];
     const side = key[0] === "x" ? "x" : "y";
-    const { tick_renderer } = axisSettings(style, separateAxes(style) ? side : "global_axis");
-    axis.ticktext = axis.ticktext.map((text: string) => {
-      if ((tick_renderer === "auto" && !/\$[^$]+\$/.test(text))) return text;
-      const label = text.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
-      return plotText(label, tick_renderer, style);
-    });
-  }
+    return [[key, axisSettings(style, separate ? side : "global_axis").tick_renderer]];
+  }));
 }
 
 function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision: number, side: AxisKey, categorical = false): Partial<LayoutAxis> {

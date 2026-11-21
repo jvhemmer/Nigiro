@@ -6,7 +6,6 @@ import csv
 import json
 import os
 import sys
-from base64 import b64encode
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
@@ -547,6 +546,13 @@ class Workspace:
                 self.plugins.install(Path(request["path"]))
                 if any(result.error for result in self.results.values()):
                     self.render(self.project, fallback=self.sources)
+            case "export_script":
+                from nigiro.script_export import write_script
+
+                self.require_exportable_workflow()
+                write_script(Path(request["path"]), request["template"], request["payload"],
+                             tuple(self.project.raw_sources.values()), request["copy_raw_data"])
+                return {}
             case "export_rendered":
                 from nigiro.figure_export import write_figure
 
@@ -572,11 +578,13 @@ class Workspace:
                 self.apply(request)
         return self.snapshot(paged=request.get("_paged", False), known_figures=request.get("_known_figures"))
 
-    def export_recipe(self) -> dict:
+    def require_exportable_workflow(self) -> None:
         if self.workflow.completed < len(self.workflow.steps) or self.workflow.error:
             raise ValueError("Run all recorded steps before exporting a Python script.")
+
+    def export_recipe(self) -> dict:
+        self.require_exportable_workflow()
         project = self.project
-        state = self.snapshot(paged=True)
         recipes = {}
         for key, record in project.figures.items():
             if record.overlay or record.fit_id is not None:
@@ -598,17 +606,15 @@ class Workspace:
                     ],
                     "preserve_first": record.overlay is None,
                 }
-        state["project"]["script_recipe"] = {
-            "figure_id": self.figure_id,
-            "sources": [
-                {"name": source.name, "content": b64encode(source.content).decode("ascii"),
-                 "encoding": source.encoding, "delimiter": source.delimiter}
-                for source in project.raw_sources.values()
-            ],
-            "plugins": recipes,
-            "overlays": outputs,
-        }
-        return state
+        return {"project": {
+            "operations": [operation_record(op) for op in project.operations],
+            "versions": {
+                "python": f"{sys.version_info.major}.{sys.version_info.minor}",
+                "numpy": numpy.__version__,
+                "scipy": scipy.__version__,
+            },
+            "script_recipe": {"figure_id": self.figure_id, "plugins": recipes, "overlays": outputs},
+        }}
 
     def dialog_directory(self) -> str | None:
         for value in (

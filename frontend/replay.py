@@ -1,8 +1,12 @@
 def replay_inputs(payload):
-    sources = [
-        Source(record["name"], b64decode(record["content"]), record["encoding"], record["delimiter"])
-        for record in payload["recipe"]["sources"]
-    ]
+    sources = []
+    for record in payload["recipe"]["sources"]:
+        path = Path(__file__).resolve().parent / record["path"]
+        try:
+            content = path.read_bytes()
+        except OSError as error:
+            raise ValueError(f"Could not read CSV input {path}. Check the source path in PAYLOAD.") from error
+        sources.append(Source(record["name"], content, record["encoding"], record["delimiter"]))
     operation_types = {
         "correct_cell": Correction,
         "scale_column": ScaleColumn,
@@ -90,7 +94,7 @@ def replay_figure(project, figure, recipe):
     }
 
 
-def render_svg(figure, browser_executable, font, embedded_fonts, mathjax=None):
+def render_svg(figure, browser_executable, font, embedded_fonts, mathjax=None, tick_formatter=None):
     dimensions = {key: figure[key] for key in ("width", "height")}
     from playwright.sync_api import sync_playwright
     from plotly.offline import get_plotlyjs
@@ -120,14 +124,17 @@ def render_svg(figure, browser_executable, font, embedded_fonts, mathjax=None):
             from gzip import decompress
 
             page.evaluate("window.MathJax = {startup: {typeset: false}, svg: {fontCache: 'none'}}")
-            page.add_script_tag(content=decompress(b64decode(mathjax)).decode("utf-8"))
+            page.add_script_tag(content=decompress(mathjax.read_bytes()).decode("utf-8"))
             page.evaluate("MathJax.startup.promise.then(() => true)")
+        if tick_formatter:
+            page.add_script_tag(path=tick_formatter)
         page.add_script_tag(content=get_plotlyjs())
         return page.evaluate(
-            """async ({ traces, layout, width, height }) => {
+            """async ({ traces, layout, width, height, tick_renderers, tick_math }) => {
                 const node = document.getElementById("figure");
                 document.body.style.margin = "0";
                 await document.fonts.load('12px "DejaVu Sans"');
+                if (Object.keys(tick_renderers).length) formatPlotTicks(layout, tick_renderers, tick_math);
                 await Plotly.newPlot(node, traces, { ...layout, width, height }, {
                     responsive: false, displayModeBar: false
                 });
@@ -163,13 +170,17 @@ def main():
         replay_inputs(payload), payload["figure"], payload["recipe"],
     )
     font = (Path(get_data_path()) / "fonts" / "ttf" / "DejaVuSans.ttf").read_bytes()
-    embedded_fonts = payload.get("fonts", [])
-    svg = render_svg(figure, args.browser_executable, font, embedded_fonts, payload.get("mathjax"))
+    folder = Path(__file__).resolve().parent
+    embedded_fonts = [
+        {**item, "data": b64encode((folder / item["path"]).read_bytes()).decode("ascii")}
+        for item in payload.get("fonts", [])
+    ]
+    mathjax = folder / payload["mathjax"] if "mathjax" in payload else None
+    tick_formatter = folder / payload["tick_formatter"] if "tick_formatter" in payload else None
+    svg = render_svg(figure, args.browser_executable, font, embedded_fonts, mathjax, tick_formatter)
     with TemporaryDirectory() as directory:
         fonts = Path(directory)
         (fonts / "DejaVuSans.ttf").write_bytes(font)
-        from base64 import b64decode
-
         for index, embedded in enumerate(embedded_fonts):
-            (fonts / f"embedded-{index}{embedded['extension']}").write_bytes(b64decode(embedded["data"]))
+            (fonts / f"embedded-{index}{embedded['extension']}").write_bytes((folder / embedded["path"]).read_bytes())
         write_figure(output, svg, args.scale, fonts)

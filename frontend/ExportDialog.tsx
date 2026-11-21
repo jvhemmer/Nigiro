@@ -18,11 +18,19 @@ export function ExportDialog({ target, initial, onClose, onExport }: {
       <form onSubmit={(event) => { event.preventDefault(); onExport(settings); }}>
         <h2 id="export-title">{target === "script" ? "Export Python script" : "Export figure"}</h2>
         <div className="fit-settings">
-          {target === "script" && <label>
-            <span>Embed used fonts</span>
-            <input type="checkbox" checked={settings.embedFonts ?? false}
-              onChange={(event) => setSettings({ ...settings, embedFonts: event.target.checked })} />
-          </label>}
+          {target === "script" && <>
+            <label>
+              <span>Copy raw CSV files beside the script</span>
+              <input type="checkbox" checked={settings.copyRawData ?? false}
+                onChange={(event) => setSettings({ ...settings, copyRawData: event.target.checked })} />
+            </label>
+            <p className="muted">By default, the script reads the original CSV paths.</p>
+            <label>
+              <span>Copy used fonts beside the script</span>
+              <input type="checkbox" checked={settings.embedFonts ?? false}
+                onChange={(event) => setSettings({ ...settings, embedFonts: event.target.checked })} />
+            </label>
+          </>}
           <label>
             <span>Figure format</span>
             <select value={settings.format} onChange={(event) => {

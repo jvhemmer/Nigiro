@@ -113,7 +113,7 @@ Select **File → Export Figure** and choose PNG or PDF. PNG scale increases the
 
 ## Replay a figure
 
-Select **File → Export Python Script** and choose the default figure format. The script includes the original worksheet values, operations, and figure settings. Install Chromium once so the script can render the figure in the background.
+Select **File → Export Python Script** and choose the default figure format. The script records the original CSV paths, operations, and figure settings. Select **Copy raw CSV files beside the script** to export the original data as separate files in `imports/`. Keep any `imports/`, `fonts/`, and `assets/` folders beside the script when you move it. Use this option for inputs without an original path, such as sample data. Install Chromium once to render the figure.
 
 The script keeps its inputs and figure settings near the top. It loads Plotly and the default font from pinned Python packages.
 

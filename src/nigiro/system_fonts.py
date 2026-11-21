@@ -31,7 +31,7 @@ class SystemFonts:
         try:
             path = Path(self.manager.findfont(properties, fallback_to_default=False))
         except ValueError as error:
-            raise ValueError(f"Install {family} or clear Embed used fonts.") from error
+            raise ValueError(f"Install {family} or clear Copy used fonts beside the script.") from error
         if path.suffix.lower() not in (".ttf", ".otf"):
             raise ValueError(f"Use a TrueType or OpenType file to embed {family}.")
         with TTFont(path) as font:

@@ -1,7 +1,8 @@
+import { formatPlotTicks, plotText } from "./plotText.mjs";
 import { loadMathJax } from "./mathText";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Data, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
-import { applyTickRenderers, cycleColor, figureFont, figureLayout, plotText, type FigureStyle, type StyleSection } from "./figureStyle";
+import { cycleColor, figureFont, figureLayout, tickRenderers, type FigureStyle, type StyleSection, type TextRenderer } from "./figureStyle";
 import type { FigureElement, PluginFigure } from "./workspace";
 
 type Colors = Record<FigureElement, string>;
@@ -34,6 +35,9 @@ export interface FigureSnapshot {
   layout: object;
   width: number;
   height: number;
+  uses_math: boolean;
+  tick_renderers: Record<string, TextRenderer>;
+  tick_math: Pick<FigureStyle, "math_alphabet" | "math_preamble">;
 }
 
 export interface CaptureFigure {
@@ -77,14 +81,26 @@ function differences(base: object, current: object): object {
   }));
 }
 
-function styleTrace(trace: Data, style: FigureStyle, color: string): Data {
-  if (trace.type === "bar") return merge(trace, { marker: { color }, width: style.bar_width });
-  if (trace.type !== "scatter" && trace.type !== "scattergl") return trace;
-  const marker = { color: style.marker_color ?? color, size: style.marker_size, symbol: style.marker_symbol };
-  const line = { color: style.line_color ?? color, width: style.line_width, dash: style.line_dash };
-  const mode = (trace.mode ?? "lines").split("+").filter((part) =>
-    (part !== "markers" || style.show_markers) && (part !== "lines" || style.show_lines));
-  return merge(trace, { marker, line, mode: mode.join("+") || "none" });
+function traceAppearance(trace: Data, index: number, data: PluginFigure, style: FigureStyle, colors: Colors) {
+  const element = data.elements?.[index];
+  const custom = cycleColor(style, data.series_cycle?.[index]);
+  const color = custom ?? data.series_colors?.[index] ?? (element ? colors[element] : undefined);
+  const name = typeof trace.name === "string" && /\$[^$]+\$/.test(trace.name)
+    ? { name: plotText(trace.name, "auto", style) } : {};
+  if (trace.type === "bar" && color && (element || custom)) {
+    return { ...name, marker: { color }, ...(element && { width: style.bar_width }) };
+  }
+  if ((trace.type === "scatter" || trace.type === "scattergl") && color) {
+    if (element) {
+      const marker = { color: style.marker_color ?? color, size: style.marker_size, symbol: style.marker_symbol };
+      const line = { color: style.line_color ?? color, width: style.line_width, dash: style.line_dash };
+      const mode = (trace.mode ?? "lines").split("+").filter((part) =>
+        (part !== "markers" || style.show_markers) && (part !== "lines" || style.show_lines));
+      return { ...name, marker, line, mode: mode.join("+") || "none" };
+    }
+    if (custom) return { ...name, marker: { color }, line: { color } };
+  }
+  return name;
 }
 
 export function FigurePlot({ capture, data, colors, style, revision, onEdit, onSelect }: FigurePlotProps) {
@@ -132,13 +148,31 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
       },
       snapshot() {
         const { graph, width, height } = currentFigure();
-        const traces = graph.data.map((trace, index) => differences(data.traces[index] ?? {}, {
-          ...trace, type: data.traces[index].type,
+        const traces = data.traces.map((trace, index) => {
+          const current = graph.data[index];
+          const visible = current && "visible" in current ? current.visible : undefined;
+          return {
+            ...traceAppearance(trace, index, data, style, colors),
+            ...(visible !== undefined && (!("visible" in trace) || visible !== trace.visible) && { visible }),
+          };
+        });
+        const renderers = tickRenderers(data.layout ?? {}, style);
+        const tick_math = { math_alphabet: style.math_alphabet, math_preamble: style.math_preamble };
+        const usesMath = (text: unknown) => typeof text === "string" && /\$[^$]+\$/.test(text);
+        const layout = Object.fromEntries(Object.entries(graph.layout).map(([key, axis]) => {
+          if (!(key in renderers) || !isRecord(axis)) return [key, axis];
+          const presentation = { ...axis };
+          delete presentation.tickvals;
+          delete presentation.ticktext;
+          return [key, presentation];
         }));
-        return { traces, layout: differences(data.layout ?? {}, graph.layout), width, height };
+        const uses_math = graph.data.some((trace) => usesMath(trace.name))
+          || Object.entries(graph.layout).some(([key, axis]) => key in renderers && isRecord(axis)
+            && Array.isArray(axis.ticktext) && axis.ticktext.some(usesMath));
+        return { traces, layout: differences(data.layout ?? {}, layout), width, height, uses_math, tick_renderers: renderers, tick_math };
       },
     };
-  }, [data, visible]);
+  }, [colors, data, style, visible]);
 
   useEffect(() => {
     const node = container.current!;
@@ -163,7 +197,6 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
     if (!visible) return;
     let active = true;
     let chart: PlotlyHTMLElement | undefined;
-    const elements = data.elements ?? [];
     function selectPoint(event: PlotMouseEvent) {
       const index = event.points[0]?.curveNumber;
       if (index !== undefined) onSelect(revision, index);
@@ -194,7 +227,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
           !!data.residual_panel, !!data.categorical_x, data.part === "fit" || !!data.overlay_inputs),
         structuredClone(data.layout ?? {}),
       );
-      applyTickRenderers(layout, style);
+      formatPlotTicks(layout, tickRenderers(layout, style), style);
       const margin = layout.margin;
       let canvasWidth = Math.max(10, lockedWidth === null ? width : lockedWidth + (margin?.l ?? 0) + (margin?.r ?? 0));
       let canvasHeight = Math.max(10, lockedHeight === null ? height : lockedHeight + (margin?.t ?? 0) + (margin?.b ?? 0));
@@ -203,16 +236,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
         node.style.height = `${canvasHeight}px`;
         return { width: canvasWidth, height: canvasHeight };
       }
-      const series = traces.map((trace, index) => {
-        const element = elements[index];
-        const custom = cycleColor(style, data.series_cycle?.[index]);
-        const series = element ? styleTrace(trace, style, custom ?? data.series_colors?.[index] ?? colors[element])
-          : custom && (trace.type === "scatter" || trace.type === "scattergl" || trace.type === "bar")
-            ? merge(trace, { marker: { color: custom }, ...(trace.type !== "bar" && { line: { color: custom } }) })
-            : trace;
-        return typeof series.name === "string" && /\$[^$]+\$/.test(series.name)
-          ? { ...series, name: plotText(series.name, "auto", style) } : series;
-      });
+      const series = traces.map((trace, index) => merge(trace, traceAppearance(trace, index, data, style, colors)));
       const options = { ...layout, ...setCanvas(), autosize: false };
       if (plotly.current && plotly.current !== renderer) plotly.current.purge(node);
       plotly.current = renderer;

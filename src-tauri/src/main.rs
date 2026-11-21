@@ -137,7 +137,6 @@ async fn workspace(
 enum RenderedFormat {
     Png,
     Pdf,
-    Py,
 }
 
 #[tauri::command]
@@ -152,20 +151,49 @@ async fn save_rendered_figure(
         let (title, filter, extension) = match format {
             RenderedFormat::Png => ("Export figure", "PNG", "png"),
             RenderedFormat::Pdf => ("Export figure", "PDF", "pdf"),
-            RenderedFormat::Py => ("Export Python script", "Python", "py"),
         };
         if let Some(request) = save_file(&window, "export", title, filter, &name, extension)? {
             let path = request["path"].as_str().ok_or("Invalid export path.")?;
-            match format {
-                RenderedFormat::Png | RenderedFormat::Pdf => {
-                    request_engine(&window, &json!({
-                        "action": "export_rendered", "path": path, "svg": content, "scale": scale
-                    }))?;
-                }
-                RenderedFormat::Py => {
-                    std::fs::write(path, content).map_err(|err| err.to_string())?;
-                }
-            }
+            request_engine(
+                &window,
+                &json!({
+                    "action": "export_rendered", "path": path, "svg": content, "scale": scale
+                }),
+            )?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn save_python_script(
+    window: WebviewWindow,
+    name: String,
+    template: String,
+    payload: Value,
+    copy_raw_data: bool,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(request) = save_file(
+            &window,
+            "export_script",
+            "Export Python script",
+            "Python",
+            &name,
+            "py",
+        )? {
+            request_engine(
+                &window,
+                &json!({
+                    "action": "export_script",
+                    "path": request["path"],
+                    "template": template,
+                    "payload": payload,
+                    "copy_raw_data": copy_raw_data,
+                }),
+            )?;
         }
         Ok(())
     })
@@ -393,7 +421,11 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Engine::default())
-        .invoke_handler(tauri::generate_handler![workspace, save_rendered_figure])
+        .invoke_handler(tauri::generate_handler![
+            workspace,
+            save_rendered_figure,
+            save_python_script
+        ])
         .build(tauri::generate_context!())
         .expect("Could not start Nigiro.")
         .run(|app, event| {

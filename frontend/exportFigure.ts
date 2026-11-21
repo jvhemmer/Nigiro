@@ -9,6 +9,7 @@ import builtinPlugins from "../src/nigiro/builtin_plugins.py?raw";
 import pluginSource from "../src/nigiro/plugin_source.py?raw";
 import figureExport from "../src/nigiro/figure_export.py?raw";
 import replay from "./replay.py?raw";
+import tickFormatter from "./plotText.mjs?raw";
 import type { CaptureFigure, FigureSnapshot } from "./FitPlot";
 import type { Project } from "./workspace";
 
@@ -16,6 +17,7 @@ export interface ExportSettings {
   format: "png" | "pdf";
   scale: number;
   embedFonts?: boolean;
+  copyRawData?: boolean;
 }
 
 export type ExportTarget = "figure" | "script";
@@ -33,19 +35,22 @@ interface EmbeddedFont {
   style: string;
 }
 
-async function script(project: Project & { script_recipe: unknown }, figure: FigureSnapshot, settings: ExportSettings, fonts: EmbeddedFont[]) {
+type ScriptRecipe = Pick<Project, "versions" | "operations"> & { script_recipe: unknown };
+
+async function script(project: ScriptRecipe, figure: FigureSnapshot, settings: ExportSettings, fonts: EmbeddedFont[]) {
   const record = {
     recipe: project.script_recipe,
     operations: project.operations,
     figure,
-    export_settings: settings,
+    export_settings: { format: settings.format, scale: settings.scale },
     ...(fonts.length ? { fonts } : {}),
+    ...(Object.keys(figure.tick_renderers).length ? { tick_formatter: tickFormatter.replace(/^export /gm, "") } : {}),
   };
   const hasMath = (value: unknown): boolean => typeof value === "string"
     ? value.length > 2 && value.startsWith("$") && value.endsWith("$")
     : value !== null && typeof value === "object" && Object.values(value).some(hasMath);
   let mathjax: string | undefined;
-  if (hasMath(figure) || hasMath(project.figure?.traces.map((trace) => trace.name))) {
+  if (figure.uses_math || hasMath(figure)) {
     const response = await fetch(mathJaxUrl);
     if (!response.ok) throw new Error("Could not read MathJax for export.");
     const compressed = new Blob([await response.arrayBuffer()]).stream().pipeThrough(new CompressionStream("gzip"));
@@ -56,10 +61,10 @@ async function script(project: Project & { script_recipe: unknown }, figure: Fig
     }
     mathjax = btoa(binary);
   }
-  const payload = JSON.stringify({ ...record, mathjax }, null, 2);
+  const payload = { ...record, mathjax };
   // These wheels supply the same Plotly.js version and font as the desktop app.
   const { python, numpy, scipy } = project.versions;
-  return `# /// script
+  const template = `# /// script
 # requires-python = "==${python}.*"
 # dependencies = [
 #   "numpy==${numpy}",
@@ -76,11 +81,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from base64 import b64decode, b64encode
+from base64 import b64encode
 
-PAYLOAD = json.loads(r"""
-${payload}
-""")
+# Nigiro replay payload
 
 ${sourceBody(figureStyle)}
 ${sourceBody(sourceTables)}
@@ -95,21 +98,20 @@ ${replay}
 if __name__ == "__main__":
     main()
 `;
+  return { template, payload };
 }
 
 export async function saveFigure(name: string, target: ExportTarget, settings: ExportSettings, capture: CaptureFigure) {
-  const format = target === "script" ? "py" : settings.format;
-  let content: string;
   if (target === "script") {
-    const response = await invoke<{ project: Project & { script_recipe: unknown } }>("workspace", {
+    const { project } = await invoke<{ project: ScriptRecipe }>("workspace", {
       request: { action: "export_recipe" },
     });
     const fonts = settings.embedFonts
       ? (await invoke<{ fonts: EmbeddedFont[] }>("workspace", { request: { action: "export_fonts" } })).fonts
       : [];
-    content = await script(response.project, capture.snapshot(), settings, fonts);
+    const document = await script(project, capture.snapshot(), settings, fonts);
+    await invoke("save_python_script", { name, ...document, copyRawData: settings.copyRawData ?? false });
   } else {
-    content = await capture.svg();
+    await invoke("save_rendered_figure", { name, format: settings.format, content: await capture.svg(), scale: settings.scale });
   }
-  await invoke("save_rendered_figure", { name, format, content, scale: settings.scale });
 }
