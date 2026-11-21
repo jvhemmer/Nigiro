@@ -1,16 +1,17 @@
-import { textRoles, type TextRole } from "./figureStyle";
+import { axisSettings, separateAxes, textRoles, type TextRole } from "./figureStyle";
 import { createContext, useContext, useEffect, useId, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { formatMeasurement, parseMeasurement } from "./units";
 import { invoke } from "@tauri-apps/api/core";
 import type { Appearance } from "./workspace";
 import { Save, RotateCcw } from "lucide-react";
-import type { AxisKey, AxisStyle, FigureStyle, StyleSection, TextRenderer } from "./figureStyle";
+import type { AxisKey, AxisSettingsKey, AxisStyle, FigureStyle, StyleSection, TextRenderer } from "./figureStyle";
 
 type FigureTab = "figure" | "traces" | "legend" | "fonts";
-type SettingsTab = FigureTab | AxisKey;
+type SettingsTab = FigureTab | "axes";
+export type SettingsSection = "figure" | AxisSettingsKey;
 
 const sectionNames: Record<SettingsTab, string> = {
-  figure: "Figure", traces: "Traces", legend: "Legend", fonts: "Fonts", x: "X axis", y: "Y axis",
+  figure: "Figure", traces: "Traces", legend: "Legend", fonts: "Fonts", axes: "Axes",
 };
 
 const figureTabFields: Record<FigureTab, (keyof FigureStyle)[]> = {
@@ -429,17 +430,18 @@ function figureError(style: FigureStyle) {
   return null;
 }
 
-export function FigureSettings({ initial, defaults, initialSection, labels, categoricalX, bar, markers, line, onClose, onApply, global = false, appearance, runAutomatically = true, busy = false, saveError = "", onSaveGlobal }: {
+export function FigureSettings({ initial, defaults, initialSection, labels, availableAxes = ["x", "y"], categoricalX, bar, markers, line, onClose, onApply, global = false, appearance, runAutomatically = true, busy = false, saveError = "", onSaveGlobal }: {
   global?: boolean;
   appearance?: Appearance;
   runAutomatically?: boolean;
   busy?: boolean;
   saveError?: string;
-  onSaveGlobal?: (section: StyleSection, key: string, value: unknown, unit?: string) => Promise<boolean>;
+  onSaveGlobal?: (section: SettingsSection, key: string, value: unknown, unit?: string) => Promise<boolean>;
   initial: FigureStyle;
   defaults: FigureStyle;
   initialSection: StyleSection;
   labels: Record<AxisKey, string>;
+  availableAxes?: AxisKey[];
   categoricalX: boolean;
   bar: boolean;
   markers: boolean;
@@ -456,11 +458,11 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
   const [automatic, setAutomatic] = useState(runAutomatically);
   const [expanded, setExpanded] = useState(true);
   const [appearanceDraft, setAppearanceDraft] = useState<Appearance>(appearance ?? { theme: "system", accent: "#245883" });
-  const [tab, setTab] = useState<SettingsTab>(initialSection);
-  const section: StyleSection = tab === "x" || tab === "y" ? tab : "figure";
+  const [tab, setTab] = useState<SettingsTab>(initialSection === "figure" || !availableAxes.length ? "figure" : "axes");
+  const separate = separateAxes(style);
+  const axisGroups: AxisSettingsKey[] = separate ? availableAxes : ["global_axis"];
   const [error, setError] = useState("");
   const [invalidMeasurements, setInvalidMeasurements] = useState<Record<string, SettingsTab>>({});
-  const axes: AxisKey[] = ["x", "y"];
 
   useEffect(() => { dialog.current?.showModal(); }, []);
   useEffect(() => { content.current?.scrollTo(0, 0); }, [tab, page]);
@@ -501,10 +503,8 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
       setError("Enter valid measurement units.");
       return;
     }
-    const xError = axisError(style.x);
-    const yError = axisError(style.y);
-    const failure = figureError(style) || (xError ? { tab: "x" as const, message: xError }
-      : yError ? { tab: "y" as const, message: yError } : null);
+    const invalidAxis = ["x", "y", "global_axis"].map((key) => axisError(axisSettings(style, key as AxisSettingsKey))).find(Boolean);
+    const failure = figureError(style) || (invalidAxis ? { tab: "axes" as const, message: invalidAxis } : null);
     if (failure) {
       setPage("figures");
       setExpanded(true);
@@ -515,14 +515,14 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
     onApply({ ...style, font_family: style.font_family.trim() }, global ? appearanceDraft : undefined, global ? automatic : undefined);
   }
 
-  async function saveField(key: string) {
-    const value = section === "figure" ? style[key as keyof FigureStyle] : style[section][key as keyof AxisStyle];
+  async function saveField(section: SettingsSection, key: string) {
+    const value = section === "figure" ? style[key as keyof FigureStyle] : axisSettings(style, section)[key as keyof AxisStyle];
     if (!dialog.current?.querySelector("form")?.reportValidity()) return;
     if (Object.keys(invalidMeasurements).length) {
       setError("Enter valid measurement units.");
       return;
     }
-    const unit = (section === "figure" ? style.units : style[section].units)?.[key];
+    const unit = (section === "figure" ? style.units : axisSettings(style, section).units)?.[key];
     if (await onSaveGlobal?.(section, key, value, unit)) setError("");
   }
 
@@ -533,7 +533,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
     return units;
   }
 
-  function resetField(key: string) {
+  function resetField(section: SettingsSection, key: string) {
     setInvalidMeasurements((current) => {
       const next = { ...current };
       delete next[`${section}.${key}`];
@@ -543,7 +543,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
     if (section === "figure") {
       setStyle({ ...style, [key]: defaults[key as keyof FigureStyle], units: resetUnits(style.units, defaults.units, key) });
     } else {
-      setStyle({ ...style, [section]: { ...style[section], [key]: defaults[section][key as keyof AxisStyle], units: resetUnits(style[section].units, defaults[section].units, key) } });
+      setStyle({ ...style, [section]: { ...axisSettings(style, section), [key]: axisSettings(defaults, section)[key as keyof AxisStyle], units: resetUnits(axisSettings(style, section).units, axisSettings(defaults, section).units, key) } });
     }
   }
 
@@ -554,9 +554,9 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
       return;
     }
     setError("");
-    if (tab === "x" || tab === "y") {
-      setInvalidMeasurements((current) => Object.fromEntries(Object.entries(current).filter(([, value]) => value !== tab)));
-      setStyle({ ...style, [tab]: defaults[tab] });
+    if (tab === "axes") {
+      setInvalidMeasurements((current) => Object.fromEntries(Object.entries(current).filter(([, value]) => value !== "axes")));
+      setStyle({ ...style, axes_separate: defaults.axes_separate, global_axis: defaults.global_axis, x: defaults.x, y: defaults.y });
       return;
     }
     const fields = figureTabFields[tab];
@@ -567,10 +567,10 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
     setStyle({ ...style, ...Object.fromEntries(fields.map((key) => [key, defaults[key]])), units });
   }
 
-  function describeDefault(key: string) {
-    const defaultsForSection = section === "figure" ? defaults : defaults[section];
+  function describeDefault(section: SettingsSection, key: string) {
+    const defaultsForSection = section === "figure" ? defaults : axisSettings(defaults, section);
     const value = key === "opposite_ticks" && section !== "figure"
-      ? defaults[section].opposite_ticks ?? defaults[section].mirror
+      ? axisSettings(defaults, section).opposite_ticks ?? axisSettings(defaults, section).mirror
       : defaultsForSection[key as keyof typeof defaultsForSection] as unknown;
     if (typeof value === "boolean") return value ? "On" : "Off";
     if (value == null) return "Auto";
@@ -582,10 +582,34 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
     return String(value);
   }
 
+  function withControls(section: SettingsSection, fields: ReactNode) {
+    return <GlobalControls.Provider value={onSaveGlobal ? {
+      busy, save: (key) => { void saveField(section, key); }, reset: (key) => resetField(section, key),
+      describe: (key) => describeDefault(section, key),
+    } : null}>
+      <MeasurementControls.Provider value={{
+        units: (section === "figure" ? style.units : axisSettings(style, section).units) ?? {},
+        setInvalid: (key, invalid) => setInvalidMeasurements((current) => {
+          const next = { ...current };
+          if (invalid) next[`${section}.${key}`] = tab;
+          else delete next[`${section}.${key}`];
+          return next;
+        }),
+        setUnit: (key, unit) => setStyle((current) => {
+          if (section === "figure") return { ...current, units: { ...current.units, [key]: unit } };
+          const axis = axisSettings(current, section);
+          return { ...current, [section]: { ...axis, units: { ...axis.units, [key]: unit } } };
+        }),
+      }}>
+        {fields}
+      </MeasurementControls.Provider>
+    </GlobalControls.Provider>;
+  }
+
   const sectionTabs = (
           <div className="figure-settings-nav">
-            {(["figure", "traces", "legend", "fonts", ...axes] as const)
-              .filter((item) => item !== "traces" || bar || markers || line).map((item) => (
+            {(["figure", "traces", "legend", "fonts", "axes"] as const)
+              .filter((item) => (item !== "traces" || bar || markers || line) && (item !== "axes" || availableAxes.length > 0)).map((item) => (
               <button key={item} type="button" role="tab" aria-selected={page === "figures" && tab === item}
                 id={`settings-tab-${item}`} aria-controls="settings-options" tabIndex={page === "figures" && tab === item ? 0 : -1}
                 onClick={() => { setPage("figures"); setTab(item); setError(""); }}>
@@ -669,24 +693,19 @@ export function FigureSettings({ initial, defaults, initialSection, labels, cate
             </Field>
           </SettingsGroup>}
           <div hidden={page !== "figures"}>
-      <GlobalControls.Provider value={onSaveGlobal ? { busy, save: (key) => { void saveField(key); }, reset: resetField, describe: describeDefault } : null}>
-      <MeasurementControls.Provider value={{
-        units: (section === "figure" ? style.units : style[section].units) ?? {},
-        setInvalid: (key, invalid) => setInvalidMeasurements((current) => {
-          const next = { ...current };
-          if (invalid) next[`${section}.${key}`] = tab;
-          else delete next[`${section}.${key}`];
-          return next;
-        }),
-        setUnit: (key, unit) => setStyle((current) => section === "figure"
-          ? { ...current, units: { ...current.units, [key]: unit } }
-          : { ...current, [section]: { ...current[section], units: { ...current[section].units, [key]: unit } } }),
-      }}>
-      {section === "figure" ? <FigureFields tab={tab as FigureTab} style={style} bar={bar} markers={markers} line={line} onChange={setStyle} />
-        : <AxisFields style={style[section]} fallback={labels[section]} categorical={categoricalX && section === "x"}
-            onChange={(value) => setStyle({ ...style, [section]: value })} />}
-      </MeasurementControls.Provider>
-      </GlobalControls.Provider>
+            {tab === "axes" ? <>
+              <Field label="Configure axes separately" checkbox>
+                <input type="checkbox" checked={separate} onChange={(event) => {
+                  setStyle({ ...style, axes_separate: event.target.checked });
+                }} />
+              </Field>
+              {axisGroups.map((key) => <fieldset key={key} className="settings-category axis-group">
+                <legend>{key === "global_axis" ? "Global" : key.toUpperCase()}</legend>
+                {withControls(key, <AxisFields style={axisSettings(style, key)}
+                  fallback={key === "global_axis" ? "" : labels[key]} categorical={key === "x" && categoricalX}
+                  onChange={(value) => setStyle({ ...style, [key]: value })} />)}
+              </fieldset>)}
+            </> : withControls("figure", <FigureFields tab={tab} style={style} bar={bar} markers={markers} line={line} onChange={setStyle} />)}
           </div>
         </div>
       </div>

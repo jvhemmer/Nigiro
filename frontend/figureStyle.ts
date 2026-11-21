@@ -3,6 +3,7 @@ import type { Layout, LayoutAxis } from "plotly.js";
 export type TextRenderer = "auto" | "plain" | "latex";
 export type AxisKey = "x" | "y";
 export type StyleSection = "figure" | AxisKey;
+export type AxisSettingsKey = AxisKey | "global_axis";
 
 export interface AxisStyle {
   units?: Record<string, string>;
@@ -67,8 +68,18 @@ export interface FigureStyle extends Typography {
   show_lines: boolean;
   marker_symbol: "circle" | "square" | "diamond" | "triangle-up" | "cross";
   bar_width: number;
+  axes_separate: boolean | null;
+  global_axis: AxisStyle | null;
   x: AxisStyle;
   y: AxisStyle;
+}
+
+export function separateAxes(style: FigureStyle) {
+  return style.axes_separate ?? JSON.stringify(style.x) !== JSON.stringify(style.y);
+}
+
+export function axisSettings(style: FigureStyle, key: AxisSettingsKey): AxisStyle {
+  return key === "global_axis" ? style.global_axis ?? style.x : style[key];
 }
 
 export const figureFont = "DejaVu Sans";
@@ -191,8 +202,11 @@ function legendLayout(style: FigureStyle, fit: boolean): Partial<Layout> {
 }
 
 export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string, revision: number, fit: boolean, categorical = false, fitLegend = false): Partial<Layout> {
-  const x = axisLayout(style, style.x, xLabel, revision, "x", categorical);
-  const y = axisLayout(style, style.y, yLabel, revision, "y");
+  const separate = separateAxes(style);
+  const xStyle = axisSettings(style, separate ? "x" : "global_axis");
+  const yStyle = axisSettings(style, separate ? "y" : "global_axis");
+  const x = axisLayout(style, xStyle, xLabel, revision, "x", categorical);
+  const y = axisLayout(style, yStyle, yLabel, revision, "y");
   const font = style.font_family === figureFont ? figureFont : `"${style.font_family}", "${figureFont}"`;
   const above = style.legend === "above" || ((fit || fitLegend) && style.legend === "auto");
   const titleFont = textFont(style, "title", style.label_size + 2);
@@ -214,7 +228,7 @@ export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string,
           xaxis: { ...x, matches: "x2", title: { text: "" }, showticklabels: false },
           yaxis: { ...y, domain: [0.36, 1] },
           xaxis2: { ...x, anchor: "y2" },
-          yaxis2: { ...axisLayout(style, style.y, "Residual", revision, "y"), domain: [0, 0.26] },
+          yaxis2: { ...axisLayout(style, yStyle, "Residual", revision, "y"), domain: [0, 0.26] },
         }
       : { xaxis: x, yaxis: y }),
   };

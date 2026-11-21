@@ -152,6 +152,8 @@ class FigureStyle:
     show_lines: bool = True
     marker_symbol: str = "circle"
     bar_width: float = 0.8
+    axes_separate: bool | None = None
+    global_axis: AxisStyle | None = None
     x: AxisStyle = AxisStyle()
     y: AxisStyle = AxisStyle()
     residual: InitVar[AxisStyle | dict | None] = None
@@ -214,9 +216,11 @@ class FigureStyle:
         ):
             if not _finite(value) or not minimum <= value <= maximum:
                 raise ValueError("Check the font sizes, line width, marker size, and bar width.")
-        for name in ("x", "y"):
+        if self.axes_separate is not None and type(self.axes_separate) is not bool:
+            raise ValueError("Choose whether to configure axes separately.")
+        for name in ("x", "y", "global_axis"):
             axis = getattr(self, name)
             if isinstance(axis, dict):
                 object.__setattr__(self, name, AxisStyle(**axis))
-            elif not isinstance(axis, AxisStyle):
+            elif not isinstance(axis, AxisStyle) and (name != "global_axis" or axis is not None):
                 raise ValueError("Invalid axis settings.")

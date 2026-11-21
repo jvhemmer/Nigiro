@@ -626,3 +626,6 @@ td input {
 .inspect-details dl { margin: 0 0 10px; }
 .inspect-details dt { margin-top: 7px; color: var(--muted); }
 .inspect-details dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+
+.axis-group { margin-top: 9px; }
+.axis-group > .settings-category:last-child { margin-bottom: 0; }

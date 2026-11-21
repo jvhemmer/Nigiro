@@ -9,7 +9,7 @@ import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ExportDialog } from "./ExportDialog";
 import { applyAppearance, cacheAppearance } from "./appearance";
 import { FigureSettings } from "./FigureSettings";
-import type { StyleSection } from "./figureStyle";
+import { axisSettings, type StyleSection } from "./figureStyle";
 import { FigurePlot, type CaptureFigure } from "./FitPlot";
 import { ItemDialog, type ItemAction } from "./ItemDialog";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
@@ -645,16 +645,17 @@ export function App() {
           onSaveGlobal={async (section, key, value, unit) => {
             const global = project.global_figure_style;
             const axis = section;
-            const units = { ...(axis === "figure" ? global.units : global[axis].units) };
+            const units = { ...(axis === "figure" ? global.units : axisSettings(global, axis).units) };
             if (unit) units[key] = unit;
             else delete units[key];
             const style = axis === "figure" ? { ...global, [key]: value, units }
-              : { ...global, [axis]: { ...global[axis], [key]: value, units } };
+              : { ...global, [axis]: { ...axisSettings(global, axis), [key]: value, units } };
             return run({ action: "set_global_style", style });
           }}
           defaults={project.default_figure_style}
           initialSection={figureDialog}
           labels={{ x: figure.x_label ?? "", y: figure.y_label ?? "" }}
+          availableAxes={figure.traces.some((trace) => trace.type == null || ["scatter", "scattergl", "bar"].includes(trace.type)) ? ["x", "y"] : []}
           categoricalX={!!figure.categorical_x}
           bar={editableTraces.some((trace) => trace.type === "bar")}
           markers={editableTraces.some((trace) => trace.type === "scatter" && trace.mode?.includes("markers"))}

@@ -837,7 +837,11 @@ class Workspace:
         style = FigureStyle(**defaults) if defaults is not None else self.settings.figure_style
         if style == FigureStyle():
             return updated
-        residual_style = replace(style, y=replace(style.y, zero_line=True))
+        residual_style = replace(
+            style, y=replace(style.y, zero_line=True),
+            global_axis=replace(style.global_axis or style.x, zero_line=True)
+            if style.axes_separate is False else style.global_axis,
+        )
         operations = tuple(
             FigureAppearance(key, residual_style if record.part == "residual" else style)
             for key, record in updated.figures.items() if key not in previous.figures
