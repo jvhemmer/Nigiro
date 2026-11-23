@@ -10,6 +10,8 @@ type FigureTab = "figure" | "traces" | "legend" | "text";
 type SettingsTab = FigureTab | "axes";
 export type SettingsSection = "figure" | AxisSettingsKey;
 
+const defaultAppearance: Appearance = { theme: "system", accent: "#245883" };
+
 const sectionNames: Record<SettingsTab, string> = {
   figure: "Figure", traces: "Traces", legend: "Legend", text: "Text", axes: "Axes",
 };
@@ -513,7 +515,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
   const [page, setPage] = useState<"appearance" | "figures" | "workflow">(global ? "appearance" : "figures");
   const [automatic, setAutomatic] = useState(runAutomatically);
   const [expanded, setExpanded] = useState(true);
-  const [appearanceDraft, setAppearanceDraft] = useState<Appearance>(appearance ?? { theme: "system", accent: "#245883" });
+  const [appearanceDraft, setAppearanceDraft] = useState<Appearance>(appearance ?? defaultAppearance);
   const [tab, setTab] = useState<SettingsTab>(initialSection === "figure" || !availableAxes.length ? "figure" : "axes");
   const separate = separateAxes(style);
   const axisGroups: AxisSettingsKey[] = separate ? availableAxes : ["global_axis"];
@@ -606,7 +608,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
   function resetSection() {
     if (page === "workflow") { setAutomatic(true); return; }
     if (page === "appearance") {
-      setAppearanceDraft({ theme: "system", accent: "#245883" });
+      setAppearanceDraft(defaultAppearance);
       return;
     }
     setError("");
@@ -621,6 +623,14 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
     ));
     const units = fields.reduce((current, key) => resetUnits(current, defaults.units, key), style.units ?? {});
     setStyle({ ...style, ...Object.fromEntries(fields.map((key) => [key, defaults[key]])), units });
+  }
+
+  function resetAll() {
+    setStyle(defaults);
+    setAppearanceDraft(defaultAppearance);
+    setAutomatic(true);
+    setInvalidMeasurements({});
+    setError("");
   }
 
   function describeDefault(section: SettingsSection, key: string) {
@@ -769,7 +779,10 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
         {(error || saveError) && <p className="figure-settings-error" role="alert">{error || saveError}</p>}
       </div>
       <footer>
-        <button type="button" className="figure-reset" onClick={resetSection}>{page === "appearance" ? "Reset appearance" : "Reset section"}</button>
+        <div className="settings-reset-actions">
+          <button type="button" disabled={busy} onClick={resetSection}>Reset</button>
+          {global && <button type="button" className="settings-reset-all" disabled={busy} onClick={resetAll}>Reset all</button>}
+        </div>
         <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
         <button type="submit" className="primary" disabled={busy}>{global ? "Save settings" : "Apply"}</button>
       </footer>

@@ -548,7 +548,11 @@ td input {
 .figure-field input:not([type="checkbox"]), .plugin-fields input:not([type="checkbox"]) { height: 24px; }
 .fit-settings select, .figure-field select { padding-block: 0; }
 .figure-settings-error { color: var(--error); margin-top: 10px; }
-.figure-reset { margin-right: auto; }
+.settings-reset-actions { display: flex; gap: 8px; margin-right: auto; }
+.settings-reset-all, .settings-reset-all:hover:not(:disabled) {
+  color: var(--error); background: var(--error-bg); border-color: var(--error);
+}
+.settings-reset-all:hover:not(:disabled) { filter: brightness(.95); }
 
 .cached-figure { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .cached-figure[hidden] { display: none; }
