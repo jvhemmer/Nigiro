@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import math
 import re
+import subprocess
 from dataclasses import InitVar, dataclass, field
+from functools import cache
 
 
 def _finite(value: object) -> bool:
@@ -13,6 +15,21 @@ def _finite(value: object) -> bool:
 
 LENGTH_UNITS = {"px": 1, "pt": 96 / 72, "pc": 16, "in": 96, "cm": 96 / 2.54, "mm": 96 / 25.4, "q": 96 / 101.6}
 ANGLE_UNITS = {"deg": 1, "°": 1, "rad": 180 / math.pi, "turn": 360}
+
+
+@cache
+def system_sans_serif() -> str:
+    try:
+        match = subprocess.run(
+            ["fc-match", "--format=%{family}", "sans-serif"],
+            capture_output=True, text=True, check=True, timeout=2,
+        )
+        family = match.stdout.split(",")[0].strip()
+        if re.fullmatch(r"[\w .'-]+", family):
+            return family
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "DejaVu Sans"
 
 
 def normalize_units(style, lengths, angles=()):
@@ -61,8 +78,8 @@ class AxisStyle:
     tick_labels: bool = True
     minor_ticks: bool = False
     line: bool = True
-    line_width: float = 1
-    mirror: bool = False
+    line_width: float = "1.5 pt"
+    mirror: bool = True
     opposite_ticks: bool | None = None
     grid: bool = False
     zero_line: bool = False
@@ -112,16 +129,16 @@ class AxisStyle:
 class FigureStyle:
     title: str = ""
     title_renderer: str = "auto"
-    axes_width: float | None = None
-    axes_height: float | None = None
-    font_family: str = "DejaVu Sans"
+    axes_width: float | None = "5 in"
+    axes_height: float | None = "4.167 in"
+    font_family: str = field(default_factory=system_sans_serif)
     font_bold: bool = False
     font_italic: bool = False
     font_face: str | None = None
     math_alphabet: str = "default"
     math_preamble: str = ""
-    label_size: float = 13
-    tick_size: float = 11
+    label_size: float = "14 pt"
+    tick_size: float = "12 pt"
     title_family: str | None = None
     title_bold: bool | None = None
     title_italic: bool | None = None
@@ -151,7 +168,7 @@ class FigureStyle:
     legend_bold: bool | None = None
     legend_italic: bool | None = None
     legend_face: str | None = None
-    legend_size: float | None = None
+    legend_size: float | None = "12 pt"
     text_color: str = "#181818"
     background: str = "#ffffff"
     plot_background: str | None = None
@@ -163,7 +180,7 @@ class FigureStyle:
     color_cycle: tuple[str, ...] = ()
     marker_color: str | None = None
     line_color: str | None = None
-    line_width: float = 1.5
+    line_width: float = "1.5 pt"
     line_dash: str = "solid"
     marker_size: float = 5
     show_markers: bool = True

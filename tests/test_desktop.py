@@ -402,7 +402,7 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertEqual(appended["figures"], original["figures"])
             self.assertEqual(appended["figure_style"]["title"], "Original title")
             self.assertEqual(appended["figure"]["traces"][0], original["figure"]["traces"][0])
-            self.assertEqual(appended["figure"]["traces"][1]["mode"], "lines+markers")
+            self.assertEqual(appended["figure"]["traces"][1]["mode"], "lines")
             self.assertEqual(reloaded["state"]["project"]["figure"], appended["figure"])
 
     def test_global_style_persists_and_new_figures_record_defaults(self):

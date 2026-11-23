@@ -26,7 +26,7 @@ def xy_figure(columns, rows, options, kind):
         trace.update(type="bar", x=positions, text=labels, hoverinfo="y+text")
         layout["xaxis"] = {"tickmode": "array", "tickvals": positions, "ticktext": labels}
     else:
-        trace.update(type="scatter", mode="lines+markers" if kind == "line" else "markers")
+        trace.update(type="scatter", mode="lines" if kind == "line" else "markers")
     return {
         "traces": [trace], "layout": layout, "elements": ["observations"],
         "x_label": columns[x], "y_label": columns[y], "categorical_x": bar,

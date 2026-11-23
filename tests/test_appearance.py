@@ -38,7 +38,7 @@ class AppearanceTest(unittest.TestCase):
                     "style": {**original["global_figure_style"], "label_size": 18},
                     "appearance": {"theme": "dark", "accent": "invalid"},
                 })
-            self.assertEqual(worker.settings.figure_style.label_size, 13)
+            self.assertEqual(worker.settings.figure_style.label_size, original["global_figure_style"]["label_size"])
             self.assertEqual(worker.settings.appearance.theme, "system")
             worker.dispatch({
                 "action": "set_preferences", "style": original["global_figure_style"],
