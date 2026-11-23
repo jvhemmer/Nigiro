@@ -10,6 +10,37 @@ from nigiro.desktop import Workspace
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_delete_only_executed_step_then_save_and_replay(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "deleted.nigiro"
+            worker = Workspace()
+            imported = worker.dispatch({"action": "sample"})["project"]
+            step_id = imported["workflow"]["steps"][0]["id"]
+            deleted = worker.dispatch({"action": "delete_step", "step_id": step_id})["project"]
+            self.assertEqual(deleted["workflow"]["steps"], [])
+            self.assertTrue(deleted["workflow"]["needs_replay"])
+            worker.dispatch({"action": "save", "path": str(path)})
+            reopened = Workspace()
+            reopened.dispatch({"action": "open", "path": str(path)})
+            replayed = reopened.dispatch({"action": "run_next"})["project"]
+            self.assertFalse(replayed["sources"])
+            self.assertFalse(replayed["workflow"]["needs_replay"])
+
+    def test_deleted_producer_does_not_rebind_to_a_new_step(self):
+        worker = Workspace()
+        worker.dispatch({"action": "sample"})
+        plotted = worker.dispatch({
+            "action": "run_plugin", "plugin_id": "nigiro.scatter", "version": "1", "checksum": None,
+            "options": {"x": 0, "y": 1},
+        })["project"]
+        producer = plotted["workflow"]["steps"][0]["id"]
+        deleted = worker.dispatch({"action": "delete_step", "step_id": producer})["project"]
+        self.assertEqual(deleted["workflow"]["steps"][0]["status"], "stale")
+        replacement = worker.dispatch({"action": "sample"})["project"]["workflow"]["steps"][-1]
+        worker.dispatch({"action": "move_step", "step_id": replacement["id"], "direction": -1})
+        replayed = worker.dispatch({"action": "run_all"})["project"]
+        self.assertIn("deleted step", replayed["workflow"]["error"])
+
     def test_recorded_labels_describe_the_action_and_plugin(self):
         worker = Workspace()
         worker.dispatch({"action": "sample"})

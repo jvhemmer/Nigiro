@@ -340,6 +340,12 @@ export function App() {
     try {
       const replace = request.action === "new" || request.action === "open";
       if (replace && projectRef.current?.dirty && !await confirmDiscard()) return false;
+      if (request.action === "delete_step" && !await confirm("Delete this recorded step? Later steps that use its outputs may fail when rerun.", {
+        title: "Delete recorded step",
+        kind: "warning",
+        okLabel: "Delete",
+        cancelLabel: "Cancel",
+      })) return false;
       const response = await workspace(request);
       if (response) {
         setPlugins(response.plugins);
@@ -515,7 +521,7 @@ export function App() {
         { label: "Edit Step…", request: step.options.length ? { action: "choose_step", step } : null },
         { label: "Move Earlier", request: index > 0 ? { action: "move_step", step_id: step.id, direction: -1 } : null },
         { label: "Move Later", request: index < project.workflow.steps.length - 1 ? { action: "move_step", step_id: step.id, direction: 1 } : null },
-      ]];
+      ], [{ label: "Delete…", request: { action: "delete_step", step_id: step.id } }]];
     } else if (clicked?.dataset.itemKind === "source" && project) {
       const index = project.sources.findIndex(({ id }) => (id ?? "") === clicked.dataset.itemId);
       const source = project.sources[index];

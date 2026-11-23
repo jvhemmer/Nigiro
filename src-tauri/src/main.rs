@@ -28,6 +28,9 @@ enum Action {
         step_id: usize,
         options: Value,
     },
+    DeleteStep {
+        step_id: usize,
+    },
     ScaleColumn {
         runs: Value,
         factor: f64,
@@ -236,6 +239,7 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         Action::EditStep { step_id, options } => {
             json!({ "action": "edit_step", "step_id": step_id, "options": options })
         }
+        Action::DeleteStep { step_id } => json!({ "action": "delete_step", "step_id": step_id }),
         Action::ScaleColumn { runs, factor } => {
             json!({ "action": "scale_column", "runs": runs, "factor": factor })
         }

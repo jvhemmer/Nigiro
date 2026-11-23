@@ -128,6 +128,7 @@ export interface Workflow {
   completed: number;
   error: string | null;
   has_base: boolean;
+  needs_replay: boolean;
 }
 
 export interface Project {
@@ -166,6 +167,7 @@ export type Request =
   | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "save" | "install_plugin" }
   | { action: "move_step"; step_id: number; direction: number }
   | { action: "edit_step"; step_id: number; options: PluginOptions[] }
+  | { action: "delete_step"; step_id: number }
   | { action: "move_source"; source_id: ProjectSource["id"]; destination: number }
   | { action: "scale_column"; runs: { source_id: ProjectSource["id"]; column: number }[]; factor: number }
   | { action: "apply_formula"; source_id: ProjectSource["id"]; column: number; expression: string }

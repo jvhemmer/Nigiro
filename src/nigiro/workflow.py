@@ -27,6 +27,7 @@ class Workflow:
     needs_replay: bool = False
     error: str | None = None
     source_order: list[str | dict | None] = field(default_factory=list)
+    next_step_id: int = 1
 
     def reference(self, kind: str, value):
         if kind == "source" and value is not None:
@@ -45,6 +46,9 @@ class Workflow:
             return value
         output = value["output"]
         if output not in self.bindings:
+            producer = output.split("/", 1)[0]
+            if not any(str(step.id) == producer for step in self.steps):
+                raise ValueError("A required input came from a deleted step. Remove or replace this dependent step.")
             raise ValueError("A required input comes from a later step. Move its producer before this step.")
         bound = self.bindings[output]
         return f"{bound}:{value['table']}" if "table" in value else bound

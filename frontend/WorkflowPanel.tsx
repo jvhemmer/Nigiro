@@ -12,8 +12,8 @@ export function WorkflowPanel({ workflow, busy, run }: {
 }) {
   const modes = useRef<HTMLDetailsElement>(null);
   const [action, setAction] = useState<"run_all" | "run_next">("run_all");
-  const disabled = busy || !workflow.steps.length
-    || (action === "run_next" && workflow.completed === workflow.steps.length);
+  const disabled = busy || (!workflow.needs_replay
+    && (!workflow.steps.length || (action === "run_next" && workflow.completed === workflow.steps.length)));
   const drag = useListDrag(busy, (from, to) => {
     void run({ action: "move_step", step_id: workflow.steps[from].id, direction: to - from });
   });
@@ -45,8 +45,8 @@ export function WorkflowPanel({ workflow, busy, run }: {
       </div>
     </div>
     {workflow.error && <p className="workflow-error" role="alert">{workflow.error}</p>}
-    {!workflow.error && workflow.steps.some((step) => step.status === "stale")
-      && <p className="workflow-base muted" role="status">Rerun stale steps to update their results.</p>}
+    {!workflow.error && workflow.needs_replay
+      && <p className="workflow-base muted" role="status">Run the workflow to update its results.</p>}
     {workflow.has_base && <p className="workflow-base muted">Starts from existing project data.</p>}
     <ol>
       {workflow.steps.map((step, index) => <li key={step.id} {...drag(index)}>

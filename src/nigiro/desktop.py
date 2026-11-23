@@ -377,12 +377,12 @@ class Workspace:
                 "id": step.id, "label": self.step_label(step.request, step.label), "status": status,
                 "options": options, "labels": labels, **({"formula": True} if action == "apply_formula" else {}),
             })
-        return {"steps": steps, "completed": plan.completed, "error": plan.error,
+        return {"steps": steps, "completed": plan.completed, "error": plan.error, "needs_replay": plan.needs_replay,
                 "has_base": plan.base.source is not None}
 
     def enqueue(self, request: dict, label: str, sources: tuple[Source, ...] = ()) -> None:
         plan = self.workflow
-        step_id = max((step.id for step in plan.steps), default=0) + 1
+        step_id = max(plan.next_step_id, max((step.id for step in plan.steps), default=0) + 1)
         command = {key: value for key, value in request.items() if not key.startswith("_")}
         if command["action"] in ("execute_plugin", "run_batch", "run_plugin", "fit", "plot"):
             command["default_style"] = asdict(self.settings.figure_style)
@@ -393,6 +393,7 @@ class Workspace:
         step = Step(step_id, self.step_label(command, label), map_references(command, plan.reference), sources)
         auto = self.settings.run_automatically and not plan.needs_replay and plan.completed == len(plan.steps)
         plan.steps.append(step)
+        plan.next_step_id = step_id + 1
         if auto:
             try:
                 self.execute_step(step)
@@ -442,7 +443,12 @@ class Workspace:
         if index < 0:
             raise ValueError("Choose a recorded step.")
         step = plan.steps[index]
-        if request["action"] == "move_step":
+        if request["action"] == "delete_step":
+            plan.next_step_id = max(plan.next_step_id, step.id + 1)
+            plan.steps.pop(index)
+            plan.invalidate(index)
+            plan.executed.discard(step.id)
+        elif request["action"] == "move_step":
             destination = index + request["direction"]
             if not 0 <= destination < len(plan.steps):
                 raise ValueError("The step cannot move farther in that direction.")
@@ -526,11 +532,12 @@ class Workspace:
             case "run_all":
                 self.run_workflow(restart=True)
             case "run_next":
-                if self.workflow.completed < len(self.workflow.steps):
-                    self.run_workflow(limit=self.workflow.completed + 1)
+                length = len(self.workflow.steps)
+                if self.workflow.needs_replay or self.workflow.completed < length:
+                    self.run_workflow(limit=min(self.workflow.completed + 1, length))
             case "move_source":
                 self.move_source(request["source_id"], request["destination"])
-            case "edit_step" | "move_step":
+            case "edit_step" | "move_step" | "delete_step":
                 self.edit_workflow(request)
             case "state":
                 pass
@@ -602,7 +609,7 @@ class Workspace:
         return self.snapshot(paged=request.get("_paged", False), known_figures=request.get("_known_figures"))
 
     def require_exportable_workflow(self) -> None:
-        if self.workflow.completed < len(self.workflow.steps) or self.workflow.error:
+        if self.workflow.needs_replay or self.workflow.completed < len(self.workflow.steps) or self.workflow.error:
             raise ValueError("Run all recorded steps before exporting a Python script.")
 
     def export_recipe(self) -> dict:

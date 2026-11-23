@@ -109,7 +109,7 @@ def write_project(destination: Path | BytesIO, project: Project, workflow: Workf
             archive.writestr("source.csv", source.content)
         for index, item in enumerate(project.additional_sources):
             archive.writestr(f"sources/{index}.csv", item.content)
-        if workflow and (workflow.steps or workflow.source_order):
+        if workflow and (workflow.steps or workflow.source_order or workflow.needs_replay):
             base = BytesIO()
             write_project(base, workflow.base)
             archive.writestr("workflow/base.nigiro", base.getvalue())
@@ -135,6 +135,7 @@ def write_project(destination: Path | BytesIO, project: Project, workflow: Workf
                 "needs_replay": workflow.needs_replay,
                 "error": workflow.error,
                 "source_order": workflow.source_order,
+                "next_step_id": workflow.next_step_id,
             }, allow_nan=False))
 
 
@@ -154,7 +155,7 @@ def load_workflow(path: Path, project: Project) -> Workflow:
             raise ValueError("Invalid workflow progress.")
         return Workflow(
             base, steps, completed, set(record["executed"]), record["bindings"], record["needs_replay"], record.get("error"),
-            record.get("source_order", []),
+            record.get("source_order", []), record.get("next_step_id", 1),
         )
 
 
