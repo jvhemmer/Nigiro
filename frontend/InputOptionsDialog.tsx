@@ -102,11 +102,13 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
     : project.sources;
   const initialSource = sources.find((source) => source.id === project.source_id) ?? sources[0];
   const definitionFields = plugin?.fields ?? scalarFields;
+  const filterSegments = plugin?.id === "nigiro.filter_segments";
+  const segmentColumn = initialSource?.columns.findIndex((name) => /^segments?\b/i.test(name.trim())) ?? -1;
   const [tab, setTab] = useState<(typeof tabs)[number]>("Inputs");
   const [picked, setPicked] = useState(() => new Set(initialSource ? [initialSource.id] : []));
   const [referenceId, setReferenceId] = useState<SourceId>(initialSource?.id ?? null);
   const [options, setOptions] = useState<PluginOptions>(() => Object.fromEntries(definitionFields.map((field) => {
-    const value = previous?.[field.key] ?? field.default;
+    const value = previous?.[field.key] ?? (filterSegments && field.key === "column" && segmentColumn >= 0 ? segmentColumn : field.default);
     return [field.key, field.type === "column" ? Math.min(Number(value), (initialSource?.columns.length ?? 0) - 1) : value];
   })));
   const [overrides, setOverrides] = useState(new Map<SourceId, Record<string, number>>());
@@ -120,7 +122,7 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
   const filter = plugin?.id === "nigiro.filter";
   const outputField = filter ? definitionFields.find(({ key }) => key === "output") : undefined;
   const config = definitionFields.filter((field) => field.type !== "column" && field !== outputField);
-  const output = filter || scale || formula ? "separate" : inputs.length > 1 ? mode : "overlay";
+  const output = filter || filterSegments || scale || formula ? "separate" : inputs.length > 1 ? mode : "overlay";
   const runs = reference ? inputs.map((source) => {
     const mapped = { ...options };
     for (const { key } of fields) {
@@ -137,6 +139,8 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
   const inputError = !runs.length ? "Select a source." : runs.some((run) => !run.valid) ? "Choose valid columns for each source." : "";
   const configError = formula && !String(options.expression ?? "").trim()
     ? "Enter a formula on the Configuration tab."
+    : filterSegments && !/^\s*\d+\s*(?:,\s*\d+\s*)*$/.test(String(options.segments))
+    ? "Enter segment numbers separated by commas on the Configuration tab."
     : config.some(({ type, key, min, max }) =>
     type === "number" && (!Number.isFinite(options[key]) || Number(options[key]) < (min ?? -Infinity)
       || Number(options[key]) > (max ?? Infinity))) ? "Check the values on the Configuration tab." : "";
@@ -243,6 +247,7 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
         </section>
         <section role="tabpanel" id={`${id}-panel-Configuration`} aria-labelledby={`${id}-tab-Configuration`} hidden={tab !== "Configuration"}>
           {config.length ? <div className="fit-settings plugin-fields">
+            {filterSegments && <p className="muted">Enter segment numbers separated by commas, for example 1,2,3,5.</p>}
             {config.map((field) => (formula || filter) && field.key === "expression"
               ? <FormulaEditor key={field.key} filter={filter} value={String(options[field.key])} sources={filter ? [] : project.sources}
                   onChange={(value) => change(field.key, value)} />
@@ -262,7 +267,7 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
             <PluginOptionField field={outputField} columns={[]} value={options[outputField.key]}
               onChange={(value) => change(outputField.key, value)} />
             <p className="muted">Each input produces a new source in the Sources panel.</p>
-          </div> : configuring ? <p className="muted">Update the current figure.</p> : <div className="fit-settings">
+          </div> : filterSegments ? null : configuring ? <p className="muted">Update the current figure.</p> : <div className="fit-settings">
             {inputs.length > 1 && <label><span>Combine inputs</span>
               <select aria-label="Combine inputs" value={mode} onChange={(event) => setMode(event.target.value === "separate" ? "separate" : "overlay")}>
                 <option value="overlay">Overlay in one figure</option>

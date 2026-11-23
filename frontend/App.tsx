@@ -424,7 +424,7 @@ export function App() {
     ? figure.recipe.options : previous?.kind === "plugin" ? previous.options : undefined;
 
   function pluginCommands(menu: PluginDefinition["menu"]) {
-    return plugins.filter((plugin) => plugin.menu === menu && plugin.id !== "nigiro.filter" && plugin.id !== columnFormulaId
+    return plugins.filter((plugin) => plugin.menu === menu && plugin.id !== "nigiro.filter" && plugin.id !== "nigiro.filter_segments" && plugin.id !== columnFormulaId
       && plugin.id !== arrayFormulaId && plugin.id !== "example.scaled_xy").map((plugin) => {
       const columns = columnFields(plugin).length;
       const required = plugin.distinct_columns ? columns : Math.min(columns, 1);
@@ -496,6 +496,9 @@ export function App() {
   const filterPlugin = plugins.find((plugin) => plugin.id === "nigiro.filter");
   const filterCommand: MenuCommand = { label: "Filter…", request: filterPlugin && project?.sources.length
     ? { action: "choose_plugin", plugin: filterPlugin } : null };
+  const filterSegments = plugins.find((plugin) => plugin.id === "nigiro.filter_segments");
+  const filterSegmentsCommand: MenuCommand = { label: "Filter Segments…", request: filterSegments && project?.sources.length
+    ? { action: "choose_plugin", plugin: filterSegments } : null };
   const formula = plugins.find((plugin) => plugin.id === columnFormulaId);
   const formulaCommand: MenuCommand = { label: "Column Formula…", request: formula && project?.sources.length
     ? { action: "choose_plugin", plugin: formula } : null };
@@ -601,7 +604,10 @@ export function App() {
             },
             {
               label: "Analysis",
-              groups: [analysisCommands, [{ label: "Operations", request: null, submenu: [formulaCommand, scaleCommand, filterCommand] }]],
+              groups: [analysisCommands, [
+                { label: "Operations", request: null, submenu: [formulaCommand, scaleCommand, filterCommand] },
+                { label: "Electrochemistry", request: null, submenu: [filterSegmentsCommand] },
+              ]],
             },
             {
               label: "Plugins",

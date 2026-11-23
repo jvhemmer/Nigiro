@@ -10,6 +10,26 @@ from nigiro.desktop import Workspace
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_filter_segments_preserves_all_matching_rows_in_source_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cv.csv"
+            path.write_text("Segment,Potential,Current\n2,0.2,1\n3,0.3,2\n1.0,0.4,3\n2,0.5,4\n")
+            worker = Workspace()
+            worker.settings.run_automatically = True
+            worker.dispatch({"action": "import_data", "paths": [str(path)]})
+            command = {
+                "action": "execute_plugin", "plugin_id": "nigiro.filter_segments", "version": "1",
+                "checksum": None, "output": "separate",
+                "runs": [{"source_id": None, "options": {"column": 0, "segments": "1, 2, 2, 5"}}],
+            }
+            result = worker.dispatch(command)["project"]
+            expected = (("2", "0.2", "1"), ("1.0", "0.4", "3"), ("2", "0.5", "4"))
+            self.assertEqual(result["source_table"]["columns"], ("Segment", "Potential", "Current"))
+            self.assertEqual(result["source_table"]["rows"], expected)
+            self.assertEqual(result["figures"], [])
+            replayed = worker.dispatch({"action": "run_all"})["project"]
+            self.assertEqual(replayed["source_table"]["rows"], expected)
+
     def test_array_values_and_row_offsets_replay_after_edits(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "arrays.nigiro"

@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from .column_formula import REFERENCE_FORMULA_PLUGINS
 
 
-TABLE_ONLY_PLUGINS = {"nigiro.filter", *REFERENCE_FORMULA_PLUGINS}
+FILTER_PLUGINS = {"nigiro.filter", "nigiro.filter_segments"}
+TABLE_ONLY_PLUGINS = FILTER_PLUGINS | REFERENCE_FORMULA_PLUGINS
 
 
 @dataclass(frozen=True)

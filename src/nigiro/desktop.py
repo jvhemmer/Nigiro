@@ -26,7 +26,7 @@ from nigiro.project import (
     AddFigureLayers, Correction, FigureAppearance, FigureColor, FigureRecord, ItemEdit, LinearFit, OverlayFigure, Plot, PluginStep, Project,
     ResidualFigure, ScaleColumn, Source, Worksheet,
 )
-from nigiro.source_tables import SourceTable, output_tables, source_origin
+from nigiro.source_tables import FILTER_PLUGINS, SourceTable, output_tables, source_origin
 from nigiro.system_fonts import SystemFonts
 from nigiro.settings import Appearance, Settings
 from nigiro.storage import load_project, load_workflow, operation_record, save_project
@@ -935,7 +935,7 @@ class Workspace:
             raise ValueError("Choose batch commands and an output mode.")
         if any(step["plugin_id"] in REFERENCE_FORMULA_PLUGINS for step in steps):
             raise ValueError("Use Column Formula to calculate a column with source references.")
-        filter_only = all(step["plugin_id"] == "nigiro.filter" for step in steps)
+        filter_only = all(step["plugin_id"] in FILTER_PLUGINS for step in steps)
         if filter_only:
             output = "separate"
         operations = list(project.operations)
