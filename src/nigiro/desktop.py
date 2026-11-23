@@ -18,7 +18,7 @@ from matplotlib.figure import Figure
 from nigiro.analysis import FitResult, PlotResult
 from nigiro.batch_figure import overlay_figures
 from nigiro.builtin_plugins import linear_fit_view
-from nigiro.column_formula import COLUMN_FORMULA_PLUGIN, parse_formula
+from nigiro.column_formula import ARRAY_FORMULA_PLUGIN, COLUMN_FORMULA_PLUGIN, REFERENCE_FORMULA_PLUGINS, parse_formula
 from nigiro.figure_style import AxisStyle, FigureStyle
 from nigiro.plotting import draw_fit, draw_plot
 from nigiro.plugin_registry import PluginRegistry, plugin_step
@@ -208,7 +208,11 @@ class Workspace:
                 if ordinal > 1:
                     default = f"{default} ({ordinal})"
         else:
-            default = f"{names[source_origin(key)]} · {sources[key].name}"
+            origin = source_origin(key)
+            recipe = project.figures[origin].recipe
+            default = sources[key].name if isinstance(recipe, PluginStep) and recipe.plugin_id == ARRAY_FORMULA_PLUGIN else (
+                f"{names[origin]} · {sources[key].name}"
+            )
         return project.item_names.get(("source", key), default)
 
     def input_table(self, project: Project, key: str | None) -> SourceTable | None:
@@ -218,6 +222,27 @@ class Workspace:
             worksheet = project.working_worksheets[key]
             return SourceTable(project.raw_sources[key].name, worksheet.columns, worksheet.rows)
         return self.sources.get(key)
+
+    def source_details(self, project: Project) -> dict:
+        details = {}
+        for key, source in project.raw_sources.items():
+            if source.scalar_value is not None:
+                details[key] = f"= {source.scalar_value}"
+        for step in self.workflow.steps:
+            if step.request["action"] != "add_array" or "values" not in step.request:
+                continue
+            output = f"{step.id}/source/0"
+            if output in self.workflow.bindings:
+                key = self.workflow.bindings[output]
+                if key in project.raw_sources:
+                    rows = project.raw_sources[key].worksheet.rows
+                    preview = ", ".join(row[0] for row in rows[:16])
+                    details[key] = f"= [{preview}{', …' if len(rows) > 16 else ''}]"
+        for key in self.sources:
+            recipe = project.figures[source_origin(key)].recipe
+            if isinstance(recipe, PluginStep) and recipe.plugin_id == ARRAY_FORMULA_PLUGIN:
+                details[key] = f"= {recipe.options['expression']}"
+        return details
 
     def snapshot(self, *, paged: bool = False, known_figures: dict | None = None) -> dict:
         project = self.project
@@ -255,6 +280,7 @@ class Workspace:
         end = offset + 100 if paged else total
         original = raw.worksheet.rows if raw else None
         available = {**project.raw_sources, **self.sources}
+        details = self.source_details(project)
         state["project"] = {
             "source_name": project.source.name if project.source else None,
             "file_name": self.path.name if self.path else None,
@@ -275,6 +301,7 @@ class Workspace:
                  "original_path": table.original_path if isinstance(table, Source) else None,
                  "kind": "raw" if isinstance(table, Source) else "derived",
                  **({"scalar": True} if isinstance(table, Source) and table.scalar_value is not None else {}),
+                 **({"detail": details[key]} if key in details else {}),
                  "row_count": len(table.worksheet.rows if isinstance(table, Source) else table.rows)}
                 for key in self.ordered_sources() for table in (available[key],)
             ],
@@ -336,6 +363,8 @@ class Workspace:
                 return "Analysis: Linear Fit"
             case "add_scalar":
                 return f"Add variable {request['name']}"
+            case "add_array":
+                return f"Add array {request['name']}"
             case "apply_formula":
                 return "Analysis: Column Formula"
             case "plot":
@@ -367,6 +396,9 @@ class Workspace:
                 options, labels = [{"expression": step.request["expression"]}], {"expression": "Formula"}
             elif action == "add_scalar":
                 options, labels = [{"value": step.request["value"]}], {"value": "Value"}
+            elif action == "add_array":
+                key = "expression" if "expression" in step.request else "values"
+                options, labels = [{key: step.request[key]}], {key: "Formula" if key == "expression" else "Values"}
             elif action in ("scale_column", "correct", "fit", "plot"):
                 keys = {"scale_column": ["factor"], "correct": ["value"], "fit": ["x", "y"], "plot": ["x", "y"]}[action]
                 options = [{key: step.request[key] for key in keys}]
@@ -375,7 +407,9 @@ class Workspace:
                 options, labels = [], {}
             steps.append({
                 "id": step.id, "label": self.step_label(step.request, step.label), "status": status,
-                "options": options, "labels": labels, **({"formula": True} if action == "apply_formula" else {}),
+                "options": options, "labels": labels,
+                **({"formula": True} if action in ("apply_formula", "add_array") and "expression" in step.request else {}),
+                **({"array": True} if action == "add_array" else {}),
             })
         return {"steps": steps, "completed": plan.completed, "error": plan.error, "needs_replay": plan.needs_replay,
                 "has_base": plan.base.source is not None}
@@ -474,10 +508,12 @@ class Workspace:
                 command.update(options[0])
             if action == "scale_column":
                 ScaleColumn(0, command["factor"])
-            if action == "apply_formula":
+            if action in ("apply_formula", "add_array") and "expression" in command:
                 command["references"] = self.formula_references(
                     command["expression"], command["references"], stable=True,
                 )
+            if action == "add_array" and "values" in command:
+                Source.array(command["name"], command["values"])
             if action == "add_scalar":
                 Source.scalar(command["name"], command["value"])
             plan.steps[index] = replace(step, request=command)
@@ -589,6 +625,22 @@ class Workspace:
             case "add_scalar":
                 scalar = Source.scalar(request["name"], request["value"])
                 self.enqueue({**request, "name": scalar.name}, f"Add variable {scalar.name}")
+            case "add_array":
+                name = request["name"].strip()
+                if not name or any(c in name for c in "\n\r\0"):
+                    raise ValueError("Enter a name for the array.")
+                command = {"action": "add_array", "name": name}
+                if request.get("expression") is not None:
+                    expression = request["expression"]
+                    references = self.formula_references(expression)
+                    if not references:
+                        raise ValueError("Use at least one source reference in the array formula.")
+                    command.update(expression=expression, references=references)
+                else:
+                    values = request["values"]
+                    Source.array(name, values)
+                    command["values"] = values
+                self.enqueue(command, f"Add array {name}")
             case "execute_plugin" | "run_plugin":
                 self.enqueue(request, request["plugin_id"])
             case "scale_column":
@@ -715,15 +767,23 @@ class Workspace:
                 self.dirty = True
             case "add_scalar":
                 self.import_sources((Source.scalar(request["name"], request["value"]),), remember=False)
-            case "apply_formula":
-                source_id = request["source_id"]
+            case "add_array" if "values" in request:
+                self.import_sources((Source.array(request["name"], request["values"]),), remember=False)
+                self.source_id = next(reversed(self.project.raw_sources))
+                self.row_offset = 0
+            case "apply_formula" | "add_array":
+                array = request["action"] == "add_array"
+                if array and not request["references"]:
+                    raise ValueError("Use at least one source reference in the array formula.")
+                source_id = next(iter(request["references"].values()))["source_id"] if array else request["source_id"]
                 if project.item_deleted("source", source_id) or any(
                     project.item_deleted("source", reference["source_id"]) for reference in request["references"].values()
                 ):
                     raise ValueError("Select available sources for the formula.")
                 recipe = PluginStep(
-                    COLUMN_FORMULA_PLUGIN, "1", None,
-                    {"column": request["column"], "expression": request["expression"]},
+                    ARRAY_FORMULA_PLUGIN if array else COLUMN_FORMULA_PLUGIN, "1", None,
+                    {("name" if array else "column"): request["name" if array else "column"],
+                     "expression": request["expression"]},
                     source_id=source_id, references=request["references"],
                 )
                 result_id = len(project.operations)
@@ -822,7 +882,7 @@ class Workspace:
         names = self.figure_names(project)
         sources = [(key, self.source_name(project, key, self.sources, names)) for key in self.ordered_sources()]
         references = {}
-        for token, (_, source, column) in tokens.items():
+        for token, (_, source, column, _) in tokens.items():
             if existing is not None and token in existing:
                 references[token] = existing[token]
                 continue
@@ -873,7 +933,7 @@ class Workspace:
         output, steps = request["output"], request["steps"]
         if output not in ("overlay", "separate") or not isinstance(steps, list) or not steps:
             raise ValueError("Choose batch commands and an output mode.")
-        if any(step["plugin_id"] == COLUMN_FORMULA_PLUGIN for step in steps):
+        if any(step["plugin_id"] in REFERENCE_FORMULA_PLUGINS for step in steps):
             raise ValueError("Use Column Formula to calculate a column with source references.")
         filter_only = all(step["plugin_id"] == "nigiro.filter" for step in steps)
         if filter_only:

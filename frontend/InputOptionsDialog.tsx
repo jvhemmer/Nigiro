@@ -243,9 +243,8 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
         </section>
         <section role="tabpanel" id={`${id}-panel-Configuration`} aria-labelledby={`${id}-tab-Configuration`} hidden={tab !== "Configuration"}>
           {config.length ? <div className="fit-settings plugin-fields">
-            {filter && <p className="muted">Use value to refer to the selected column. For example, 0 &lt; value &lt;= 10.</p>}
-            {config.map((field) => formula && field.key === "expression"
-              ? <FormulaEditor key={field.key} value={String(options[field.key])} sources={project.sources}
+            {config.map((field) => (formula || filter) && field.key === "expression"
+              ? <FormulaEditor key={field.key} filter={filter} value={String(options[field.key])} sources={filter ? [] : project.sources}
                   onChange={(value) => change(field.key, value)} />
               : <PluginOptionField key={field.key} field={field} columns={[]}
                   value={options[field.key]} onChange={(value) => change(field.key, value)} />)}

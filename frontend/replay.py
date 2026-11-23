@@ -46,7 +46,7 @@ def replay_plugin(plugin, worksheet, references):
         manifest, runner = BUILTINS[plugin["plugin_id"]]
         if manifest["version"] != plugin["version"]:
             raise ValueError("The bundled plugin version does not match the saved recipe.")
-        result = runner(*args, references) if plugin["plugin_id"] == COLUMN_FORMULA_PLUGIN else runner(*args)
+        result = runner(*args, references) if plugin["plugin_id"] in REFERENCE_FORMULA_PLUGINS else runner(*args)
         if plugin.get("part"):
             result = linear_fit_view(result, plugin["part"])
     else:

@@ -4,10 +4,10 @@ import math
 import re
 from dataclasses import dataclass
 
-from .column_formula import COLUMN_FORMULA_PLUGIN
+from .column_formula import REFERENCE_FORMULA_PLUGINS
 
 
-TABLE_ONLY_PLUGINS = {"nigiro.filter", COLUMN_FORMULA_PLUGIN}
+TABLE_ONLY_PLUGINS = {"nigiro.filter", *REFERENCE_FORMULA_PLUGINS}
 
 
 @dataclass(frozen=True)

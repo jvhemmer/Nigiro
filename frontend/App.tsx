@@ -8,7 +8,8 @@ import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ExportDialog } from "./ExportDialog";
 import { applyAppearance, cacheAppearance } from "./appearance";
-import { columnFormulaId } from "./FormulaEditor";
+import { arrayFormulaId, columnFormulaId } from "./FormulaEditor";
+import { ArraySourceDialog } from "./ArraySourceDialog";
 import { ScalarSourceDialog } from "./ScalarSourceDialog";
 import { FigureSettings } from "./FigureSettings";
 import { axisSettings, cycleColor, type StyleSection } from "./figureStyle";
@@ -21,6 +22,7 @@ import { useListDrag } from "./useListDrag";
 import { ViewTabs, viewTabId } from "./ViewTabs";
 import { WorkflowPanel, WorkflowStepDialog } from "./WorkflowPanel";
 import { Worksheet } from "./Worksheet";
+import { SourcePath } from "./SourceChecklist";
 import {
   elementNames, formatNumber, workspace,
   type FigureElement, type PluginDefinition, type PluginRun, type Project, type Request, type WorkflowStep, type WorkspaceItem,
@@ -248,7 +250,7 @@ function SourcesPanel({ project, busy, run, onInspect }: { project: Project; bus
     <ul className="source-list" aria-label="Project sources">
       {project.sources.map((source, index) => (
         <li key={source.id ?? "raw"} {...drag(index)}>
-          <button type="button" title={source.name} aria-current={source.id === project.source_id} disabled={busy}
+          <button type="button" title={[source.name, source.detail ?? source.original_path].filter(Boolean).join("\n")} aria-current={source.id === project.source_id} disabled={busy}
             data-item-kind="source" data-item-id={source.id ?? ""}
             onClick={async () => {
               onInspect(source.id);
@@ -256,7 +258,9 @@ function SourcesPanel({ project, busy, run, onInspect }: { project: Project; bus
               reveal("worksheet");
             }}>
             {source.scalar ? <Variable size={13} aria-hidden="true" /> : <Table2 size={13} aria-hidden="true" />}
-            <span>{source.name}</span>
+            <span className="source-list-name">{source.name}</span>
+            {source.detail ? <span className="source-list-detail">{source.detail}</span>
+              : source.original_path && <SourcePath path={source.original_path} />}
           </button>
         </li>
       ))}
@@ -318,6 +322,7 @@ export function App() {
   const [plugins, setPlugins] = useState<PluginDefinition[]>([]);
   const [inputDialog, setInputDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | "scale" | null>(null);
   const [scalarDialog, setScalarDialog] = useState(false);
+  const [arrayDialog, setArrayDialog] = useState(false);
   const [stepDialog, setStepDialog] = useState<WorkflowStep | null>(null);
   const [settingsDialog, setSettingsDialog] = useState(false);
   const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
@@ -419,7 +424,8 @@ export function App() {
     ? figure.recipe.options : previous?.kind === "plugin" ? previous.options : undefined;
 
   function pluginCommands(menu: PluginDefinition["menu"]) {
-    return plugins.filter((plugin) => plugin.menu === menu && plugin.id !== "nigiro.filter" && plugin.id !== columnFormulaId && plugin.id !== "example.scaled_xy").map((plugin) => {
+    return plugins.filter((plugin) => plugin.menu === menu && plugin.id !== "nigiro.filter" && plugin.id !== columnFormulaId
+      && plugin.id !== arrayFormulaId && plugin.id !== "example.scaled_xy").map((plugin) => {
       const columns = columnFields(plugin).length;
       const required = plugin.distinct_columns ? columns : Math.min(columns, 1);
       return {
@@ -455,6 +461,7 @@ export function App() {
     else if (request.action === "settings") { setError(""); setSettingsDialog(true); }
     else if (request.action === "choose_scale") { setError(""); setInputDialog("scale"); }
     else if (request.action === "choose_scalar") { setError(""); setScalarDialog(true); }
+    else if (request.action === "choose_array") { setError(""); setArrayDialog(true); }
     else if (request.action === "choose_step") { setError(""); setStepDialog(request.step); }
     else if (request.action === "figure_settings") { setError(""); setFigureDialog("figure"); }
     else if (request.action === "choose_export") setExportDialog(request.target);
@@ -462,12 +469,15 @@ export function App() {
     else void run(request);
   }
 
-  const menuBusy = busy || scalarDialog || stepDialog !== null || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
+  const menuBusy = busy || scalarDialog || arrayDialog || stepDialog !== null || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
   const newProject: MenuCommand = { label: "New…", request: { action: "new" }, shortcut: "N" };
   const openProject: MenuCommand = { label: "Open Project…", request: { action: "open" }, shortcut: "O" };
   const dataGroups: MenuCommand[][] = [
     [{ label: "Import Raw Data…", request: { action: "import_data" } }],
-    [{ label: "Add Variable/Constant…", icon: Variable, request: { action: "choose_scalar" } }],
+    [
+      { label: "Add Variable/Constant…", icon: Variable, request: { action: "choose_scalar" } },
+      { label: "Add Array…", request: { action: "choose_array" } },
+    ],
     [{ label: "Try Sample Data", request: { action: "sample" } }],
   ];
   const exportCommands: MenuCommand[] = [
@@ -612,6 +622,9 @@ export function App() {
       {scalarDialog && <ScalarSourceDialog busy={busy} error={error}
         onClose={() => { setScalarDialog(false); setError(""); }}
         onAdd={async (name, value) => { if (await run({ action: "add_scalar", name, value })) setScalarDialog(false); }} />}
+      {arrayDialog && <ArraySourceDialog busy={busy} error={error} sources={project?.sources ?? []}
+        onClose={() => { setArrayDialog(false); setError(""); }}
+        onAdd={async (request) => { if (await run(request)) setArrayDialog(false); }} />}
       {stepDialog && <WorkflowStepDialog step={stepDialog} sources={project?.sources ?? []} busy={busy} error={error} onRun={run}
         onClose={() => { setStepDialog(null); setError(""); }} />}
       {contextMenu && <ContextMenu menu={contextMenu} onClose={closeContextMenu} onRun={runMenu} />}

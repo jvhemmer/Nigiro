@@ -327,6 +327,12 @@ button.primary:hover:not(:disabled), .run-split summary:hover { background: var(
 .source-list button[aria-current="true"] { color: var(--accent-ink); background: var(--accent-soft); }
 .source-list svg { flex: none; }
 .source-list span { overflow: hidden; text-overflow: ellipsis; }
+.source-list-name { flex: 0 1 auto; min-width: 0; }
+.source-list .source-list-detail, .source-list .source-option-path {
+  flex: 1 1 0; min-width: 0; font-weight: 400;
+  color: color-mix(in srgb, var(--text) 64%, var(--panel));
+}
+.source-list .source-option-path { text-overflow: clip; }
 
 .section-header {
   display: flex;
@@ -430,10 +436,11 @@ td input {
 .inspector > * + * { border-top: 1px solid var(--line); }
 .fit-settings label { display: grid; gap: 5px; margin-bottom: 7px; color: var(--muted); font-size: .85rem; }
 .fit-settings label:last-child { margin-bottom: 0; }
-.fit-settings select, .figure-field input, .figure-field select {
+.fit-settings select, .fit-settings textarea, .figure-field input, .figure-field select {
   min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 2px;
   padding: 4px 5px; background: var(--panel); color: var(--text);
 }
+.fit-settings textarea { font: inherit; resize: vertical; }
 .element-list { display: grid; gap: 5px; }
 .element-list button { justify-content: flex-start; padding-inline: 8px; border-color: transparent; }
 .element-list button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
@@ -470,6 +477,29 @@ td input {
 }
 .plugin-fields input[type="checkbox"] { margin: 0; justify-self: start; }
 .plugin-fields + .muted { margin-top: 10px; }
+.formula-surface { position: relative; }
+.formula-surface pre, .fit-settings .formula-surface textarea {
+  display: block; width: 100%; margin: 0; padding: 5px 6px; border: 1px solid var(--line);
+  font: 12px/1.5 ui-monospace, monospace; white-space: pre; tab-size: 4; letter-spacing: normal;
+}
+.formula-surface pre {
+  position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+  background: var(--panel); border-radius: 2px;
+}
+.fit-settings .formula-surface textarea {
+  position: relative; background: transparent; color: transparent; caret-color: var(--text);
+}
+.formula-surface textarea::selection { background: var(--accent-soft); color: var(--text); }
+.formula-reference { color: var(--accent-ink); }
+.formula-number { color: var(--accent-ink); }
+.formula-operator { color: var(--muted); }
+.formula-suggestions {
+  position: absolute; z-index: 4; top: 100%; left: 0; right: 0; margin: 2px 0 0; padding: 2px;
+  background: var(--panel); border: 1px solid var(--line); list-style: none;
+}
+.formula-suggestions li { padding: 3px 6px; overflow-wrap: anywhere; cursor: pointer; }
+.formula-suggestions li[aria-selected="true"], .formula-suggestions li:hover { background: var(--accent-soft); }
+.formula-editor > p { margin-top: 5px; }
 .settings-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 11px; }
 
 .plugin-dialog { width: min(640px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; }

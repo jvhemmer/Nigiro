@@ -106,6 +106,7 @@ export interface ProjectSource {
   original_path: string | null;
   kind: "raw" | "derived";
   scalar?: boolean;
+  detail?: string;
   row_count: number;
 }
 
@@ -117,6 +118,7 @@ export interface Appearance {
 export interface WorkflowStep {
   id: number;
   formula?: boolean;
+  array?: boolean;
   label: string;
   status: "done" | "pending" | "stale" | "failed";
   options: PluginOptions[];
@@ -172,6 +174,7 @@ export type Request =
   | { action: "scale_column"; runs: { source_id: ProjectSource["id"]; column: number }[]; factor: number }
   | { action: "apply_formula"; source_id: ProjectSource["id"]; column: number; expression: string }
   | { action: "add_scalar"; name: string; value: number }
+  | ({ action: "add_array"; name: string } & ({ values: string } | { expression: string }))
   | { action: "worksheet_page"; offset: number }
   | { action: "correct"; row: number; column: number; value: string }
   | ({ action: "run_plugin"; figure_id?: number } & PluginRun)

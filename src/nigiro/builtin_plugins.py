@@ -6,7 +6,7 @@ import ast
 from html import escape
 
 from .analysis import run_linear_fit, run_plot
-from .column_formula import COLUMN_FORMULA_PLUGIN, run_column_formula
+from .column_formula import ARRAY_FORMULA_PLUGIN, COLUMN_FORMULA_PLUGIN, run_array_formula, run_column_formula
 from .project import LinearFit, Plot, Worksheet
 
 
@@ -185,3 +185,13 @@ BUILTINS[COLUMN_FORMULA_PLUGIN] = ({
         {"key": "expression", "label": "Formula", "type": "text", "default": "value"},
     ],
 }, run_column_formula)
+
+
+BUILTINS[ARRAY_FORMULA_PLUGIN] = ({
+    "api": 1, "id": ARRAY_FORMULA_PLUGIN, "version": "1", "name": "Add Array", "menu": "analysis",
+    "outputs": ["Calculated array"],
+    "fields": [
+        {"key": "name", "label": "Name", "type": "text", "default": "Array"},
+        {"key": "expression", "label": "Formula", "type": "text", "default": "$Source:Column"},
+    ],
+}, run_array_formula)

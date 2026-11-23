@@ -31,6 +31,20 @@ class Source:
             raise ValueError("Enter a finite scalar value.")
         return cls(name.strip(), f"Value\n{value}\n".encode("utf-8"), scalar_value=value)
 
+    @classmethod
+    def array(cls, name: str, text: str) -> Source:
+        if not isinstance(name, str) or not name.strip() or any(c in name for c in "\n\r\0"):
+            raise ValueError("Enter a name for the array.")
+        if not isinstance(text, str):
+            raise ValueError("Enter values for the array.")
+        try:
+            values = [float(item) for item in re.split(r"[,;\s]+", text.strip()) if item]
+        except ValueError as error:
+            raise ValueError("Enter numbers separated by spaces, commas, or new lines.") from error
+        if not values or not all(map(math.isfinite, values)):
+            raise ValueError("Enter at least one finite number.")
+        return cls(name.strip(), ("Value\n" + "".join(f"{value}\n" for value in values)).encode("utf-8"))
+
     @cached_property
     def worksheet(self) -> Worksheet:
         stream = io.StringIO(self.content.decode(self.encoding), newline="")

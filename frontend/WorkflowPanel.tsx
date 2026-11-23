@@ -81,11 +81,14 @@ export function WorkflowStepDialog({ step, sources, busy, error, onClose, onRun 
       <div className="fit-settings plugin-fields">
         {options.map((values, index) => <fieldset key={index}>
           {options.length > 1 && <legend>Input {index + 1}</legend>}
-          {Object.entries(values).map(([key, value]) => step.formula && key === "expression"
-            ? <FormulaEditor key={key} value={String(value)} sources={sources} onChange={(text) => update(index, key, text)} />
+          {Object.entries(values).map(([key, value]) => key === "expression"
+            ? <FormulaEditor key={key} array={step.array} filter={!step.formula} value={String(value)} sources={step.formula ? sources : []}
+                onChange={(text) => update(index, key, text)} />
             : (
             <label key={key}><span>{step.labels[key] ?? key}</span>
-              {typeof step.options[index][key] === "boolean"
+              {key === "values" && step.array ? (
+                <textarea rows={5} value={String(value)} onChange={(event) => update(index, key, event.target.value)} />
+              ) : typeof step.options[index][key] === "boolean"
                 ? <input type="checkbox" checked={Boolean(value)} onChange={(event) => update(index, key, event.target.checked)} />
                 : <input type={typeof step.options[index][key] === "number" ? "number" : "text"} step="any"
                   required={typeof step.options[index][key] === "number"}

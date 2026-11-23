@@ -15,7 +15,7 @@ from tempfile import NamedTemporaryFile
 from typing import Callable
 
 from .builtin_plugins import BUILTINS
-from .column_formula import COLUMN_FORMULA_PLUGIN
+from .column_formula import REFERENCE_FORMULA_PLUGINS
 from .plugin_source import run_plugin_source
 from .project import LinearFit, Plot, PluginStep, Worksheet
 from .source_tables import TABLE_ONLY_PLUGINS
@@ -184,7 +184,7 @@ class PluginRegistry:
                 args = worksheet.columns, worksheet.rows, options.copy()
                 if plugin.run is None:
                     result = run_plugin_source(plugin.source, step.plugin_id, *args)
-                elif step.plugin_id == COLUMN_FORMULA_PLUGIN:
+                elif step.plugin_id in REFERENCE_FORMULA_PLUGINS:
                     result = plugin.run(*args, references)
                 else:
                     result = plugin.run(*args)

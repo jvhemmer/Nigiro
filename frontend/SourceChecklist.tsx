@@ -7,7 +7,7 @@ export type SourceChoice = Pick<ProjectSource, "id" | "name" | "columns">
 
 const pathLimit = 100;
 
-function SourcePath({ path }: { path: string }) {
+export function SourcePath({ path }: { path: string }) {
   const element = useRef<HTMLSpanElement>(null);
   const [text, setText] = useState(path);
   useLayoutEffect(() => {

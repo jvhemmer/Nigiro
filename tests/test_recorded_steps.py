@@ -10,6 +10,28 @@ from nigiro.desktop import Workspace
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_array_values_and_row_offsets_replay_after_edits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "arrays.nigiro"
+            worker = Workspace()
+            worker.settings.run_automatically = True
+            entered = worker.dispatch({"action": "add_array", "name": "Data", "values": "1, 2\n4 8"})["project"]
+            self.assertEqual(entered["sources"][0]["detail"], "= [1.0, 2.0, 4.0, 8.0]")
+            expression = "$Data:Value(i) - $Data:Value(i+1)"
+            calculated = worker.dispatch({"action": "add_array", "name": "Difference", "expression": expression})["project"]
+            self.assertEqual(calculated["source_table"]["rows"], (("-1.0",), ("-2.0",), ("-4.0",), ("",)))
+            self.assertEqual(calculated["source_table"]["name"], "Difference")
+            self.assertEqual(calculated["sources"][-1]["detail"], f"= {expression}")
+            recipe = worker.dispatch({"action": "export_recipe"})["project"]["script_recipe"]
+            self.assertEqual(next(iter(recipe["plugins"].values()))["options"]["expression"], expression)
+            step = entered["workflow"]["steps"][0]["id"]
+            worker.dispatch({"action": "edit_step", "step_id": step, "options": [{"values": "2,4,8"}]})
+            worker.dispatch({"action": "save", "path": str(path)})
+            reopened = Workspace()
+            reopened.dispatch({"action": "open", "path": str(path)})
+            replayed = reopened.dispatch({"action": "run_all"})["project"]
+            self.assertEqual(replayed["source_table"]["rows"], (("-2.0",), ("-4.0",), ("",)))
+
     def test_delete_only_executed_step_then_save_and_replay(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "deleted.nigiro"
