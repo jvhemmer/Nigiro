@@ -457,12 +457,12 @@ export function App() {
   }
 
   const menuBusy = busy || scalarDialog || stepDialog !== null || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
-  const openCommands: MenuCommand[] = [
-    { label: "New…", request: { action: "new" }, shortcut: "N" },
-    { label: "Import Data…", request: { action: "import_data" } },
-    { label: "Add Variable…", icon: Variable, request: { action: "choose_scalar" } },
-    { label: "Open Project…", request: { action: "open" }, shortcut: "O" },
-    { label: "Try Sample Data", request: { action: "sample" } },
+  const newProject: MenuCommand = { label: "New…", request: { action: "new" }, shortcut: "N" };
+  const openProject: MenuCommand = { label: "Open Project…", request: { action: "open" }, shortcut: "O" };
+  const dataGroups: MenuCommand[][] = [
+    [{ label: "Import Raw Data…", request: { action: "import_data" } }],
+    [{ label: "Add Variable/Constant…", icon: Variable, request: { action: "choose_scalar" } }],
+    [{ label: "Try Sample Data", request: { action: "sample" } }],
   ];
   const exportCommands: MenuCommand[] = [
     { label: "Export Figure…", request: exportName ? { action: "choose_export", target: "figure" } : null },
@@ -502,7 +502,7 @@ export function App() {
     event.preventDefault();
     if (menuBusy || event.target.closest(".menu-popup")) return;
     let label = "Workspace actions";
-    let groups = [openCommands];
+    let groups = [[newProject, openProject], ...dataGroups];
     const clicked = event.target.closest<HTMLElement>("[data-item-kind][data-item-id]");
     const activeFigure = project?.figures.find(({ id }) => id === project.figure_id);
     const historyStep = event.target.closest<HTMLElement>("[data-workflow-id]");
@@ -558,11 +558,12 @@ export function App() {
             {
               label: "File",
               groups: [
-                openCommands,
+                [newProject],
+                [openProject],
                 [
-                  { label: "Save", request: project ? saveRequest(project) : null, shortcut: "S" },
+                  { label: "Save Project", request: project ? saveRequest(project) : null, shortcut: "S" },
                   {
-                    label: "Save As…",
+                    label: "Save Project as…",
                     request: project ? { action: "save_as", name: projectStem(project) } : null,
                     shortcut: "Shift+S",
                   },
@@ -573,6 +574,10 @@ export function App() {
             {
               label: "Edit",
               groups: [[{ label: "Settings…", request: { action: "settings" } }]],
+            },
+            {
+              label: "Data",
+              groups: dataGroups,
             },
             {
               label: "Plot",

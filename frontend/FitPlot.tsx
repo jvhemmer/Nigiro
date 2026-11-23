@@ -105,6 +105,8 @@ function traceAppearance(trace: Data, index: number, data: PluginFigure, style: 
 
 export function FigurePlot({ capture, data, colors, style, revision, onEdit, onSelect }: FigurePlotProps) {
   const viewport = useRef<HTMLDivElement>(null);
+  const scrollArea = useRef<HTMLDivElement>(null);
+  const canvas = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
   const [available, setAvailable] = useState({ width: 0, height: 0 });
   const [error, setError] = useState("");
@@ -177,6 +179,31 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
   useEffect(() => {
     const node = container.current!;
     const view = viewport.current!;
+    const scroll = scrollArea.current!;
+    const frame = canvas.current!;
+    let zoom = 1;
+    function sizeFrame() {
+      frame.style.width = `${node.offsetWidth * zoom}px`;
+      frame.style.height = `${node.offsetHeight * zoom}px`;
+    }
+    function zoomPreview(event: WheelEvent) {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!rendered.current) return;
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scroll.clientHeight : 1;
+      const next = Math.max(1, Math.min(4, zoom * Math.exp(-event.deltaY * unit * 0.002)));
+      if (next === zoom) return;
+      const bounds = scroll.getBoundingClientRect();
+      const x = event.clientX - bounds.left;
+      const y = event.clientY - bounds.top;
+      const left = (scroll.scrollLeft + x) * next / zoom - x;
+      const top = (scroll.scrollTop + y) * next / zoom - y;
+      zoom = next;
+      node.style.transform = zoom === 1 ? "" : `scale(${zoom})`;
+      sizeFrame();
+      scroll.scrollTo(left, top);
+    }
     function measure() {
       const width = view.clientWidth;
       const height = view.clientHeight;
@@ -184,9 +211,14 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
     }
     const observer = new ResizeObserver(measure);
     observer.observe(view);
+    const canvasObserver = new ResizeObserver(sizeFrame);
+    canvasObserver.observe(node);
+    scroll.addEventListener("wheel", zoomPreview, { passive: false, capture: true });
     measure();
     return () => {
       observer.disconnect();
+      canvasObserver.disconnect();
+      scroll.removeEventListener("wheel", zoomPreview, true);
       plotly.current?.purge(node);
       rendered.current = null;
     };
@@ -298,16 +330,20 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
     <div className="chart-panel">
       {error && <p role="alert">Could not draw the figure. {error}</p>}
       <div className="plot-viewport" ref={viewport}>
-        <div className="plot" ref={container} aria-label={data.definition.name}
-        onDoubleClick={(event) => {
-          const target = event.target;
-          if (!(target instanceof Element)) return;
-          if (target.closest(".xtitle, .x2title")) onEdit("x");
-          else if (target.closest(".ytitle")) onEdit("y");
-          else if (target.closest(".y2title")) onEdit("y");
-          else if (target.closest(".gtitle")) onEdit("figure");
-        }}
-        />
+        <div className="plot-scroll-area" ref={scrollArea}>
+          <div className="plot-canvas" ref={canvas}>
+            <div className="plot" ref={container} aria-label={data.definition.name}
+              onDoubleClick={(event) => {
+                const target = event.target;
+                if (!(target instanceof Element)) return;
+                if (target.closest(".xtitle, .x2title")) onEdit("x");
+                else if (target.closest(".ytitle")) onEdit("y");
+                else if (target.closest(".y2title")) onEdit("y");
+                else if (target.closest(".gtitle")) onEdit("figure");
+              }}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -401,13 +401,15 @@ td input {
 .page-controls button { padding: 2px; min-height: 22px; }
 .history { height: 100%; overflow: auto; }
 .history ol { margin: 0; padding: 6px 12px 10px 35px; font-size: .88rem; }
-.history li { padding: 3px 2px; overflow-wrap: anywhere; }
+.history li { padding: 1px 2px; overflow-wrap: anywhere; }
 .history li::marker { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .chart-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 230px; padding: 4px 4px 0; }
 .chart-panel [role=alert] { color: var(--error); padding: 12px; }
-.plot-viewport { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; }
-.plot { min-height: 0; min-width: 0; }
+.plot-viewport { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.plot-scroll-area { position: absolute; inset: 0; overflow: auto; }
+.plot-canvas { overflow: clip; }
+.plot { min-height: 0; min-width: 0; transform-origin: top left; }
 .empty-figure { flex: 1; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 17px; color: var(--muted); text-align: center; }
 .empty-figure svg { color: var(--muted); }
 .fit-summary {
@@ -570,7 +572,7 @@ td input {
 .history-actions { position: sticky; top: 0; z-index: 3; display: flex; gap: 4px; padding: 5px 7px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .refresh-fonts { margin-top: 5px; }
 .workflow-step {
-  display: flex; justify-content: space-between; gap: 6px; width: 100%; padding: 2px 4px;
+  display: flex; justify-content: space-between; gap: 6px; width: 100%; min-height: 22px; padding: 1px 4px;
   border-color: transparent; text-align: left; white-space: normal;
 }
 .workflow-step small { flex: none; color: var(--muted); }
