@@ -4,10 +4,17 @@ import json
 import os
 import re
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from .figure_style import FigureStyle
+
+
+def shared_figure_axes(style: FigureStyle) -> FigureStyle:
+    separate = style.axes_separate if style.axes_separate is not None else style.x != style.y
+    if separate:
+        return replace(style, axes_separate=False, global_axis=style.x)
+    return style
 
 
 @dataclass(frozen=True)
@@ -32,7 +39,7 @@ class Settings:
         self.last_project_path: str | None = None
         if path.exists():
             record = json.loads(path.read_text(encoding="utf-8"))
-            self.figure_style = FigureStyle(**record.get("figure_style", record))
+            self.figure_style = shared_figure_axes(FigureStyle(**record.get("figure_style", record)))
             if "figure_style" in record:
                 self.appearance = Appearance(**record.get("appearance", {}))
                 self.run_automatically = record.get("run_automatically", True)
@@ -43,12 +50,14 @@ class Settings:
                     setattr(self, key, value)
 
     def save(self, style: FigureStyle) -> None:
+        style = shared_figure_axes(style)
         self.write(style)
         self.figure_style = style
 
     def save_preferences(self, style: FigureStyle, appearance: Appearance, run_automatically: bool | None = None) -> None:
         if run_automatically is not None and type(run_automatically) is not bool:
             raise ValueError("Choose whether to run steps automatically.")
+        style = shared_figure_axes(style)
         self.write(style, appearance, run_automatically)
         self.figure_style = style
         self.appearance = appearance

@@ -416,20 +416,21 @@ class DesktopWorkerTest(unittest.TestCase):
             defaults = worker.snapshot()["project"]["global_figure_style"]
             style = {**defaults, "label_size": 18, "line_width": 2.5,
                      "x": {**defaults["x"], "grid": True}}
+            shared = {**style, "axes_separate": False, "global_axis": style["x"]}
             worker.dispatch({"action": "sample"})
             worker.dispatch({"action": "plot", "plot_type": "scatter", "x": 0, "y": 1})
             original = worker.snapshot()["project"]["figure_style"]
             worker.dispatch({"action": "set_global_style", "style": style})
             self.assertEqual(worker.snapshot()["project"]["figure_style"], original)
             worker.dispatch({"action": "plot", "plot_type": "line", "x": 0, "y": 1})
-            self.assertEqual(worker.snapshot()["project"]["figure_style"], style)
+            self.assertEqual(worker.snapshot()["project"]["figure_style"], shared)
             path = Path(directory) / "styled.nigiro"
             worker.dispatch({"action": "save", "path": str(path)})
             restored = Workspace()
             self.assertEqual(restored.settings.figure_style.label_size, 18)
             restored.dispatch({"action": "set_global_style", "style": defaults})
             restored.dispatch({"action": "open", "path": str(path)})
-            self.assertEqual(restored.snapshot()["project"]["figure_style"], style)
+            self.assertEqual(restored.snapshot()["project"]["figure_style"], shared)
             with self.assertRaises(ValueError):
                 restored.dispatch({"action": "set_global_style", "style": {**style, "marker_size": -1}})
             self.assertEqual(restored.settings.figure_style.label_size, defaults["label_size"])

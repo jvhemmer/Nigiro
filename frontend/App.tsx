@@ -663,12 +663,12 @@ export function App() {
           busy={busy} saveError={error}
           onSaveGlobal={async (section, key, value, unit) => {
             const global = project.global_figure_style;
-            const axis = section;
+            const axis = section === "figure" ? section : "global_axis";
             const units = { ...(axis === "figure" ? global.units : axisSettings(global, axis).units) };
             if (unit) units[key] = unit;
             else delete units[key];
             const style = axis === "figure" ? { ...global, [key]: value, units }
-              : { ...global, [axis]: { ...axisSettings(global, axis), [key]: value, units } };
+              : { ...global, axes_separate: false, [axis]: { ...axisSettings(global, axis), [key]: value, units } };
             return run({ action: "set_global_style", style });
           }}
           defaults={project.default_figure_style}

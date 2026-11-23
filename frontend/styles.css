@@ -636,8 +636,19 @@ td input {
 .inspect-details dt { margin-top: 7px; color: var(--muted); }
 .inspect-details dd { margin: 2px 0 0; overflow-wrap: anywhere; }
 
-.axis-group { margin-top: 9px; }
-.axis-group > .settings-category:last-child { margin-bottom: 0; }
+.axis-table { min-width: calc(120px + var(--axis-count) * 112px); }
+.axis-field-row {
+  display: grid; grid-template-columns: minmax(110px, 1fr) repeat(var(--axis-count), minmax(96px, 1fr));
+  align-items: center; gap: 8px;
+}
+.axis-table-header { padding: 0 10px 6px; text-align: center; }
+.axis-table .figure-fields { gap: 4px; }
+.axis-row-label { color: var(--muted); font-size: .87rem; }
+.axis-value-cell { min-width: 0; }
+.axis-value-cell .figure-field { display: flex; }
+.axis-value-cell .figure-checkbox { justify-content: flex-end; }
+.axis-value-cell .figure-field input:not([type="checkbox"]), .axis-value-cell .figure-field select { height: 22px; }
+.axis-cell-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .cycle-colors { margin: 0; padding-inline-start: 25px; }
 .cycle-colors li { padding: 2px 0; }

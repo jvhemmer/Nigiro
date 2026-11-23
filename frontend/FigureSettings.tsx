@@ -1,5 +1,5 @@
 import { axisSettings, separateAxes, textRoles, type TextRole } from "./figureStyle";
-import { createContext, useContext, useEffect, useId, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { Fragment, createContext, useContext, useEffect, useId, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { formatMeasurement, parseMeasurement } from "./units";
 import { invoke } from "@tauri-apps/api/core";
 import type { Appearance } from "./workspace";
@@ -73,16 +73,19 @@ const GlobalControls = createContext<{
   describe: (key: string) => string;
 } | null>(null);
 
+const AxisCell = createContext("");
+
 function Field({ label, children, checkbox = false }: { label: string; children: ReactNode; checkbox?: boolean }) {
   const controls = useContext(GlobalControls);
+  const axis = useContext(AxisCell);
   const key = fieldKeys[label];
   return <div className="figure-field-row">
-    <label className={checkbox ? "figure-field figure-checkbox" : "figure-field"}>{checkbox && children}<span>{label}</span>{!checkbox && children}</label>
+    <label className={checkbox ? "figure-field figure-checkbox" : "figure-field"}>{checkbox && children}<span className={axis ? "axis-cell-label" : undefined}>{axis ? `${axis} ${label}` : label}</span>{!checkbox && children}</label>
     {controls && key && <div className="global-field-actions">
       <button type="button" disabled={controls.busy} title="Save as global value"
-        aria-label={`Save ${label.toLowerCase()} as global`} onClick={() => controls.save(key)}><Save size={10} /></button>
+        aria-label={`Save ${axis ? `${axis} ` : ""}${label.toLowerCase()} as global`} onClick={() => controls.save(key)}><Save size={10} /></button>
       <button type="button" disabled={controls.busy} title={`Use global value (${controls.describe(key)})`}
-        aria-label={`Revert ${label.toLowerCase()} to global`} onClick={() => controls.reset(key)}><RotateCcw size={10} /></button>
+        aria-label={`Revert ${axis ? `${axis} ` : ""}${label.toLowerCase()} to global`} onClick={() => controls.reset(key)}><RotateCcw size={10} /></button>
     </div>}
   </div>;
 }
@@ -142,7 +145,7 @@ function Choice<T extends string>({ label, value, options, onChange }: {
   onChange: (value: T) => void;
 }) {
   return <Field label={label}>
-    <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value as T)}>
+    <select value={value} onChange={(event) => onChange(event.target.value as T)}>
       {options.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
     </select>
   </Field>;
@@ -174,18 +177,7 @@ function faceLabel(face: string) {
   return weight === "400" ? name : `${weights[weight] ?? weight} ${name}`;
 }
 
-function FontField({ value, onChange, label = "Font family", styleLabel = "Font style", inheritedFamily,
-  face, legacyFace, onFace }: {
-  value: string;
-  onChange: (value: string) => void;
-  label?: string;
-  styleLabel?: string;
-  inheritedFamily?: string;
-  face: string | null;
-  legacyFace?: string;
-  onFace: (face: string | null) => void;
-}) {
-  const id = useId();
+function useSystemFonts() {
   const [families, setFamilies] = useState<string[]>([]);
   const [styles, setStyles] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false);
@@ -206,6 +198,22 @@ function FontField({ value, onChange, label = "Font family", styleLabel = "Font 
     }
   };
   useEffect(() => { void load(false); }, []);
+  return { families, styles, busy, error, load };
+}
+
+function FontField({ value, onChange, label = "Font family", styleLabel = "Font style", inheritedFamily,
+  face, legacyFace, onFace }: {
+  value: string;
+  onChange: (value: string) => void;
+  label?: string;
+  styleLabel?: string;
+  inheritedFamily?: string;
+  face: string | null;
+  legacyFace?: string;
+  onFace: (face: string | null) => void;
+}) {
+  const id = useId();
+  const { families, styles, busy, error, load } = useSystemFonts();
   const selected = face ?? legacyFace ?? "";
   const family = value.trim() || inheritedFamily;
   const installedFamily = families.find((name) => name.toLowerCase() === family?.toLowerCase());
@@ -227,86 +235,138 @@ function FontField({ value, onChange, label = "Font family", styleLabel = "Font 
   </div>;
 }
 
-function AxisFields({ style, fallback, categorical, inheritedFamily, onChange }: {
-  inheritedFamily: string;
+type AxisEditor = {
+  key: AxisSettingsKey;
   style: AxisStyle;
   fallback: string;
   categorical: boolean;
   onChange: (style: AxisStyle) => void;
+};
+
+function AxisFields({ axes, inheritedFamily, global, withControls }: {
+  axes: AxisEditor[];
+  inheritedFamily: string;
+  global: boolean;
+  withControls: (section: SettingsSection, fields: ReactNode) => ReactNode;
 }) {
-  function set<K extends keyof AxisStyle>(key: K, value: AxisStyle[K]) {
-    onChange({ ...style, [key]: value });
+  const fontList = useId();
+  const { families, styles, busy, error, load } = useSystemFonts();
+
+  function row(label: string, render: (axis: AxisEditor) => ReactNode) {
+    if (global) return withControls(axes[0].key, render(axes[0]));
+    return <div className="axis-field-row">
+      <span className="axis-row-label" aria-hidden="true">{label}</span>
+      {axes.map((axis) => <div key={axis.key} className="axis-value-cell">
+        <AxisCell.Provider value={axis.key.toUpperCase()}>{withControls(axis.key, render(axis))}</AxisCell.Provider>
+      </div>)}
+    </div>;
+  }
+
+  function set<K extends keyof AxisStyle>(axis: AxisEditor, key: K, value: AxisStyle[K]) {
+    axis.onChange({ ...axis.style, [key]: value });
+  }
+
+  function number(label: string, key: "label_size" | "tick_size" | "lower" | "upper" | "step" | "tick_length" | "angle" | "line_width",
+    automatic = false) {
+    return row(label.replace(/ \(px\)| \(°\)/g, ""), (axis) => key === "step" && axis.categorical ? null :
+      <NumberField label={key === "step" && axis.style.scale === "log" ? "Tick interval (decades)" : label}
+        value={axis.style[key]} placeholder={automatic ? "Auto" : undefined}
+        onChange={(value) => set(axis, key, automatic && Number.isNaN(value) ? null : value)} />);
+  }
+
+  function renderer(label: string, key: "label_renderer" | "tick_renderer") {
+    return row(label, (axis) => <Choice label={label} value={axis.style[key]} onChange={(value) => set(axis, key, value)}
+      options={[["auto", "Auto"], ["plain", "Plain text"], ["latex", "LaTeX (MathJax)"]]} />);
   }
 
   function typography(kind: "label" | "tick") {
     const name = kind === "label" ? "Label" : "Tick";
     return <>
-      <FontField label={`${name} font family`} styleLabel={`${name} font style`} inheritedFamily={inheritedFamily}
-        value={style[`${kind}_family`] ?? ""} face={style[`${kind}_face`]}
-        onChange={(value) => set(`${kind}_family`, value.trim() || null)} onFace={(value) => set(`${kind}_face`, value)} />
-      <NumberField label={`${name} size (px)`} placeholder="Auto" value={style[`${kind}_size`]}
-        onChange={(value) => set(`${kind}_size`, Number.isNaN(value) ? null : value)} />
+      {row(`${name} font family`, (axis) => <Field label={`${name} font family`}>
+        <input list={fontList} value={axis.style[`${kind}_family`] ?? ""} placeholder="Inherit figure font"
+          onChange={(event) => set(axis, `${kind}_family`, event.target.value.trim() || null)} />
+      </Field>)}
+      {row(`${name} font style`, (axis) => {
+        const family = axis.style[`${kind}_family`] ?? inheritedFamily;
+        const installed = families.find((name) => name.toLowerCase() === family.toLowerCase());
+        const selected = axis.style[`${kind}_face`];
+        const faces = new Set([...(styles[installed ?? ""] ?? []), ...(selected ? [selected] : [])]);
+        return <Field label={`${name} font style`}>
+          <select value={selected ?? ""} onChange={(event) => set(axis, `${kind}_face`, event.target.value || null)}>
+            <option value="">Inherit figure style</option>
+            {[...faces].map((face) => <option key={face} value={face}>{faceLabel(face)}</option>)}
+          </select>
+        </Field>;
+      })}
+      {number(`${name} size (px)`, `${kind}_size`, true)}
     </>;
   }
 
-  return <>
+  const numericAxis = axes.some((axis) => !axis.categorical);
+  return <div className={global ? undefined : "axis-table"}
+    style={global ? undefined : { "--axis-count": axes.length } as CSSProperties}>
+    {!global && <div className="axis-field-row axis-table-header">
+      <span />
+      {axes.map(({ key }) => <strong key={key}>{key.toUpperCase()}</strong>)}
+    </div>}
+    <datalist id={fontList}>{families.map((family) => <option key={family} value={family} />)}</datalist>
     <SettingsGroup title="Label">
-      <TextField label="Axis label" value={style.label ?? fallback} onChange={(value) => set("label", value)}
-        rendererLabel="Axis label text renderer" renderer={style.label_renderer} onRenderer={(value) => set("label_renderer", value)} />
+      {row("Axis label", (axis) => <Field label="Axis label">
+        <input value={axis.style.label ?? axis.fallback} onChange={(event) => set(axis, "label", event.target.value)} />
+      </Field>)}
+      {renderer("Axis label text renderer", "label_renderer")}
       {typography("label")}
     </SettingsGroup>
     <SettingsGroup title="Range">
-      {!categorical && <Choice label="Scale" value={style.scale} onChange={(value) => set("scale", value)}
-        options={[["linear", "Linear"], ["log", "Logarithmic"]]} />}
-      <NumberField label="Lower limit" placeholder="Auto" value={style.lower}
-        onChange={(value) => set("lower", Number.isNaN(value) ? null : value)} />
-      <NumberField label="Upper limit" placeholder="Auto" value={style.upper}
-        onChange={(value) => set("upper", Number.isNaN(value) ? null : value)} />
+      {numericAxis && row("Scale", (axis) => !axis.categorical && <Choice label="Scale" value={axis.style.scale}
+        onChange={(value) => set(axis, "scale", value)} options={[["linear", "Linear"], ["log", "Logarithmic"]]} />)}
+      {number("Lower limit", "lower", true)}
+      {number("Upper limit", "upper", true)}
     </SettingsGroup>
     <SettingsGroup title="Ticks">
       {typography("tick")}
-      <Choice label="Tick text renderer" value={style.tick_renderer} onChange={(value) => set("tick_renderer", value)}
-        options={[["auto", "Auto"], ["plain", "Plain text"], ["latex", "LaTeX (MathJax)"]]} />
-      {!categorical && <>
-        <NumberField label={style.scale === "log" ? "Tick interval (decades)" : "Tick interval"}
-          placeholder="Auto" value={style.step} onChange={(value) => set("step", Number.isNaN(value) ? null : value)} />
-        <Field label="Tick number format">
-          <input value={style.format} placeholder="Auto or .2f" onChange={(event) => set("format", event.target.value)} />
-        </Field>
-      </>}
-      <Choice label="Tick direction" value={style.ticks} onChange={(value) => set("ticks", value)}
-        options={[["outside", "Outward"], ["inside", "Inward"], ["none", "Hidden"]]} />
-      {!categorical && <Choice label="Number notation" value={style.notation} onChange={(value) => set("notation", value)}
-        options={[["plain", "Plain numbers"], ["si", "SI prefixes"], ["scientific", "Shared scientific exponent"]]} />}
-      <NumberField label="Tick length (px)" value={style.tick_length} onChange={(value) => set("tick_length", value)} />
-      <NumberField label="Tick label angle (°)" value={style.angle} onChange={(value) => set("angle", value)} />
+      {renderer("Tick text renderer", "tick_renderer")}
+      {numericAxis && number("Tick interval", "step", true)}
+      {numericAxis && row("Tick number format", (axis) => !axis.categorical && <Field label="Tick number format">
+        <input value={axis.style.format} placeholder="Auto or .2f" onChange={(event) => set(axis, "format", event.target.value)} />
+      </Field>)}
+      {row("Tick direction", (axis) => <Choice label="Tick direction" value={axis.style.ticks}
+        onChange={(value) => set(axis, "ticks", value)} options={[["outside", "Outward"], ["inside", "Inward"], ["none", "Hidden"]]} />)}
+      {numericAxis && row("Number notation", (axis) => !axis.categorical && <Choice label="Number notation" value={axis.style.notation}
+        onChange={(value) => set(axis, "notation", value)}
+        options={[["plain", "Plain numbers"], ["si", "SI prefixes"], ["scientific", "Shared scientific exponent"]]} />)}
+      {number("Tick length (px)", "tick_length")}
+      {number("Tick label angle (°)", "angle")}
     </SettingsGroup>
     <SettingsGroup title="Axis appearance">
-      <NumberField label="Axis line width (px)" value={style.line_width} onChange={(value) => set("line_width", value)} />
+      {number("Axis line width (px)", "line_width")}
     </SettingsGroup>
-    {categorical && <p className="muted">Bar positions start at 0.</p>}
+    {axes.some((axis) => axis.categorical) && <p className="muted">Bar positions start at 0.</p>}
     <SettingsGroup title="Display">
       {([
         ["line", "Axis line"], ["tick_labels", "Tick labels"], ["minor_ticks", "Minor ticks"],
         ["mirror", "Opposite axis line"], ["grid", "Grid lines"], ["zero_line", "Zero line"],
         ["hover_ruler", "Hover ruler"],
-      ] as const).filter(([key]) => !categorical || key !== "minor_ticks").map(([key, label]) => (
-        <Field key={key} label={label} checkbox>
-          <input type="checkbox" checked={style[key]} onChange={(event) => {
-            if (key === "mirror") {
-              onChange({ ...style, mirror: event.target.checked, opposite_ticks: style.opposite_ticks ?? false });
-            } else {
-              set(key, event.target.checked);
-            }
-          }} />
-        </Field>
+      ] as const).filter(([key]) => numericAxis || key !== "minor_ticks").map(([key, label]) => (
+        <Fragment key={key}>{row(label, (axis) => !(axis.categorical && key === "minor_ticks") &&
+          <Field label={label} checkbox>
+            <input type="checkbox" checked={axis.style[key]} onChange={(event) => {
+              if (key === "mirror") {
+                axis.onChange({ ...axis.style, mirror: event.target.checked, opposite_ticks: axis.style.opposite_ticks ?? false });
+              } else {
+                set(axis, key, event.target.checked);
+              }
+            }} />
+          </Field>)}</Fragment>
       ))}
-      <Field label="Opposite ticks" checkbox>
-        <input type="checkbox" checked={style.opposite_ticks ?? style.mirror} disabled={!style.mirror || !style.line}
-          onChange={(event) => set("opposite_ticks", event.target.checked)} />
-      </Field>
+      {row("Opposite ticks", (axis) => <Field label="Opposite ticks" checkbox>
+        <input type="checkbox" checked={axis.style.opposite_ticks ?? axis.style.mirror}
+          disabled={!axis.style.mirror || !axis.style.line} onChange={(event) => set(axis, "opposite_ticks", event.target.checked)} />
+      </Field>)}
     </SettingsGroup>
-  </>;
+    <button className="refresh-fonts" type="button" disabled={busy} onClick={() => { void load(true); }}>Refresh system fonts</button>
+    {error && <p className="figure-settings-error" role="alert">{error}</p>}
+  </div>;
 }
 
 function TextOverrides({ role, style, onChange }: { role: "title" | "legend"; style: FigureStyle; onChange: (style: FigureStyle) => void }) {
@@ -511,14 +571,19 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
   const content = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
-  const [style, setStyle] = useState(initial);
+  const [style, setStyle] = useState(() => {
+    const shared = axisSettings(initial, "global_axis");
+    if (global) return { ...initial, axes_separate: false, global_axis: shared };
+    if (!availableAxes.length || separateAxes(initial)) return initial;
+    return { ...initial, axes_separate: true, x: shared, y: shared };
+  });
   const [page, setPage] = useState<"appearance" | "figures" | "workflow">(global ? "appearance" : "figures");
   const [automatic, setAutomatic] = useState(runAutomatically);
   const [expanded, setExpanded] = useState(true);
   const [appearanceDraft, setAppearanceDraft] = useState<Appearance>(appearance ?? defaultAppearance);
   const [tab, setTab] = useState<SettingsTab>(initialSection === "figure" || !availableAxes.length ? "figure" : "axes");
-  const separate = separateAxes(style);
-  const axisGroups: AxisSettingsKey[] = separate ? availableAxes : ["global_axis"];
+  const axisGroups: AxisSettingsKey[] = global ? ["global_axis"] : availableAxes;
+  const defaultAxis = axisSettings(defaults, "global_axis");
   const [error, setError] = useState("");
   const [invalidMeasurements, setInvalidMeasurements] = useState<Record<string, SettingsTab>>({});
 
@@ -561,7 +626,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
       setError("Enter valid measurement units.");
       return;
     }
-    const invalidAxis = ["x", "y", "global_axis"].map((key) => axisError(axisSettings(style, key as AxisSettingsKey))).find(Boolean);
+    const invalidAxis = axisGroups.map((key) => axisError(axisSettings(style, key))).find(Boolean);
     const failure = figureError(style) || (invalidAxis ? { tab: "axes" as const, message: invalidAxis } : null);
     if (failure) {
       setPage("figures");
@@ -601,7 +666,8 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
     if (section === "figure") {
       setStyle({ ...style, [key]: defaults[key as keyof FigureStyle], units: resetUnits(style.units, defaults.units, key) });
     } else {
-      setStyle({ ...style, [section]: { ...axisSettings(style, section), [key]: axisSettings(defaults, section)[key as keyof AxisStyle], units: resetUnits(axisSettings(style, section).units, axisSettings(defaults, section).units, key) } });
+      const axis = axisSettings(style, section);
+      setStyle({ ...style, [section]: { ...axis, [key]: defaultAxis[key as keyof AxisStyle], units: resetUnits(axis.units, defaultAxis.units, key) } });
     }
   }
 
@@ -614,7 +680,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
     setError("");
     if (tab === "axes") {
       setInvalidMeasurements((current) => Object.fromEntries(Object.entries(current).filter(([, value]) => value !== "axes")));
-      setStyle({ ...style, axes_separate: defaults.axes_separate, global_axis: defaults.global_axis, x: defaults.x, y: defaults.y });
+      setStyle({ ...style, ...Object.fromEntries(axisGroups.map((key) => [key, defaultAxis])) });
       return;
     }
     const fields = figureTabFields[tab];
@@ -634,9 +700,9 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
   }
 
   function describeDefault(section: SettingsSection, key: string) {
-    const defaultsForSection = section === "figure" ? defaults : axisSettings(defaults, section);
+    const defaultsForSection = section === "figure" ? defaults : defaultAxis;
     const value = key === "opposite_ticks" && section !== "figure"
-      ? axisSettings(defaults, section).opposite_ticks ?? axisSettings(defaults, section).mirror
+      ? defaultAxis.opposite_ticks ?? defaultAxis.mirror
       : defaultsForSection[key as keyof typeof defaultsForSection] as unknown;
     if (typeof value === "boolean") return value ? "On" : "Off";
     if (value == null) return "Auto";
@@ -759,19 +825,13 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
             </Field>
           </SettingsGroup>}
           <div hidden={page !== "figures"}>
-            {tab === "axes" ? <>
-              <Field label="Configure axes separately" checkbox>
-                <input type="checkbox" checked={separate} onChange={(event) => {
-                  setStyle({ ...style, axes_separate: event.target.checked });
-                }} />
-              </Field>
-              {axisGroups.map((key) => <fieldset key={key} className="settings-category axis-group">
-                <legend>{key === "global_axis" ? "Global" : key.toUpperCase()}</legend>
-                {withControls(key, <AxisFields style={axisSettings(style, key)} inheritedFamily={style.font_family}
-                  fallback={key === "global_axis" ? "" : labels[key]} categorical={key === "x" && categoricalX}
-                  onChange={(value) => setStyle({ ...style, [key]: value })} />)}
-              </fieldset>)}
-            </> : withControls("figure", <FigureFields tab={tab} style={style} bar={bar} markers={markers} line={line} onChange={setStyle} />)}
+            {tab === "axes" ? <AxisFields global={global} inheritedFamily={style.font_family} withControls={withControls}
+              axes={axisGroups.map((key) => ({
+                key, style: axisSettings(style, key), fallback: key === "global_axis" ? "" : labels[key],
+                categorical: key === "x" && categoricalX,
+                onChange: (value) => setStyle((current) => ({ ...current, [key]: value })),
+              }))} />
+              : withControls("figure", <FigureFields tab={tab} style={style} bar={bar} markers={markers} line={line} onChange={setStyle} />)}
           </div>
         </div>
       </div>

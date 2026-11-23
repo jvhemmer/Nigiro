@@ -36,7 +36,7 @@ class MeasurementTest(unittest.TestCase):
         self.assertNotIn("residual", asdict(legacy))
 
     def test_settings_and_recorded_styles_keep_units(self):
-        style = FigureStyle(axes_width="8 cm", label_size="9 pt", y={"tick_length": "1 mm"})
+        style = FigureStyle(axes_width="8 cm", label_size="9 pt", global_axis={"tick_length": "1 mm"})
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"
             Settings(path).save(style)
