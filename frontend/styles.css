@@ -106,7 +106,7 @@ button.primary:hover:not(:disabled), .run-split summary:hover { background: var(
   flex: none;
   gap: 8px;
   min-height: 23px;
-  padding: 2px 8px;
+  padding: 2px 8px 4px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
@@ -120,12 +120,10 @@ button.primary:hover:not(:disabled), .run-split summary:hover { background: var(
   font-weight: 750;
   letter-spacing: normal;
 }
-.brand svg {
-  box-sizing: content-box;
-  padding: 0;
-  width: 17px;
-  height: 17px;
-  color: var(--accent-ink);
+.brand img {
+  flex: none;
+  width: 21px;
+  height: 21px;
 }
 
 .command-search {

@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useId, useRef, useState, type MouseEvent, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import appLogo from "../proposed-logos/data-matrix.svg";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   Brackets, Calculator, ChartColumn, ChartLine, ChartNoAxesCombined, ChartScatter, Database, FileCode2, FileInput,
@@ -672,7 +673,7 @@ export function App() {
     <div className="app" onContextMenu={openContextMenu}>
       <header className="app-bar">
         <div className="app-bar-start">
-          <div className="brand"><ChartNoAxesCombined size={21} /><span>Nigiro</span></div>
+          <div className="brand"><img src={appLogo} alt="" /><span>Nigiro</span></div>
           <MenuBar busy={menuBusy} onRun={runMenu} menus={menus} />
         </div>
         <CommandSearch menus={menus} busy={menuBusy} onRun={runMenu} />
