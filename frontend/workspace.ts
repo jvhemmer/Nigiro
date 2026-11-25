@@ -108,6 +108,7 @@ export interface ProjectSource {
   kind: "raw" | "derived";
   scalar?: boolean;
   detail?: string;
+  workflow_run?: string;
   array_step?: number;
   row_count: number;
 }

@@ -261,6 +261,18 @@ class Workspace:
                 producers[f"{key}:calculated" if formula else key] = step.id
         return producers
 
+    def workflow_source_runs(self) -> dict[str | None, str]:
+        bindings = self.workflow.bindings
+        runs = {}
+        for step in self.workflow.steps:
+            if step.request["action"] != "invoke_workflow":
+                continue
+            for index, port in enumerate(step.request["definition"]["outputs"]):
+                output = f"{step.id}/source/{index}"
+                if port["kind"] == "source" and output in bindings:
+                    runs[bindings[output]] = step.request["name"]
+        return runs
+
     def snapshot(self, *, paged: bool = False, known_figures: dict | None = None) -> dict:
         project = self.project
         state = {"plugins": self.plugins.catalog()}
@@ -299,6 +311,7 @@ class Workspace:
         available = {**project.raw_sources, **self.sources}
         details = self.source_details(project)
         array_producers = self.array_producers()
+        workflow_runs = self.workflow_source_runs()
         state["project"] = {
             "source_name": project.source.name if project.source else None,
             "file_name": self.path.name if self.path else None,
@@ -323,6 +336,7 @@ class Workspace:
                  **({"scalar": True} if isinstance(table, Source) and table.scalar_value is not None else {}),
                  **({"detail": details[key]} if key in details else {}),
                  **({"array_step": array_producers[key]} if key in array_producers else {}),
+                 **({"workflow_run": workflow_runs[key]} if key in workflow_runs else {}),
                  "row_count": len(table.worksheet.rows if isinstance(table, Source) else table.rows)}
                 for key in self.ordered_sources() for table in (available[key],)
             ],

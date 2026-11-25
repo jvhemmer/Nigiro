@@ -44,6 +44,8 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(second["source_table"]["rows"], (("-115.0",), ("-153.0",)))
             self.assertEqual([source["name"] for source in second["sources"]],
                              ["other.csv", "First · Potential", "Second · Potential"])
+            self.assertEqual([source.get("workflow_run") for source in second["sources"]], [None, "First", "Second"])
+            self.assertEqual(second["sources"][-1]["detail"], "= $example:E - $example:I * $R")
             self.assertEqual(worker.project.working_worksheets[None].rows[0], ("5", "6"))
             saved = root / "runs.nigiro"
             worker.dispatch({"action": "save", "path": str(saved)})
@@ -51,6 +53,7 @@ class WorkflowTest(unittest.TestCase):
             reopened.dispatch({"action": "open", "path": str(saved)})
             replayed = reopened.dispatch({"action": "run_all"})["project"]
             self.assertEqual(replayed["source_table"]["rows"], second["source_table"]["rows"])
+            self.assertEqual(replayed["sources"][-1]["workflow_run"], "Second")
             self.assertEqual(replayed["workflow"]["completed"], 3)
 
     def test_plot_paired_arrays_and_replay_export(self):

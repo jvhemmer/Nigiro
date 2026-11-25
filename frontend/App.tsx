@@ -176,7 +176,9 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep 
       <dl>
         <dt>Type</dt><dd>{arrayStep ? "Array" : source.scalar ? "Variable" : source.kind === "raw" ? "Imported data" : "Derived data"}</dd>
         {source.original_path && <><dt>Original path</dt><dd>{source.original_path}</dd></>}
-        {source.detail && <><dt>Definition</dt><dd>{source.detail}</dd></>}
+        {source.workflow_run && <><dt>Workflow run</dt><dd>{source.workflow_run}</dd></>}
+        {source.detail && <><dt>{source.workflow_run && source.kind === "derived" ? "Original formula" : "Definition"}</dt>
+          <dd>{source.detail}</dd></>}
         <dt>Rows</dt><dd>{source.row_count.toLocaleString()}</dd>
         <dt>Columns</dt><dd>{source.columns.join(", ")}</dd>
       </dl>
@@ -277,23 +279,26 @@ function SourcesPanel({ project, busy, run, onInspect }: { project: Project; bus
   if (!project.sources.length) return <p className="dock-empty">No sources in this project.</p>;
   return (
     <ul className="source-list" aria-label="Project sources">
-      {project.sources.map((source, index) => (
-        <li key={source.id ?? "raw"} {...drag(index)}>
-          <button type="button" title={[source.name, source.detail ?? source.original_path].filter(Boolean).join("\n")} aria-current={source.id === project.source_id} disabled={busy}
-            data-item-kind="source" data-item-id={source.id ?? ""}
-            onClick={async () => {
-              onInspect(source.id);
-              if (source.id !== project.source_id) await run({ action: "select_source", source_id: source.id });
-              reveal("worksheet");
-            }}>
-            {source.array_step !== undefined ? <Brackets size={13} aria-hidden="true" />
-              : source.scalar ? <Variable size={13} aria-hidden="true" /> : <Table2 size={13} aria-hidden="true" />}
-            <span className="source-list-name">{source.name}</span>
-            {source.detail ? <span className="source-list-detail">{source.detail}</span>
-              : source.original_path && <SourcePath path={source.original_path} />}
-          </button>
-        </li>
-      ))}
+      {project.sources.map((source, index) => {
+        const detail = source.workflow_run ? `Produced by ${source.workflow_run}` : source.detail;
+        return (
+          <li key={source.id ?? "raw"} {...drag(index)}>
+            <button type="button" title={[source.name, detail ?? source.original_path].filter(Boolean).join("\n")} aria-current={source.id === project.source_id} disabled={busy}
+              data-item-kind="source" data-item-id={source.id ?? ""}
+              onClick={async () => {
+                onInspect(source.id);
+                if (source.id !== project.source_id) await run({ action: "select_source", source_id: source.id });
+                reveal("worksheet");
+              }}>
+              {source.array_step !== undefined ? <Brackets size={13} aria-hidden="true" />
+                : source.scalar ? <Variable size={13} aria-hidden="true" /> : <Table2 size={13} aria-hidden="true" />}
+              <span className="source-list-name">{source.name}</span>
+              {detail ? <span className="source-list-detail">{detail}</span>
+                : source.original_path && <SourcePath path={source.original_path} />}
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }
