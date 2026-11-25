@@ -25,7 +25,7 @@ from nigiro.plotting import draw_fit, draw_plot
 from nigiro.plugin_registry import PluginRegistry, plugin_step
 from nigiro.project import (
     AddFigureLayers, Correction, FigureAppearance, FigureColor, FigureRecord, ItemEdit, LinearFit, OverlayFigure, Plot, PluginStep, Project,
-    ResidualFigure, ScaleColumn, Source, Worksheet,
+    ResidualFigure, ScaleColumn, Source, Worksheet, normalize_comment,
 )
 from nigiro.source_tables import FILTER_PLUGINS, SourceTable, output_tables, source_origin
 from nigiro.system_fonts import SystemFonts
@@ -273,6 +273,13 @@ class Workspace:
                     runs[bindings[output]] = step.request["name"]
         return runs
 
+    @staticmethod
+    def source_comment(project: Project, key: str | None, source: Source | SourceTable) -> str | None:
+        if isinstance(source, Source):
+            return source.comment
+        recipe = project.figures[source_origin(key)].recipe
+        return recipe.comment if isinstance(recipe, PluginStep) else None
+
     def snapshot(self, *, paged: bool = False, known_figures: dict | None = None) -> dict:
         project = self.project
         state = {"plugins": self.plugins.catalog()}
@@ -337,6 +344,7 @@ class Workspace:
                  **({"detail": details[key]} if key in details else {}),
                  **({"array_step": array_producers[key]} if key in array_producers else {}),
                  **({"workflow_run": workflow_runs[key]} if key in workflow_runs else {}),
+                 **({"comment": comment} if (comment := self.source_comment(project, key, table)) else {}),
                  "row_count": len(table.worksheet.rows if isinstance(table, Source) else table.rows)}
                 for key in self.ordered_sources() for table in (available[key],)
             ],
@@ -783,13 +791,13 @@ class Workspace:
                 references = self.formula_references(request["expression"])
                 self.enqueue({**request, "references": references}, "Column Formula")
             case "add_scalar":
-                scalar = Source.scalar(request["name"], request["value"])
-                self.enqueue({**request, "name": scalar.name}, f"Add variable {scalar.name}")
+                scalar = Source.scalar(request["name"], request["value"], request.get("comment"))
+                self.enqueue({**request, "name": scalar.name, "comment": scalar.comment}, f"Add variable {scalar.name}")
             case "add_array":
                 name = request["name"].strip()
                 if not name or any(c in name for c in "\n\r\0"):
                     raise ValueError("Enter a name for the array.")
-                command = {"action": "add_array", "name": name}
+                command = {"action": "add_array", "name": name, "comment": normalize_comment(request.get("comment"))}
                 if request.get("expression") is not None:
                     expression = request["expression"]
                     references = self.formula_references(expression)
@@ -926,9 +934,9 @@ class Workspace:
                     self.source_id = None
                 self.dirty = True
             case "add_scalar":
-                self.import_sources((Source.scalar(request["name"], request["value"]),), remember=False)
+                self.import_sources((Source.scalar(request["name"], request["value"], request.get("comment")),), remember=False)
             case "add_array" if "values" in request:
-                self.import_sources((Source.array(request["name"], request["values"]),), remember=False)
+                self.import_sources((Source.array(request["name"], request["values"], request.get("comment")),), remember=False)
                 self.source_id = next(reversed(self.project.raw_sources))
                 self.row_offset = 0
             case "apply_formula" | "add_array":
@@ -944,7 +952,7 @@ class Workspace:
                     ARRAY_FORMULA_PLUGIN if array else COLUMN_FORMULA_PLUGIN, "1", None,
                     {("name" if array else "column"): request["name" if array else "column"],
                      "expression": request["expression"]},
-                    source_id=source_id, references=request["references"],
+                    source_id=source_id, references=request["references"], comment=request.get("comment"),
                 )
                 result_id = len(project.operations)
                 updated = project.apply(recipe)

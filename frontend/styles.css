@@ -688,6 +688,7 @@ td input {
 .inspect-details dl { margin: 0 0 10px; }
 .inspect-details dt { margin-top: 7px; color: var(--muted); }
 .inspect-details dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+.inspect-comment { white-space: pre-wrap; }
 
 .axis-table { min-width: calc(120px + var(--axis-count) * 112px); }
 .axis-field-row {

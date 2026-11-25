@@ -179,6 +179,7 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep 
         {source.workflow_run && <><dt>Workflow run</dt><dd>{source.workflow_run}</dd></>}
         {source.detail && <><dt>{source.workflow_run && source.kind === "derived" ? "Original formula" : "Definition"}</dt>
           <dd>{source.detail}</dd></>}
+        {source.comment && <><dt>Comment</dt><dd className="inspect-comment">{source.comment}</dd></>}
         <dt>Rows</dt><dd>{source.row_count.toLocaleString()}</dd>
         <dt>Columns</dt><dd>{source.columns.join(", ")}</dd>
       </dl>
@@ -685,7 +686,7 @@ export function App() {
       </header>
       {scalarDialog && <ScalarSourceDialog busy={busy} error={error}
         onClose={() => { setScalarDialog(false); setError(""); }}
-        onAdd={async (name, value) => { if (await run({ action: "add_scalar", name, value })) setScalarDialog(false); }} />}
+        onAdd={async (name, value, comment) => { if (await run({ action: "add_scalar", name, value, comment })) setScalarDialog(false); }} />}
       {arrayDialog && <ArraySourceDialog busy={busy} error={error} sources={project?.sources ?? []}
         onClose={() => { setArrayDialog(false); setError(""); }}
         onAdd={async (request) => { if (await run(request)) setArrayDialog(false); }} />}

@@ -16,6 +16,14 @@ from .source_tables import TABLE_ONLY_PLUGINS, SourceTable, raw_source_id, sourc
 PAIRED_PLOT_PLUGINS = {"nigiro.scatter", "nigiro.line", "nigiro.bar"}
 
 
+def normalize_comment(comment: str | None) -> str | None:
+    if comment is None:
+        return None
+    if not isinstance(comment, str):
+        raise ValueError("Enter the comment as text.")
+    return comment.strip() or None
+
+
 @dataclass(frozen=True)
 class Source:
     name: str
@@ -24,17 +32,21 @@ class Source:
     delimiter: str = ","
     original_path: str | None = None
     scalar_value: float | None = None
+    comment: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "comment", normalize_comment(self.comment))
 
     @classmethod
-    def scalar(cls, name: str, value: float) -> Source:
+    def scalar(cls, name: str, value: float, comment: str | None = None) -> Source:
         if not isinstance(name, str) or not name.strip() or any(c in name for c in ("\n", "\r", "\0")):
             raise ValueError("Enter a name for the scalar source.")
         if type(value) not in (int, float) or not math.isfinite(value):
             raise ValueError("Enter a finite scalar value.")
-        return cls(name.strip(), f"Value\n{value}\n".encode("utf-8"), scalar_value=value)
+        return cls(name.strip(), f"Value\n{value}\n".encode("utf-8"), scalar_value=value, comment=comment)
 
     @classmethod
-    def array(cls, name: str, text: str) -> Source:
+    def array(cls, name: str, text: str, comment: str | None = None) -> Source:
         if not isinstance(name, str) or not name.strip() or any(c in name for c in "\n\r\0"):
             raise ValueError("Enter a name for the array.")
         if not isinstance(text, str):
@@ -45,7 +57,7 @@ class Source:
             raise ValueError("Enter numbers separated by spaces, commas, or new lines.") from error
         if not values or not all(map(math.isfinite, values)):
             raise ValueError("Enter at least one finite number.")
-        return cls(name.strip(), ("Value\n" + "".join(f"{value}\n" for value in values)).encode("utf-8"))
+        return cls(name.strip(), ("Value\n" + "".join(f"{value}\n" for value in values)).encode("utf-8"), comment=comment)
 
     @cached_property
     def worksheet(self) -> Worksheet:
@@ -185,6 +197,7 @@ class PluginStep:
     figure_id: int | None = None
 
     references: dict[str, ColumnReference] = field(default_factory=dict)
+    comment: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.plugin_id, str) or not self.plugin_id or not isinstance(self.version, str) or not self.version:
@@ -216,6 +229,7 @@ class PluginStep:
             raise ValueError("Invalid plugin column reference.")
         object.__setattr__(self, "references", references)
         object.__setattr__(self, "options", self.options.copy())
+        object.__setattr__(self, "comment", normalize_comment(self.comment))
 
     @property
     def pin(self) -> tuple[str, str, str | None]:

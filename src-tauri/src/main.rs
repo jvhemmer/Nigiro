@@ -56,11 +56,13 @@ enum Action {
     AddScalar {
         name: String,
         value: f64,
+        comment: Option<String>,
     },
     AddArray {
         name: String,
         values: Option<String>,
         expression: Option<String>,
+        comment: Option<String>,
     },
     SystemFonts {
         refresh: bool,
@@ -304,15 +306,20 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         } => {
             json!({ "action": "apply_formula", "source_id": source_id, "column": column, "expression": expression })
         }
-        Action::AddScalar { name, value } => {
-            json!({ "action": "add_scalar", "name": name, "value": value })
+        Action::AddScalar {
+            name,
+            value,
+            comment,
+        } => {
+            json!({ "action": "add_scalar", "name": name, "value": value, "comment": comment })
         }
         Action::AddArray {
             name,
             values,
             expression,
+            comment,
         } => {
-            json!({ "action": "add_array", "name": name, "values": values, "expression": expression })
+            json!({ "action": "add_array", "name": name, "values": values, "expression": expression, "comment": comment })
         }
         Action::SystemFonts { refresh } => json!({ "action": "system_fonts", "refresh": refresh }),
         Action::ExportFonts => json!({ "action": "export_fonts" }),

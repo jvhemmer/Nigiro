@@ -40,8 +40,11 @@ def operation_record(operation: Operation) -> dict:
     record = {"kind": OPERATION_NAMES[type(operation)], **asdict(operation)}
     if isinstance(operation, Correction) and operation.source_id is None:
         del record["source_id"]
-    if isinstance(operation, PluginStep) and not operation.references:
-        del record["references"]
+    if isinstance(operation, PluginStep):
+        if not operation.references:
+            del record["references"]
+        if operation.comment is None:
+            del record["comment"]
     return record
 
 
@@ -53,21 +56,22 @@ def source_file(checksum: str) -> str:
 
 
 def write_source(archive: ZipFile, source: Source, files: dict[bytes, str]) -> dict:
+    comment = {"comment": source.comment} if source.comment else {}
     if source.scalar_value is not None:
-        return {"name": source.name, "scalar_value": source.scalar_value}
+        return {"name": source.name, "scalar_value": source.scalar_value, **comment}
     if source.content not in files:
         checksum = hashlib.sha256(source.content).hexdigest()
         archive.writestr(source_file(checksum), source.content)
         files[source.content] = checksum
     return {
         "name": source.name, "encoding": source.encoding, "delimiter": source.delimiter,
-        "sha256": files[source.content], "original_path": source.original_path,
+        "sha256": files[source.content], "original_path": source.original_path, **comment,
     }
 
 
 def read_source(archive: ZipFile, metadata: dict, files: dict[str, bytes]) -> Source:
     if "scalar_value" in metadata:
-        return Source.scalar(metadata["name"], metadata["scalar_value"])
+        return Source.scalar(metadata["name"], metadata["scalar_value"], metadata.get("comment"))
     checksum = metadata["sha256"]
     if not isinstance(checksum, str) or len(checksum) != 64 or any(char not in "0123456789abcdef" for char in checksum):
         raise ValueError("Invalid source checksum.")
@@ -78,7 +82,8 @@ def read_source(archive: ZipFile, metadata: dict, files: dict[str, bytes]) -> So
         files[checksum] = content
     if not isinstance(metadata["name"], str):
         raise ValueError("Invalid source name.")
-    return Source(metadata["name"], files[checksum], metadata["encoding"], metadata["delimiter"], metadata["original_path"])
+    return Source(metadata["name"], files[checksum], metadata["encoding"], metadata["delimiter"],
+                  metadata["original_path"], comment=metadata.get("comment"))
 
 
 def project_record(archive: ZipFile, project: Project, files: dict[bytes, str]) -> dict:

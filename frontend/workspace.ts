@@ -109,6 +109,7 @@ export interface ProjectSource {
   scalar?: boolean;
   detail?: string;
   workflow_run?: string;
+  comment?: string;
   array_step?: number;
   row_count: number;
 }
@@ -196,8 +197,8 @@ export type Request =
   | { action: "move_source"; source_id: ProjectSource["id"]; destination: number }
   | { action: "scale_column"; runs: { source_id: ProjectSource["id"]; column: number }[]; factor: number }
   | { action: "apply_formula"; source_id: ProjectSource["id"]; column: number; expression: string }
-  | { action: "add_scalar"; name: string; value: number }
-  | ({ action: "add_array"; name: string } & ({ values: string } | { expression: string }))
+  | { action: "add_scalar"; name: string; value: number; comment?: string }
+  | ({ action: "add_array"; name: string; comment?: string } & ({ values: string } | { expression: string }))
   | { action: "worksheet_page"; offset: number }
   | { action: "correct"; row: number; column: number; value: string }
   | ({ action: "run_plugin"; figure_id?: number } & PluginRun)

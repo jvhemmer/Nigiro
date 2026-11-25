@@ -10,6 +10,24 @@ from nigiro.desktop import Workspace
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_source_comments_survive_open_and_rerun(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "comments.nigiro"
+            worker = Workspace()
+            worker.settings.run_automatically = True
+            worker.dispatch({"action": "add_scalar", "name": "R", "value": 2, "comment": "Solution resistance"})
+            worker.dispatch({"action": "add_array", "name": "Current", "values": "1,2,3", "comment": "Measured in A"})
+            worker.dispatch({"action": "add_array", "name": "Drop", "expression": "$Current:Value * $R",
+                             "comment": "Calculated in V\nUses measured current"})
+            worker.dispatch({"action": "add_scalar", "name": "Blank", "value": 1, "comment": "  "})
+            worker.dispatch({"action": "save", "path": str(path)})
+            reopened = Workspace()
+            expected = {"R": "Solution resistance", "Current": "Measured in A",
+                        "Drop": "Calculated in V\nUses measured current", "Blank": None}
+            for request in ({"action": "open", "path": str(path)}, {"action": "run_all"}):
+                sources = reopened.dispatch(request)["project"]["sources"]
+                self.assertEqual({source["name"]: source.get("comment") for source in sources}, expected)
+
     def test_reusable_workflow_rebinds_inputs_and_keeps_runs_separate(self):
         from unittest.mock import patch
 
