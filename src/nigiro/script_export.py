@@ -65,6 +65,24 @@ def write_script(path: Path, template: str, payload: dict, sources: tuple[Source
             })
 
         record = {**payload, "recipe": {**payload["recipe"], "sources": inputs}}
+        runner = record.pop("plugin_runner", None)
+        python = record.pop("plugin_python", None)
+        workers = {}
+        plugins = record["recipe"].get("plugins", {})
+        record["recipe"]["plugins"] = plugins = {key: dict(plugin) for key, plugin in plugins.items()}
+        for plugin in plugins.values():
+            pins = tuple(sorted(plugin.get("dependencies", {}).items()))
+            if not pins:
+                continue
+            if pins not in workers:
+                if not runner or not python:
+                    raise ValueError("The export is missing its plugin runner.")
+                lines = ["# /// script", f'# requires-python = "=={python}.*"', "# dependencies = ["]
+                lines.extend(f"#   {json.dumps(f'{name}=={version}')}," for name, version in pins)
+                lines.extend(("# ]", "# ///", runner))
+                filename = f"replay-{len(workers) + 1:03d}.py"
+                workers[pins] = save_asset("plugins", filename, "\n".join(lines).encode("utf-8"))
+            plugin["worker"] = workers[pins]
         if "fonts" in record:
             fonts = []
             for index, font in enumerate(record["fonts"], start=1):

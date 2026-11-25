@@ -131,6 +131,8 @@ Use `elements` to give each trace a style role. Set each role to `"observations"
 
 Install plugins as single files. The desktop worker supplies bundled modules such as NumPy and SciPy. A Python export includes the active plugin code and the current figure settings.
 
+Declare extra packages in the optional `dependencies` field, for example `"dependencies": ["scipy>=1.10"]`. Install the required packages in the Python environment you select in Nigiro. When the plugin runs, Nigiro records the installed versions of its declared packages and their dependencies.
+
 ## Edit the figure
 
 Use **Figure settings** in the Figure panel. Double-click an axis label to open its settings. Choose **Figure**, **X axis**, or **Y axis**. Residual figures use the regular Y-axis settings.
@@ -151,9 +153,11 @@ Select **File → Export Figure** and choose PNG or PDF. PNG scale increases the
 
 ## Replay a figure
 
-Select **File → Export Python Script** and choose the default figure format. The script records the original CSV paths, operations, and figure settings. Select **Copy raw CSV files beside the script** to export the original data as separate files in `imports/`. Keep any `imports/`, `fonts/`, and `assets/` folders beside the script when you move it. Use this option for inputs without an original path, such as sample data. Install Chromium once to render the figure.
+Select **File → Export Python Script** and choose the default figure format. The script records the original CSV paths, operations, and figure settings. Select **Copy raw CSV files beside the script** to export the original data as separate files in `imports/`. Keep any `imports/`, `fonts/`, `assets/`, and `plugins/` folders beside the script when you move it. Use the copy option for inputs without an original path, such as sample data. Install Chromium once to render the figure.
 
 The script keeps its inputs and figure settings near the top. It loads Plotly and the default font from pinned Python packages.
+
+For plugins with declared dependencies, the export puts replay scripts with exact package pins in `plugins/`. When the main script reaches one of these steps, uv runs its replay script in an isolated environment.
 
 Run all recorded steps before you export a Python script. The script starts with the original CSV data and reruns analysis plugins to regenerate derived sources and the selected figure.
 

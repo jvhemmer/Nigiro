@@ -3,13 +3,16 @@
 import hashlib
 import json
 import os
+import runpy
 import subprocess
 import sys
 import tempfile
 import unittest
+from importlib.metadata import version
 from pathlib import Path
 from zipfile import ZipFile
 
+from nigiro.script_export import PAYLOAD_MARKER, write_script
 from nigiro.storage import load_project
 
 
@@ -91,6 +94,38 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertEqual(updated["state"]["plugins"][-1]["version"], "2")
             self.assertEqual(replayed["state"]["project"]["figure"], after["state"]["project"]["figure"])
             self.assertTrue(marker.exists())
+
+    def test_export_records_plugin_dependency_versions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plugins = root / "installed"
+            example = Path(__file__).resolve().parents[1] / "examples" / "plugins" / "scaled_xy.py"
+            source = example.read_text(encoding="utf-8").replace('"menu": "plot",', '"menu": "plot", "dependencies": ["scipy>=1.10"],')
+            plugin_path = root / "scaled.py"
+            plugin_path.write_text(source, encoding="utf-8")
+            checksum = hashlib.sha256(source.encode()).hexdigest()
+            options = {"x": 0, "y": 1, "factor": 2, "label": "Signal", "markers": True, "dash": "solid"}
+            *_, recipe = self.run_worker(
+                {"action": "sample"},
+                {"action": "install_plugin", "path": str(plugin_path)},
+                {"action": "run_plugin", "plugin_id": "example.scaled_xy", "version": "1",
+                 "checksum": checksum, "options": options},
+                {"action": "export_recipe"},
+                plugins=plugins,
+            )
+            project = recipe["state"]["project"]
+            script = root / "figure.py"
+            write_script(script, "import json\n" + PAYLOAD_MARKER, {
+                "recipe": project["script_recipe"],
+                "plugin_python": project["versions"]["python"],
+                "plugin_runner": "pass",
+            }, (), False)
+            record = runpy.run_path(str(script))["PAYLOAD"]["recipe"]["plugins"]["0"]
+            self.assertEqual(record["dependencies"], {"numpy": version("numpy"), "scipy": version("scipy")})
+            worker = root / record["worker"]
+            metadata = worker.read_text(encoding="utf-8")
+            self.assertIn(f'"numpy=={version("numpy")}"', metadata)
+            self.assertIn(f'"scipy=={version("scipy")}"', metadata)
 
     def test_worker_replays_genuine_project_and_exports(self):
         with tempfile.TemporaryDirectory() as directory:

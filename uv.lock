@@ -738,6 +738,7 @@ dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "packaging" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -758,6 +759,7 @@ desktop = [
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.6" },
     { name = "numpy", specifier = ">=1.24" },
+    { name = "packaging" },
     { name = "pyqt6", marker = "extra == 'qt'", specifier = ">=6.5" },
     { name = "scipy", specifier = ">=1.10" },
     { name = "typst", specifier = "==0.15.2" },

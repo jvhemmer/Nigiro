@@ -8,6 +8,7 @@ import model from "../src/nigiro/project.py?raw";
 import analysis from "../src/nigiro/analysis.py?raw";
 import builtinPlugins from "../src/nigiro/builtin_plugins.py?raw";
 import pluginSource from "../src/nigiro/plugin_source.py?raw";
+import pluginReplay from "./pluginReplay.py?raw";
 import figureExport from "../src/nigiro/figure_export.py?raw";
 import replay from "./replay.py?raw";
 import tickFormatter from "./plotText.mjs?raw";
@@ -62,9 +63,9 @@ async function script(project: ScriptRecipe, figure: FigureSnapshot, settings: E
     }
     mathjax = btoa(binary);
   }
-  const payload = { ...record, mathjax };
   // These wheels supply the same Plotly.js version and font as the desktop app.
   const { python, numpy, scipy } = project.versions;
+  const payload = { ...record, mathjax, plugin_python: python, plugin_runner: `${sourceBody(pluginSource)}\n${pluginReplay}` };
   const template = `# /// script
 # requires-python = "==${python}.*"
 # dependencies = [

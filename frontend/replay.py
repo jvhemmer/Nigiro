@@ -51,7 +51,23 @@ def replay_plugin(plugin, worksheet, references):
         if plugin.get("part"):
             result = linear_fit_view(result, plugin["part"])
     else:
-        result = run_plugin_source(plugin["source"], plugin["plugin_id"], *args)
+        script = plugin.get("worker")
+        if script is None:
+            return run_plugin_source(plugin["source"], plugin["plugin_id"], *args)
+
+        import subprocess
+        worker = Path(__file__).resolve().parent / script
+        try:
+            process = subprocess.run(
+                ["uv", "run", "--script", str(worker)],
+                input=json.dumps([plugin["source"], plugin["plugin_id"], *args]),
+                stdout=subprocess.PIPE, encoding="utf-8", check=True,
+            )
+        except FileNotFoundError as error:
+            raise ValueError("Install uv to replay plugins with pinned dependencies.") from error
+        except subprocess.CalledProcessError as error:
+            raise ValueError(f"Could not replay {plugin['plugin_id']}. See the Python error above.") from error
+        result = json.loads(process.stdout)
 
     return result
 

@@ -16,6 +16,7 @@ from typing import Callable
 
 from .builtin_plugins import BUILTINS
 from .column_formula import REFERENCE_FORMULA_PLUGINS
+from .plugin_dependencies import installed_requirements, plugin_requirements
 from .plugin_source import run_plugin_source
 from .project import LinearFit, Plot, PluginStep, Worksheet
 from .source_tables import TABLE_ONLY_PLUGINS
@@ -84,6 +85,7 @@ def read_plugin(content: bytes) -> Plugin:
     outputs = manifest.get("outputs", [])
     if not isinstance(outputs, list) or not all(isinstance(label, str) and label.strip() for label in outputs):
         raise ValueError("List plugin outputs as text.")
+    plugin_requirements(manifest.get("dependencies", []))
 
     keys = set()
     for field in manifest["fields"]:
@@ -163,7 +165,7 @@ class PluginRegistry:
             raise ValueError(f"Install the original {step.plugin_id} plugin, version {step.version}, to replay this figure.")
         return plugin
 
-    def execute(self, step: PluginStep, worksheet: Worksheet, references: dict) -> dict:
+    def execute(self, step: PluginStep, worksheet: Worksheet, references: dict) -> tuple[dict, dict[str, str]]:
         plugin = self.resolve(step)
         fields = plugin.manifest["fields"]
         options = step.options
@@ -180,6 +182,7 @@ class PluginRegistry:
             raise ValueError("Choose different X and Y columns." if len(columns) == 2 else "Choose different columns.")
 
         try:
+            dependencies = installed_requirements(plugin.manifest.get("dependencies", []))
             with redirect_stdout(sys.stderr):
                 args = worksheet.columns, worksheet.rows, options.copy()
                 if plugin.run is None:
@@ -208,7 +211,7 @@ class PluginRegistry:
             json.dumps(result, allow_nan=False)
         except (Exception, SystemExit) as exc:
             raise ValueError(f"{plugin.manifest['name']}: {exc}") from exc
-        return result
+        return result, dependencies
 
 
 def plugin_step(recipe: PluginStep | LinearFit | Plot) -> PluginStep:

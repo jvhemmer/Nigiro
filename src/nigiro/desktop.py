@@ -55,6 +55,7 @@ class Execution:
     tables: dict[str, SourceTable]
     error: str | None = None
     residual: dict | None = None
+    dependencies: dict[str, str] | None = None
 
 
 class Workspace:
@@ -122,7 +123,7 @@ class Workspace:
         worksheet = (project.plugin_input(step, sources) if isinstance(record.recipe, PluginStep)
                      else project.recipe_input(step.source_id, record.recipe, sources))
         plugin = self.plugins.resolve(step)
-        figure = self.plugins.execute(step, worksheet, project.recipe_references(step, sources))
+        figure, dependencies = self.plugins.execute(step, worksheet, project.recipe_references(step, sources))
         legacy = figure.pop("legacy", None) if plugin.checksum is None else None
         tables = output_tables(figure, plugin.manifest["menu"] == "analysis")
         figure.pop("sources", None)
@@ -134,7 +135,7 @@ class Workspace:
                 {**linear_fit_view(figure, "fit"), "part": "fit"},
                 legacy, tables, residual={**linear_fit_view(figure, "residual"), "part": "residual"},
             )
-        return Execution(figure, legacy, tables)
+        return Execution(figure, legacy, tables, dependencies=dependencies or None)
 
     @staticmethod
     def input_worksheet(project: Project, source_id: str | None, sources: dict[str, SourceTable]) -> Worksheet:
@@ -895,8 +896,13 @@ class Workspace:
                 continue
             step = plugin_step(record.recipe)
             plugin = self.plugins.resolve(step)
+            result = self.results[key]
+            if result.error:
+                raise ValueError(f"Cannot export {plugin.manifest['name']}. {result.error}")
             recipes[key] = {**asdict(step), "source": plugin.source,
                             "analysis": plugin.manifest["menu"] == "analysis"}
+            if result.dependencies:
+                recipes[key]["dependencies"] = result.dependencies
         names = self.figure_names(project)
         outputs = {}
         for key, record in project.figures.items():
