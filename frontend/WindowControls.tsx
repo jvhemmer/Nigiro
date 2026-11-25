@@ -14,6 +14,7 @@ export function dragTitleBar(event: MouseEvent<HTMLElement>, onError: (message: 
 
 export function WindowControls({ onError }: { onError: (message: string) => void }) {
   const desktop = isTauri();
+  const nativeResizeBorder = /Mac/.test(navigator.platform);
   const [maximized, setMaximized] = useState(false);
   useEffect(() => {
     if (!desktop) return;
@@ -44,7 +45,7 @@ export function WindowControls({ onError }: { onError: (message: string) => void
       </button>
       <button type="button" className="window-close" aria-label="Close window" title="Close" onClick={() => run(window.close())}><X size={15} /></button>
     </div>
-    {!maximized && resizeDirections.map((direction) => <div aria-hidden="true" key={direction}
+    {!nativeResizeBorder && !maximized && resizeDirections.map((direction) => <div aria-hidden="true" key={direction}
       className="window-resize" data-direction={direction} onMouseDown={(event) => {
         if (event.button === 0) {
           event.stopPropagation();
