@@ -30,7 +30,7 @@ from nigiro.project import (
 from nigiro.source_tables import FILTER_PLUGINS, SourceTable, output_tables, source_origin
 from nigiro.system_fonts import SystemFonts
 from nigiro.settings import Appearance, Settings
-from nigiro.storage import load_project, load_workflow, operation_record, save_project
+from nigiro.storage import load_project_session, operation_record, save_project
 from nigiro.workflow import Step, Workflow, map_references
 from nigiro.workflow_file import read_workflow, register_workflow, validate_workflow, workflow_catalog, write_workflow
 
@@ -714,8 +714,8 @@ class Workspace:
                 self.set_project(Project(), None)
             case "sample":
                 self.enqueue({"action": "import_data"}, "Import sample data", (Source("Sample data.csv", SAMPLE),))
-            case "import_data" | "import_csv" | "add_sources":
-                paths = [Path(value).resolve() for value in (request["paths"] if "paths" in request else [request["path"]])]
+            case "import_data":
+                paths = [Path(value).resolve() for value in request["paths"]]
                 if not paths:
                     raise ValueError("Choose at least one CSV file.")
                 sources = tuple(Source(path.name, path.read_bytes(), original_path=str(path)) for path in paths)
@@ -726,8 +726,7 @@ class Workspace:
                 self.remember_paths(import_path=str(paths[-1]))
             case "open":
                 path = Path(request["path"]).resolve()
-                project = load_project(path)
-                workflow = load_workflow(path, project)
+                project, workflow = load_project_session(path)
                 self.set_project(project, path)
                 self.workflow = workflow
                 imported = self.project.last_import_path

@@ -1,5 +1,6 @@
 """Check project replay and vector export through the desktop worker protocol."""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -74,9 +75,10 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertIn("Install the original example.scaled_xy", opened["state"]["project"]["figure_error"])
             self.assertFalse(marker.exists())
             with ZipFile(saved) as archive:
-                self.assertEqual(set(archive.namelist()), {
-                    "manifest.json", "source.csv", "workflow/base.nigiro", "workflow/steps.json",
-                })
+                manifest = json.loads(archive.read("manifest.json"))
+                source = manifest["project"]["sources"][0]
+                self.assertEqual(manifest["workflow"]["steps"][0]["inputs"][0], source)
+                self.assertEqual(set(archive.namelist()), {"manifest.json", f"sources/{source['sha256']}.csv"})
             download.write_text(
                 example.read_text(encoding="utf-8").replace('"version": "1"', '"version": "2"'),
                 encoding="utf-8",
@@ -99,7 +101,7 @@ class DesktopWorkerTest(unittest.TestCase):
             pdf = source.with_suffix(".pdf")
 
             imported, fitted, rejected, colored, corrected, saved = self.run_worker(
-                {"action": "import_csv", "path": str(source)},
+                {"action": "import_data", "paths": [str(source)]},
                 {"action": "fit", "x": 0, "y": 1},
                 {"action": "fit", "x": 1, "y": 1},
                 {"action": "color", "element": "fit", "color": "#9a1482"},
@@ -116,7 +118,7 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertEqual(source.read_bytes(), CSV)
             source.unlink()
             with ZipFile(project) as archive:
-                self.assertEqual(archive.read("source.csv"), CSV)
+                self.assertEqual(archive.read(f"sources/{hashlib.sha256(CSV).hexdigest()}.csv"), CSV)
             self.assertEqual(load_project(project).worksheet.rows[1][1], "3")
 
             opened, exported_svg, exported_pdf = self.run_worker(
@@ -201,7 +203,7 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertFalse(saved["state"]["project"]["dirty"])
             with ZipFile(path) as archive:
                 manifest = json.loads(archive.read("manifest.json"))
-            self.assertIn("2:fitted", manifest["derived_sources"])
+            self.assertIn("2:fitted", manifest["project"]["derived_sources"])
             opened, corrected, earlier = self.run_worker(
                 {"action": "open", "path": str(path)},
                 {"action": "correct", "row": 0, "column": 1, "value": "12"},
@@ -316,7 +318,7 @@ class DesktopWorkerTest(unittest.TestCase):
             fit = {**scatter, "plugin_id": "nigiro.linear_fit"}
             bad = {**scatter, "runs": [scatter["runs"][0], {"source_id": "raw:0", "options": {"x": 0, "y": 0}}]}
             imported, _, _, overlaid, rejected, unchanged, separate, _ = self.run_worker(
-                {"action": "add_sources", "paths": [str(first), str(second)]},
+                {"action": "import_data", "paths": [str(first), str(second)]},
                 {"action": "select_source", "source_id": "raw:0"},
                 {"action": "correct", "row": 0, "column": 0, "value": "5"},
                 {"action": "run_batch", "output": "overlay", "steps": [scatter]},
@@ -340,8 +342,8 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertEqual(len(separate["figures"]), 7)
             self.assertEqual(len(separate["sources"]), 6)
             with ZipFile(path) as archive:
-                self.assertEqual(archive.read("source.csv"), first.read_bytes())
-                self.assertEqual(archive.read("sources/0.csv"), second.read_bytes())
+                self.assertEqual(archive.read(f"sources/{hashlib.sha256(first.read_bytes()).hexdigest()}.csv"), first.read_bytes())
+                self.assertEqual(archive.read(f"sources/{hashlib.sha256(second.read_bytes()).hexdigest()}.csv"), second.read_bytes())
             _, replayed = self.run_worker(
                 {"action": "open", "path": str(path)},
                 {"action": "select_figure", "figure_id": overlaid["figure_id"]},
@@ -477,7 +479,7 @@ class DesktopWorkerTest(unittest.TestCase):
             svg = source.with_suffix(".svg")
             pdf = source.with_suffix(".pdf")
             _, fitted, scatter, line, invalid, bar, edited, saved = self.run_worker(
-                {"action": "import_csv", "path": str(source)},
+                {"action": "import_data", "paths": [str(source)]},
                 {"action": "fit", "x": 0, "y": 1},
                 {"action": "plot", "plot_type": "scatter", "x": 0, "y": 1},
                 {"action": "plot", "plot_type": "line", "x": 1, "y": 0},
@@ -508,4 +510,4 @@ class DesktopWorkerTest(unittest.TestCase):
             self.assertIn("<svg", svg.read_text())
             self.assertTrue(pdf.read_bytes().startswith(b"%PDF-"))
             with ZipFile(project) as archive:
-                self.assertEqual(archive.read("source.csv"), raw)
+                self.assertEqual(archive.read(f"sources/{hashlib.sha256(raw).hexdigest()}.csv"), raw)

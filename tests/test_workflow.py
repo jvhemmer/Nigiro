@@ -83,9 +83,9 @@ class WorkflowTest(unittest.TestCase):
             window.close()
 
             with ZipFile(project_file) as archive:
-                self.assertEqual(archive.read("source.csv"), CSV)
-                manifest = json.loads(archive.read("manifest.json"))
-                self.assertEqual(manifest["source"]["sha256"], hashlib.sha256(CSV).hexdigest())
+                self.assertEqual(archive.read(f"sources/{hashlib.sha256(CSV).hexdigest()}.csv"), CSV)
+                manifest = json.loads(archive.read("manifest.json"))["project"]
+                self.assertEqual(manifest["sources"][0]["sha256"], hashlib.sha256(CSV).hexdigest())
                 self.assertEqual(
                     [record["kind"] for record in manifest["operations"]],
                     ["linear_fit", "figure_color", "correct_cell"],
@@ -112,10 +112,12 @@ class WorkflowTest(unittest.TestCase):
     def test_rejects_source_that_does_not_match_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "corrupt.nigiro"
+            checksum = hashlib.sha256(CSV).hexdigest()
             with ZipFile(path, "w") as archive:
                 archive.writestr("manifest.json", json.dumps({
-                    "format_version": 1, "source": {"sha256": "wrong"},
+                    "format_version": 3,
+                    "project": {"sources": [{"sha256": checksum}]},
                 }))
-                archive.writestr("source.csv", CSV)
+                archive.writestr(f"sources/{checksum}.csv", b"different bytes")
             with self.assertRaisesRegex(ValueError, "checksum"):
                 load_project(path)

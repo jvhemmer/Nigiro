@@ -148,7 +148,9 @@ Nigiro saves the layout on this machine. Use **Reset panel layout** at the botto
 
 ## Project files
 
-A `.nigiro` file is a ZIP archive with the original CSV bytes and a versioned JSON manifest. The manifest stores derived tables and records each figure's settings, source, plugin version, checksum, and options. Nigiro checks the CSV checksum and replays the operations when it opens a project.
+A `.nigiro` file is a ZIP archive with one versioned JSON manifest for the project and its recorded workflow. The archive stores each distinct CSV once, even when several workflow runs reuse it. The manifest keeps source names, derived tables, figure settings, and plugin versions. Nigiro checks the CSV checksums when it opens a project.
+
+This alpha release opens project format version 3. To open an earlier project archive, use the Nigiro version that saved it.
 
 ## Tests and Qt editor
 

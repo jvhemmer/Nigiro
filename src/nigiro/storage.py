@@ -5,15 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import platform
 import tempfile
 from dataclasses import asdict
-from io import BytesIO
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
-
-import numpy
-import scipy
 
 from .figure_style import FigureStyle
 from .project import (
@@ -50,139 +45,142 @@ def operation_record(operation: Operation) -> dict:
     return record
 
 
-def source_metadata(source: Source) -> dict:
+FORMAT_VERSION = 3
+
+
+def source_file(checksum: str) -> str:
+    return f"sources/{checksum}.csv"
+
+
+def write_source(archive: ZipFile, source: Source, files: dict[bytes, str]) -> dict:
+    if source.scalar_value is not None:
+        return {"name": source.name, "scalar_value": source.scalar_value}
+    if source.content not in files:
+        checksum = hashlib.sha256(source.content).hexdigest()
+        archive.writestr(source_file(checksum), source.content)
+        files[source.content] = checksum
     return {
         "name": source.name, "encoding": source.encoding, "delimiter": source.delimiter,
-        "sha256": hashlib.sha256(source.content).hexdigest(),
-        **({"original_path": source.original_path} if source.original_path else {}),
-        **({"scalar_value": source.scalar_value} if source.scalar_value is not None else {}),
+        "sha256": files[source.content], "original_path": source.original_path,
     }
 
 
-def read_source(archive: ZipFile, path: str, metadata: dict) -> Source:
-    content = archive.read(path)
-    if hashlib.sha256(content).hexdigest() != metadata["sha256"]:
-        raise ValueError("The embedded source does not match its checksum.")
+def read_source(archive: ZipFile, metadata: dict, files: dict[str, bytes]) -> Source:
+    if "scalar_value" in metadata:
+        return Source.scalar(metadata["name"], metadata["scalar_value"])
+    checksum = metadata["sha256"]
+    if not isinstance(checksum, str) or len(checksum) != 64 or any(char not in "0123456789abcdef" for char in checksum):
+        raise ValueError("Invalid source checksum.")
+    if checksum not in files:
+        content = archive.read(source_file(checksum))
+        if hashlib.sha256(content).hexdigest() != checksum:
+            raise ValueError("The embedded source does not match its checksum.")
+        files[checksum] = content
     if not isinstance(metadata["name"], str):
-        raise ValueError("Invalid source file name.")
-    if metadata.get("scalar_value") is not None:
-        scalar = Source.scalar(metadata["name"], metadata["scalar_value"])
-        if scalar.content != content:
-            raise ValueError("The saved scalar does not match the source data.")
-        return scalar
-    return Source(metadata["name"], content, metadata["encoding"], metadata["delimiter"], metadata.get("original_path"))
+        raise ValueError("Invalid source name.")
+    return Source(metadata["name"], files[checksum], metadata["encoding"], metadata["delimiter"], metadata["original_path"])
+
+
+def project_record(archive: ZipFile, project: Project, files: dict[bytes, str]) -> dict:
+    project.validate()
+    return {
+        "sources": [write_source(archive, source, files) for source in project.raw_sources.values()],
+        "operations": [operation_record(op) for op in project.operations],
+        "derived_sources": {key: asdict(table) for key, table in project.saved_sources.items()},
+        "last_import_path": project.last_import_path,
+    }
+
+
+def read_project(archive: ZipFile, record: dict, files: dict[str, bytes]) -> Project:
+    sources = [read_source(archive, source, files) for source in record["sources"]]
+    operations = []
+    for operation in record["operations"]:
+        fields = dict(operation)
+        cls = OPERATION_TYPES[fields.pop("kind")]
+        operations.append(cls(**fields))
+    tables = {key: SourceTable.from_record(value) for key, value in record["derived_sources"].items()}
+    project = Project(
+        source=sources[0] if sources else None, operations=tuple(operations), saved_sources=tables,
+        additional_sources=tuple(sources[1:]), last_import_path=record["last_import_path"],
+    )
+    project.validate()
+    return project
+
+
+def workflow_record(archive: ZipFile, workflow: Workflow, files: dict[bytes, str]) -> dict:
+    return {
+        "base": project_record(archive, workflow.base, files),
+        "steps": [
+            {"id": step.id, "label": step.label, "request": step.request,
+             "inputs": [write_source(archive, source, files) for source in step.sources]}
+            for step in workflow.steps
+        ],
+        "completed": workflow.completed,
+        "executed": sorted(workflow.executed),
+        "bindings": workflow.bindings,
+        "needs_replay": workflow.needs_replay,
+        "error": workflow.error,
+        "source_order": workflow.source_order,
+        "next_step_id": workflow.next_step_id,
+    }
+
+
+def read_workflow(archive: ZipFile, record: dict, files: dict[str, bytes]) -> Workflow:
+    steps = [
+        Step(step["id"], step["label"], step["request"],
+             tuple(read_source(archive, source, files) for source in step["inputs"]))
+        for step in record["steps"]
+    ]
+    completed = record["completed"]
+    if type(completed) is not int or not 0 <= completed <= len(steps):
+        raise ValueError("Invalid workflow progress.")
+    next_step_id = record["next_step_id"]
+    ids = {step.id for step in steps}
+    if (any(type(step.id) is not int or step.id < 1 or not isinstance(step.label, str)
+            or not isinstance(step.request, dict) for step in steps)
+        or len(ids) != len(steps) or type(next_step_id) is not int
+        or next_step_id <= max(ids, default=0)):
+        raise ValueError("Invalid recorded step IDs or commands.")
+    return Workflow(
+        base=read_project(archive, record["base"], files),
+        steps=steps, completed=completed, executed=set(record["executed"]), bindings=record["bindings"],
+        needs_replay=record["needs_replay"], error=record["error"], source_order=record["source_order"],
+        next_step_id=next_step_id,
+    )
 
 
 def save_project(path: Path, project: Project, workflow: Workflow | None = None) -> None:
     with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
         pending = Path(temporary.name)
     try:
-        write_project(pending, project, workflow)
+        with ZipFile(pending, "w", compression=ZIP_DEFLATED) as archive:
+            files = {}
+            manifest = {
+                "format_version": FORMAT_VERSION,
+                "project": project_record(archive, project, files),
+                "workflow": workflow_record(archive, workflow, files) if workflow is not None else None,
+            }
+            archive.writestr("manifest.json", json.dumps(manifest, allow_nan=False))
         os.replace(pending, path)
     finally:
         pending.unlink(missing_ok=True)
 
 
-def write_project(destination: Path | BytesIO, project: Project, workflow: Workflow | None = None) -> None:
-    project.validate()
-    source = project.source
-    manifest = {
-        "format_version": 2 if source is None or project.additional_sources or any(
-            isinstance(op, (OverlayFigure, AddFigureLayers)) for op in project.operations
-        ) else 1,
-        "source": source_metadata(source) if source else None,
-        "last_import_path": project.last_import_path,
-        "operations": [operation_record(op) for op in project.operations],
-        "saved_with": {
-            "python": platform.python_version(),
-            "numpy": numpy.__version__,
-            "scipy": scipy.__version__,
-        },
-    }
-    if project.saved_sources:
-        manifest["derived_sources"] = {key: asdict(table) for key, table in project.saved_sources.items()}
-    if project.additional_sources:
-        manifest["additional_sources"] = [source_metadata(item) for item in project.additional_sources]
-    with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:
-        archive.writestr("manifest.json", json.dumps(manifest, indent=2))
-        if source:
-            archive.writestr("source.csv", source.content)
-        for index, item in enumerate(project.additional_sources):
-            archive.writestr(f"sources/{index}.csv", item.content)
-        if workflow and (workflow.steps or workflow.source_order or workflow.needs_replay):
-            base = BytesIO()
-            write_project(base, workflow.base)
-            archive.writestr("workflow/base.nigiro", base.getvalue())
-            files = {}
-            for index, item in enumerate(project.raw_sources.values()):
-                files[source_metadata(item)["sha256"]] = "source.csv" if index == 0 else f"sources/{index - 1}.csv"
-            steps = []
-            for step in workflow.steps:
-                inputs = []
-                for index, item in enumerate(step.sources):
-                    metadata = source_metadata(item)
-                    checksum = metadata["sha256"]
-                    if checksum not in files:
-                        files[checksum] = f"workflow/{step.id}/{index}.csv"
-                        archive.writestr(files[checksum], item.content)
-                    inputs.append({"file": files[checksum], **metadata})
-                steps.append({"id": step.id, "label": step.label, "request": step.request, "inputs": inputs})
-            archive.writestr("workflow/steps.json", json.dumps({
-                "steps": steps,
-                "completed": workflow.completed,
-                "executed": sorted(workflow.executed),
-                "bindings": workflow.bindings,
-                "needs_replay": workflow.needs_replay,
-                "error": workflow.error,
-                "source_order": workflow.source_order,
-                "next_step_id": workflow.next_step_id,
-            }, allow_nan=False))
-
-
-def load_workflow(path: Path, project: Project) -> Workflow:
-    with ZipFile(path) as archive:
-        if "workflow/steps.json" not in archive.namelist():
-            return Workflow(project)
-        record = json.loads(archive.read("workflow/steps.json"))
-        base = load_project(BytesIO(archive.read("workflow/base.nigiro")))
-        steps = [
-            Step(step["id"], step["label"], step["request"],
-                 tuple(read_source(archive, entry["file"], entry) for entry in step["inputs"]))
-            for step in record["steps"]
-        ]
-        completed = record["completed"]
-        if type(completed) is not int or not 0 <= completed <= len(steps):
-            raise ValueError("Invalid workflow progress.")
-        return Workflow(
-            base, steps, completed, set(record["executed"]), record["bindings"], record["needs_replay"], record.get("error"),
-            record.get("source_order", []), record.get("next_step_id", 1),
-        )
-
-
-def load_project(path: Path | BytesIO) -> Project:
+def load_project_session(path: Path) -> tuple[Project, Workflow]:
     try:
         with ZipFile(path) as archive:
             manifest = json.loads(archive.read("manifest.json"))
             version = manifest["format_version"]
-            if type(version) is not int or version not in (1, 2):
+            if type(version) is not int or version != FORMAT_VERSION:
                 raise ValueError("Unsupported Nigiro project format.")
-            metadata = manifest["source"]
-            source = None if version == 2 and metadata is None else read_source(archive, "source.csv", metadata)
-            additional = tuple(
-                read_source(archive, f"sources/{index}.csv", metadata)
-                for index, metadata in enumerate(manifest.get("additional_sources", ()))
-            )
-        operations = []
-        for record in manifest["operations"]:
-            fields = dict(record)
-            cls = OPERATION_TYPES[fields.pop("kind")]
-            operations.append(cls(**fields))
-        records = manifest.get("derived_sources", {})
-        if not isinstance(records, dict):
-            raise ValueError("Invalid saved sources.")
-        tables = {key: SourceTable.from_record(record) for key, record in records.items()}
-        project = Project(source, tuple(operations), tables, additional, manifest.get("last_import_path"))
-        project.validate()
-        return project
-    except (BadZipFile, LookupError, RuntimeError, TypeError) as exc:
+            files = {}
+            project = read_project(archive, manifest["project"], files)
+            record = manifest["workflow"]
+            workflow = Workflow(project) if record is None else read_workflow(archive, record, files)
+            return project, workflow
+    except (AttributeError, BadZipFile, LookupError, RuntimeError, TypeError) as exc:
         raise ValueError("The Nigiro project archive is invalid.") from exc
+
+
+def load_project(path: Path) -> Project:
+    return load_project_session(path)[0]
