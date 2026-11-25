@@ -87,7 +87,8 @@ class Workspace:
 
     def execute(self, project: Project, record: FigureRecord, sources: dict[str, SourceTable]) -> Execution:
         step = plugin_step(record.recipe)
-        worksheet = project.recipe_input(step.source_id, record.recipe, sources)
+        worksheet = (project.plugin_input(step, sources) if isinstance(record.recipe, PluginStep)
+                     else project.recipe_input(step.source_id, record.recipe, sources))
         plugin = self.plugins.resolve(step)
         figure = self.plugins.execute(step, worksheet, project.recipe_references(step, sources))
         legacy = figure.pop("legacy", None) if plugin.checksum is None else None
@@ -848,6 +849,7 @@ class Workspace:
                     recipe = PluginStep(
                         request["plugin_id"], request["version"], request["checksum"], request["options"],
                         source_id=source_id, figure_id=target,
+                        references=previous.references if target is not None else {},
                     )
                     if target is not None and recipe.pin != previous.pin:
                         raise ValueError("Use the original plugin to change its options.")
@@ -967,7 +969,10 @@ class Workspace:
                     raise ValueError("Select different available sources.")
                 self.input_worksheet(project, source_id, self.sources)
                 seen.add(source_id)
-                recipe = PluginStep(step["plugin_id"], step["version"], step["checksum"], run["options"], source_id=source_id)
+                recipe = PluginStep(step["plugin_id"], step["version"], step["checksum"], run["options"],
+                                    source_id=source_id, references=run.get("references", {}))
+                if any(project.item_deleted("source", reference.source_id) for reference in recipe.references.values()):
+                    raise ValueError("Choose available sources for X and Y.")
                 figure_id = len(operations)
                 operations.append(recipe)
                 changed.add(figure_id)
@@ -1042,7 +1047,8 @@ class Workspace:
         record = project.figures[self.figure_id]
         step = plugin_step(record.recipe)
         legacy = execution.legacy
-        columns = self.input_worksheet(project, step.source_id, self.sources).columns
+        columns = (project.plugin_input(step, self.sources) if isinstance(record.recipe, PluginStep)
+                   else self.input_worksheet(project, step.source_id, self.sources)).columns
         figure = Figure(figsize=(8, 5.5), layout="constrained")
         FigureCanvasAgg(figure)
         x_label, y_label = columns[step.options["x"]], columns[step.options["y"]]

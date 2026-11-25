@@ -10,6 +10,42 @@ from nigiro.desktop import Workspace
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_plot_paired_arrays_and_replay_export(self):
+        import json
+        from nigiro.builtin_plugins import BUILTINS
+        from nigiro.project import PluginStep
+        from nigiro.source_tables import output_tables
+
+        worker = Workspace()
+        worker.settings.run_automatically = True
+        worker.dispatch({"action": "add_array", "name": "Time", "values": "1,2,3"})
+        worker.dispatch({"action": "add_array", "name": "Signal", "expression": "$Time:Value * 2"})
+        command = {
+            "action": "execute_plugin", "plugin_id": "nigiro.scatter", "version": "1", "checksum": None,
+            "output": "overlay", "runs": [{
+                "source_id": None, "options": {"x": 0, "y": 1},
+                "references": {"x": {"source_id": None, "column": 0},
+                               "y": {"source_id": worker.source_id, "column": 0}},
+            }],
+        }
+        result = worker.dispatch(command)["project"]["figure"]
+        self.assertEqual((result["x_label"], result["y_label"]), ("Time", "Signal"))
+        trace = result["traces"][0]
+        self.assertEqual((trace["x"], trace["y"]), ([1, 2, 3], [2, 4, 6]))
+        replay = worker.dispatch({"action": "run_all"})["project"]["figure"]
+        self.assertEqual(replay["traces"][0], trace)
+        recipe = json.loads(json.dumps(worker.dispatch({"action": "export_recipe"})["project"]["script_recipe"]))
+        replay_figure = runpy.run_path(str(Path(__file__).resolve().parents[1] / "frontend/replay.py"), init_globals={
+            "BUILTINS": BUILTINS, "PluginStep": PluginStep, "output_tables": output_tables,
+            "REFERENCE_FORMULA_PLUGINS": {"nigiro.array_formula"},
+        })["replay_figure"]
+        exported = replay_figure(worker.project, {"traces": [{}], "layout": {}}, recipe)
+        self.assertEqual(exported["traces"][0], trace)
+        worker.dispatch({"action": "add_array", "name": "Short", "values": "1,2"})
+        command["runs"][0]["references"]["y"]["source_id"] = worker.source_id
+        with self.assertRaisesRegex(ValueError, "same number of rows"):
+            worker.dispatch(command)
+
     def test_filter_segments_preserves_all_matching_rows_in_source_order(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cv.csv"

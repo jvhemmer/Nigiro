@@ -68,7 +68,8 @@ def replay_figure(project, figure, recipe):
             figures[key] = residuals[record.fit_id]
             continue
         plugin = recipe["plugins"][str(key)]
-        source = project.recipe_input(plugin["source_id"], record.recipe, tables)
+        source = (project.plugin_input(record.recipe, tables) if isinstance(record.recipe, PluginStep)
+                  else project.recipe_input(plugin["source_id"], record.recipe, tables))
         result = replay_plugin(plugin, source, project.recipe_references(record.recipe, tables) if isinstance(record.recipe, PluginStep) else {})
         outputs = output_tables(result, plugin["analysis"])
         tables.update({f"{key}:{name}": table for name, table in outputs.items()})

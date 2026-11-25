@@ -13,6 +13,8 @@ from typing import Literal
 from .figure_style import AxisStyle, FigureStyle
 from .source_tables import TABLE_ONLY_PLUGINS, SourceTable, raw_source_id, source_origin
 
+PAIRED_PLOT_PLUGINS = {"nigiro.scatter", "nigiro.line", "nigiro.bar"}
+
 
 @dataclass(frozen=True)
 class Source:
@@ -522,6 +524,28 @@ class Project:
             token: (self.recipe_input(reference.source_id, step, tables), reference.column)
             for token, reference in step.references.items()
         }
+
+    def plugin_input(self, step: PluginStep, tables: dict[str, SourceTable]) -> Worksheet:
+        if step.plugin_id not in PAIRED_PLOT_PLUGINS or not step.references:
+            return self.recipe_input(step.source_id, step, tables)
+        if step.checksum is not None or step.references.keys() != {"x", "y"}:
+            raise ValueError("Choose one column for X and one for Y.")
+        x, y = (step.references[axis] for axis in ("x", "y"))
+        x_table, y_table = (self.recipe_input(ref.source_id, step, tables) for ref in (x, y))
+        if x.column >= len(x_table.columns) or y.column >= len(y_table.columns):
+            raise ValueError("Choose available columns for X and Y.")
+        if len(x_table.rows) != len(y_table.rows):
+            raise ValueError(f"X and Y sources must have the same number of rows ({len(x_table.rows)} and {len(y_table.rows)}).")
+
+        def label(table: Worksheet, ref: ColumnReference) -> str:
+            if len(table.columns) == 1:
+                source = self.raw_sources.get(ref.source_id) or tables[ref.source_id]
+                return self.item_names.get(("source", ref.source_id), source.name)
+            return table.columns[ref.column]
+
+        return Worksheet((label(x_table, x), label(y_table, y)), tuple(
+            (x_row[x.column], y_row[y.column]) for x_row, y_row in zip(x_table.rows, y_table.rows)
+        ))
 
     def build_worksheet(self, source_id: str | None, scale_until: int) -> Worksheet:
         result = self.raw_sources[source_id].worksheet

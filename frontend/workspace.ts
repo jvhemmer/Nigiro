@@ -43,12 +43,13 @@ export interface PluginRun {
   checksum: string | null;
   options: PluginOptions;
   source_id?: string | null;
+  references?: Record<string, { source_id: string | null; column: number }>;
 }
 
 export interface PluginSubmission {
   output: "overlay" | "separate";
   target_id: number | null;
-  runs: { source_id: string | null; options: PluginOptions; target_id: number | null }[];
+  runs: { source_id: string | null; options: PluginOptions; target_id: number | null; references?: PluginRun["references"] }[];
 }
 
 export interface OverlayInput {

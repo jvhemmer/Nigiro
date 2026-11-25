@@ -17,7 +17,7 @@ import { FigurePlot, type CaptureFigure } from "./FitPlot";
 import { ItemDialog, type ItemAction } from "./ItemDialog";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
 import { MenuBar, type MenuCommand, type MenuRequest } from "./MenuBar";
-import { columnFields, InputOptionsDialog } from "./InputOptionsDialog";
+import { columnFields, InputOptionsDialog, supportsPairedSources } from "./InputOptionsDialog";
 import { useListDrag } from "./useListDrag";
 import { ViewTabs, viewTabId } from "./ViewTabs";
 import { statusLabels, WorkflowPanel, WorkflowStepDialog } from "./WorkflowPanel";
@@ -443,7 +443,9 @@ export function App() {
     step.kind === "plugin" && pluginDialog && matchesPlugin(step, pluginDialog.plugin));
   const configuring = pluginDialog?.figureId !== undefined;
   const editingSource = configuring && project && figure ? (
-    project.sources.find(({ id }) => id === (figure.recipe.source_id ?? null)) ?? {
+    (figure.recipe.references?.x && figure.recipe.references.y ? {
+      id: figure.recipe.source_id ?? null, name: "Paired sources", columns: [figure.x_label ?? "X", figure.y_label ?? "Y"],
+    } : project.sources.find(({ id }) => id === (figure.recipe.source_id ?? null))) ?? {
       id: figure.recipe.source_id ?? null,
       name: project.figure_input?.name ?? "Figure input",
       columns: project.figure_input?.columns ?? project.columns,
@@ -459,7 +461,8 @@ export function App() {
       const required = plugin.distinct_columns ? columns : Math.min(columns, 1);
       return {
         label: `${plugin.name}…`,
-        request: project?.sources.some(({ columns }) => columns.length >= required)
+        request: (project?.sources.some(({ columns }) => columns.length >= required)
+          || (supportsPairedSources(plugin) && (project?.sources.filter(({ columns }) => columns.length > 0).length ?? 0) >= 2))
           ? { action: "choose_plugin", plugin } as const : null,
       };
     });

@@ -7,6 +7,10 @@ export function columnFields(plugin: PluginDefinition) {
   return plugin.fields.filter((field) => field.type === "column");
 }
 
+export function supportsPairedSources(plugin: PluginDefinition | null) {
+  return plugin?.checksum === null && ["nigiro.scatter", "nigiro.line", "nigiro.bar"].includes(plugin.id);
+}
+
 function PluginOptionField({ field, columns, value, onChange }: {
   field: PluginField;
   columns: string[];
@@ -101,6 +105,13 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
     ? project.sources.filter((source) => source.kind === "raw")
     : project.sources;
   const initialSource = sources.find((source) => source.id === project.source_id) ?? sources[0];
+  const axisSources = sources.filter(({ columns }) => columns.length > 0);
+  const canPair = !configuring && supportsPairedSources(plugin) && axisSources.length > 1;
+  const [pair, setPair] = useState(canPair && (initialSource?.columns.length ?? 0) < 2);
+  const [xInput, setXInput] = useState({ id: initialSource?.id ?? null, column: 0 });
+  const [yInput, setYInput] = useState({ id: (axisSources.find(({ id }) => id !== initialSource?.id) ?? initialSource)?.id ?? null, column: 0 });
+  const xSource = axisSources.find(({ id }) => id === xInput.id);
+  const ySource = axisSources.find(({ id }) => id === yInput.id);
   const definitionFields = plugin?.fields ?? scalarFields;
   const filterSegments = plugin?.id === "nigiro.filter_segments";
   const segmentColumn = initialSource?.columns.findIndex((name) => /^segments?\b/i.test(name.trim())) ?? -1;
@@ -122,7 +133,7 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
   const filter = plugin?.id === "nigiro.filter";
   const outputField = filter ? definitionFields.find(({ key }) => key === "output") : undefined;
   const config = definitionFields.filter((field) => field.type !== "column" && field !== outputField);
-  const output = filter || filterSegments || scale || formula ? "separate" : inputs.length > 1 ? mode : "overlay";
+  const output = filter || filterSegments || scale || formula ? "separate" : !pair && inputs.length > 1 ? mode : "overlay";
   const runs = reference ? inputs.map((source) => {
     const mapped = { ...options };
     for (const { key } of fields) {
@@ -136,7 +147,12 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
         && (!plugin?.distinct_columns || new Set(values).size === values.length),
     };
   }) : [];
-  const inputError = !runs.length ? "Select a source." : runs.some((run) => !run.valid) ? "Choose valid columns for each source." : "";
+  const inputError = pair
+    ? !xSource || !ySource ? "Select a source for each axis."
+      : xSource.id === ySource.id && xInput.column === yInput.column ? "Choose different columns for X and Y."
+      : "row_count" in xSource && "row_count" in ySource && xSource.row_count !== ySource.row_count
+        ? "Choose X and Y sources with the same number of rows." : ""
+    : !runs.length ? "Select a source." : runs.some((run) => !run.valid) ? "Choose valid columns for each source." : "";
   const configError = formula && !String(options.expression ?? "").trim()
     ? "Enter a formula on the Configuration tab."
     : filterSegments && !/^\s*\d+\s*(?:,\s*\d+\s*)*$/.test(String(options.segments))
@@ -175,7 +191,10 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
         event.preventDefault();
         if (!problem && !busy) onRun({
           output, target_id: output === "overlay" ? destination : null,
-          runs: runs.map(({ source_id, options, target_id }) => ({ source_id, options, target_id })),
+          runs: pair ? [{
+            source_id: xInput.id, options: { ...options, x: 0, y: 1 }, target_id: null,
+            references: { x: { source_id: xInput.id, column: xInput.column }, y: { source_id: yInput.id, column: yInput.column } },
+          }] : runs.map(({ source_id, options, target_id }) => ({ source_id, options, target_id })),
         });
       }}>
         <h2 id={`${id}-title`}>{!plugin ? "Scalar multiplication" : plugin.menu === "plot" ? `${plugin.name} plot` : plugin.name}</h2>
@@ -196,6 +215,34 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
           ))}
         </div>
         <section role="tabpanel" id={`${id}-panel-Inputs`} aria-labelledby={`${id}-tab-Inputs`} hidden={tab !== "Inputs"}>
+          {canPair && <div className="fit-settings">
+            <label><span>Input layout</span>
+              <select value={pair ? "axes" : "sources"} onChange={(event) => setPair(event.target.value === "axes")}>
+                <option value="sources">X and Y columns from each source</option>
+                <option value="axes">Choose a source for each axis</option>
+              </select>
+            </label>
+          </div>}
+          {pair ? <div className="fit-settings plugin-fields">
+            {([{ axis: "X", input: xInput, source: xSource, set: setXInput },
+              { axis: "Y", input: yInput, source: ySource, set: setYInput }]).map(({ axis, input, source, set }) => (
+              <fieldset key={axis}>
+                <legend>{axis} axis</legend>
+                <label><span>Source</span>
+                  <select aria-label={`${axis} source`} value={source ? sourceKey(source.id) : ""} onChange={(event) => {
+                    const next = axisSources.find(({ id }) => sourceKey(id) === event.target.value);
+                    if (next) set({ id: next.id, column: 0 });
+                  }}>
+                    {!source && <option value="" disabled>Choose a source</option>}
+                    {axisSources.map(({ id, name }) => <option key={sourceKey(id)} value={sourceKey(id)}>{name}</option>)}
+                  </select>
+                </label>
+                <PluginOptionField field={{ key: axis, label: `${axis} column`, type: "column", default: 0 }}
+                  columns={source?.columns ?? []} value={input.column} onChange={(value) => set({ ...input, column: Number(value) })} />
+              </fieldset>
+            ))}
+            <p className="muted">Rows are paired in order.</p>
+          </div> : <>
           <SourceChecklist sources={sources} picked={picked} single={formula} disabled={configuring || busy} onChange={(next) => {
             const first = sources.find(({ id }) => next.has(id));
             if (!next.has(referenceId) && first) selectReference(first);
@@ -244,6 +291,7 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
               </table>
             </div>}
           </>}
+          </>}
         </section>
         <section role="tabpanel" id={`${id}-panel-Configuration`} aria-labelledby={`${id}-tab-Configuration`} hidden={tab !== "Configuration"}>
           {config.length ? <div className="fit-settings plugin-fields">
@@ -268,7 +316,7 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
               onChange={(value) => change(outputField.key, value)} />
             <p className="muted">Each input produces a new source in the Sources panel.</p>
           </div> : filterSegments ? null : configuring ? <p className="muted">Update the current figure.</p> : <div className="fit-settings">
-            {inputs.length > 1 && <label><span>Combine inputs</span>
+            {!pair && inputs.length > 1 && <label><span>Combine inputs</span>
               <select aria-label="Combine inputs" value={mode} onChange={(event) => setMode(event.target.value === "separate" ? "separate" : "overlay")}>
                 <option value="overlay">Overlay in one figure</option>
                 <option value="separate">One figure per source</option>
