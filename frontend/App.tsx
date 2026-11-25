@@ -737,7 +737,10 @@ export function App() {
     },
     {
       label: "Edit",
-      groups: [[{ label: "Settings…", icon: Settings2, request: { action: "settings" } }]],
+      groups: [
+        [{ label: "Settings…", icon: Settings2, request: { action: "settings" } }],
+        [{ label: "Install Python Plugin…", icon: PackagePlus, request: { action: "install_plugin" } }],
+      ],
     },
     {
       label: "Data",
@@ -754,10 +757,6 @@ export function App() {
         { label: "Electrochemistry", icon: FlaskConical, request: null, submenu: [filterSegmentsCommand] },
       ]],
     },
-    {
-      label: "Plugins",
-      groups: [[{ label: "Install Python Plugin…", icon: PackagePlus, request: { action: "install_plugin" } }]],
-    },
   ];
 
   return (
@@ -769,11 +768,11 @@ export function App() {
         </div>
         <CommandSearch menus={menus} busy={menuBusy} onRun={runMenu} />
         <div className="app-bar-end">
+          {project && <ProjectBreadcrumb project={project} projectName={project.file_name ? projectStem(project) : "Untitled project"}
+            projectDirty={hasProjectChanges(project, notes)} busy={menuBusy}
+            openWorkspace={openWorkspace} newWorkspace={newWorkspace} onRun={runMenu} />}
           <WindowControls onError={setError} />
         </div>
-        {project && <ProjectBreadcrumb project={project} projectName={project.file_name ? projectStem(project) : "Untitled project"}
-          projectDirty={hasProjectChanges(project, notes)} busy={menuBusy}
-          openWorkspace={openWorkspace} newWorkspace={newWorkspace} onRun={runMenu} />}
       </header>
       {scalarDialog && <ScalarSourceDialog busy={busy} error={error}
         onClose={() => { setScalarDialog(false); setError(""); }}

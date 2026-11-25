@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FileSpreadsheet, FolderOpen } from "lucide-react";
+import { ChevronRight, FileSpreadsheet, FolderOpen } from "lucide-react";
 import type { MenuCommand, MenuRequest } from "./MenuBar";
 import type { Project } from "./workspace";
 
@@ -54,7 +54,6 @@ export function ProjectBreadcrumb({ project, projectName, projectDirty, busy, op
           <FolderOpen size={14} aria-hidden="true" />
           <span>{collection?.name ?? "Workspace"}</span>
           {collection?.dirty && <span className="dirty" aria-label="Unsaved workspace changes" title="Unsaved workspace changes" />}
-          <ChevronDown size={12} aria-hidden="true" />
         </button>
         {active === "workspace" && <div className="breadcrumb-popup" id={`${id}-workspace`}>
           {!!project.recent_workspaces?.length && <>
@@ -80,7 +79,6 @@ export function ProjectBreadcrumb({ project, projectName, projectDirty, busy, op
           title={collection?.active_project ?? project.file_name ?? "Untitled project"} onClick={() => setOpen(active === "project" ? null : "project")}>
           <FileSpreadsheet size={14} aria-hidden="true" /><span>{projectName}</span>
           {projectDirty && <span className="dirty" aria-label="Unsaved project changes" title="Unsaved project changes" />}
-          <ChevronDown size={12} aria-hidden="true" />
         </button>
         {active === "project" && <div className="breadcrumb-popup" id={`${id}-project`}>
           {otherProjects.length ? otherProjects.map(({ path, name }) => (
