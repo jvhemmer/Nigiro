@@ -29,6 +29,32 @@ npm run bundle -- --bundles deb -- --locked
 
 Find the package in `src-tauri/target/release/bundle/`. The bundle includes the Python engine and runs offline with the system webview.
 
+## Desktop updates
+
+Open **Edit → Settings → Updates** to change the startup check or check for a release. When a release is available, the information icon next to the version opens this tab. Save your work, then select **Update and restart**. Nigiro verifies the download signature before it installs the update.
+
+Install the first updater-enabled release manually. In-app updates use the Windows installer, macOS app bundle, or Linux AppImage. Use your package manager for packages such as `.deb`.
+
+### Prepare a signed release
+
+1. Generate a key with `npm run tauri -- signer generate -- -w ~/.tauri/nigiro.key`. Keep a secure backup of the private key and password. Installed apps trust the matching public key.
+2. Set the GitHub Actions repository variable `NIGIRO_UPDATER_PUBLIC_KEY` to the contents of `nigiro.key.pub`.
+3. Set the Actions secret `TAURI_SIGNING_PRIVATE_KEY` to the contents of `nigiro.key`. If the key has a password, set the `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret.
+4. Push a tag that matches the version in `src-tauri/tauri.conf.json`, for example `v0.2.0` for version `0.2.0`.
+5. After the build jobs pass, review and publish the draft release. The workflow includes signed assets and the `latest.json` update manifest.
+
+See the [Tauri updater guide](https://v2.tauri.app/plugin/updater/) for details about the signing key and supported formats.
+
+## Python runtime
+
+Open **Edit → Settings → Python** to see the active runtime and select the one to use after restart.
+
+- **Bundled engine** includes Nigiro's analysis code, Python, and the required packages. This is the default and works offline.
+- **Existing Python installation** uses the full path to a Python 3.10 or newer executable. Install Nigiro's runtime dependencies in that environment.
+- **Python managed by uv** uses an installed uv to select a Python version and install the packages pinned in `uv.lock` in an isolated environment. Enter a version such as `3.12`. Set the full path to uv if Nigiro cannot find it.
+
+Nigiro tests a new runtime before it saves your selection. If the selected runtime fails at a later startup, Nigiro uses its bundled engine and shows the error in **Settings → Python**.
+
 ## Try the editor
 
 1. Select **File → Try Sample Data** or use **File → Import Data** to add one or more CSVs to the current project. Use comma-separated UTF-8 files with a header row. **File → New** starts an empty project.

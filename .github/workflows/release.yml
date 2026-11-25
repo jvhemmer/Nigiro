@@ -1,0 +1,84 @@
+name: Desktop release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  bundle:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            bundles: appimage
+          - os: windows-latest
+            bundles: nsis
+          - os: macos-15
+            bundles: app,dmg
+          - os: macos-15-intel
+            bundles: app,dmg
+    runs-on: ${{ matrix.os }}
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: astral-sh/setup-uv@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux build packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+      - run: npm ci
+      - name: Configure signed updates
+        shell: bash
+        env:
+          NIGIRO_UPDATER_PUBLIC_KEY: ${{ vars.NIGIRO_UPDATER_PUBLIC_KEY }}
+        run: |
+          uv run --no-project python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          directory = Path("src-tauri")
+          version = json.loads((directory / "tauri.conf.json").read_text(encoding="utf-8"))["version"]
+          if os.environ["GITHUB_REF_NAME"] != f"v{version}":
+              raise SystemExit(f"Tag does not match the app version v{version}.")
+          public_key = os.environ["NIGIRO_UPDATER_PUBLIC_KEY"].strip()
+          if not public_key:
+              raise SystemExit("Set the NIGIRO_UPDATER_PUBLIC_KEY repository variable.")
+          repository = os.environ["GITHUB_REPOSITORY"]
+          config = {
+              "bundle": {"createUpdaterArtifacts": True},
+              "plugins": {"updater": {
+                  "pubkey": public_key,
+                  "requireSignedVersion": True,
+                  "endpoints": [f"https://github.com/{repository}/releases/latest/download/latest.json"],
+              }},
+          }
+          if os.environ["RUNNER_OS"] == "macOS":
+              config["bundle"]["macOS"] = {"signingIdentity": "-"}
+          (directory / "tauri.release.generated.json").write_text(json.dumps(config), encoding="utf-8")
+          PY
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Nigiro ${{ github.ref_name }}
+          releaseDraft: true
+          generateReleaseNotes: true
+          uploadUpdaterJson: true
+          tauriScript: npm run tauri --
+          args: --config src-tauri/tauri.release.generated.json --bundles ${{ matrix.bundles }} -- --locked

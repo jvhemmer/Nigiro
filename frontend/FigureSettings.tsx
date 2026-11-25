@@ -2,6 +2,7 @@ import { axisSettings, separateAxes, textRoles, type TextRole } from "./figureSt
 import { Fragment, createContext, useContext, useEffect, useId, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { formatMeasurement, parseMeasurement } from "./units";
 import { invoke } from "@tauri-apps/api/core";
+import { defaultDesktopPreferences, PythonSettings, UpdateSettings, type DesktopInfo, type DesktopPreferences, type UpdateControls } from "./DesktopSettings";
 import type { Appearance } from "./workspace";
 import { Save, RotateCcw } from "lucide-react";
 import type { AxisKey, AxisSettingsKey, AxisStyle, FigureStyle, StyleSection, TextRenderer } from "./figureStyle";
@@ -551,12 +552,13 @@ function figureError(style: FigureStyle) {
   return null;
 }
 
-export function FigureSettings({ initial, defaults, initialSection, labels, availableAxes = ["x", "y"], categoricalX, bar, markers, line, onClose, onApply, global = false, appearance, runAutomatically = true, busy = false, saveError = "", onSaveGlobal }: {
+export function FigureSettings({ initial, defaults, initialSection, labels, availableAxes = ["x", "y"], categoricalX, bar, markers, line, onClose, onApply, global = false, appearance, runAutomatically = true, busy = false, saveError = "", onSaveGlobal, desktop }: {
   global?: boolean;
   appearance?: Appearance;
   runAutomatically?: boolean;
   busy?: boolean;
   saveError?: string;
+  desktop?: { info: DesktopInfo | null; update: UpdateControls; pythonVersion: string; initialPage: "appearance" | "updates" };
   onSaveGlobal?: (section: SettingsSection, key: string, value: unknown, unit?: string) => Promise<boolean>;
   initial: FigureStyle;
   defaults: FigureStyle;
@@ -568,7 +570,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
   markers: boolean;
   line: boolean;
   onClose: () => void;
-  onApply: (style: FigureStyle, appearance?: Appearance, runAutomatically?: boolean) => void;
+  onApply: (style: FigureStyle, appearance?: Appearance, runAutomatically?: boolean, desktop?: DesktopPreferences) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -580,7 +582,10 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
     if (!availableAxes.length || separateAxes(initial)) return initial;
     return { ...initial, axes_separate: true, x: shared, y: shared };
   });
-  const [page, setPage] = useState<"appearance" | "figures" | "workflow">(global ? "appearance" : "figures");
+  const [page, setPage] = useState<"appearance" | "figures" | "workflow" | "updates" | "python">(
+    global ? desktop?.initialPage ?? "appearance" : "figures");
+  const [desktopChanges, setDesktopDraft] = useState<DesktopPreferences | null>(null);
+  const desktopDraft = desktopChanges ?? desktop?.info?.preferences ?? defaultDesktopPreferences;
   const [automatic, setAutomatic] = useState(runAutomatically);
   const [expanded, setExpanded] = useState(true);
   const [appearanceDraft, setAppearanceDraft] = useState<Appearance>(appearance ?? defaultAppearance);
@@ -638,7 +643,8 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
       setError(failure.message);
       return;
     }
-    onApply({ ...style, font_family: style.font_family.trim() }, global ? appearanceDraft : undefined, global ? automatic : undefined);
+    onApply({ ...style, font_family: style.font_family.trim() }, global ? appearanceDraft : undefined,
+      global ? automatic : undefined, desktop?.info ? desktopDraft : undefined);
   }
 
   async function saveField(section: SettingsSection, key: string) {
@@ -675,6 +681,8 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
   }
 
   function resetSection() {
+    if (page === "updates") { setDesktopDraft({ ...desktopDraft, check_updates: defaultDesktopPreferences.check_updates }); return; }
+    if (page === "python") { setDesktopDraft({ ...desktopDraft, python: defaultDesktopPreferences.python }); return; }
     if (page === "workflow") { setAutomatic(true); return; }
     if (page === "appearance") {
       setAppearanceDraft(defaultAppearance);
@@ -698,6 +706,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
     setStyle(defaults);
     setAppearanceDraft(defaultAppearance);
     setAutomatic(true);
+    setDesktopDraft(defaultDesktopPreferences);
     setInvalidMeasurements({});
     setError("");
   }
@@ -800,6 +809,11 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
             {global && <button className="settings-page-tab" type="button" role="tab" id="settings-tab-workflow"
               aria-controls="settings-options" aria-selected={page === "workflow"} tabIndex={page === "workflow" ? 0 : -1}
               onClick={() => { setPage("workflow"); setError(""); }}>Workflow</button>}
+            {desktop && (["updates", "python"] as const).map((section) => (
+              <button key={section} className="settings-page-tab" type="button" role="tab" id={`settings-tab-${section}`}
+                aria-controls="settings-options" aria-selected={page === section} tabIndex={page === section ? 0 : -1}
+                onClick={() => { setPage(section); setError(""); }}>{section === "updates" ? "Updates" : "Python"}</button>
+            ))}
             {global ? <details className="settings-nav-group" open={expanded}
               onToggle={(event) => setExpanded(event.currentTarget.open)}>
               <summary>Global Figure Settings</summary>
@@ -808,6 +822,10 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
           </div>
         </nav>
         <div ref={content} className="settings-content" id="settings-options" role="tabpanel" aria-labelledby={page === "figures" ? `settings-tab-${tab}` : `settings-tab-${page}`}>
+          {desktop && page === "updates" && <UpdateSettings info={desktop.info} draft={desktopDraft}
+            onChange={setDesktopDraft} update={desktop.update} />}
+          {desktop && page === "python" && <PythonSettings info={desktop.info} draft={desktopDraft}
+            onChange={setDesktopDraft} version={desktop.pythonVersion} />}
           {page === "workflow" && <SettingsGroup title="Execution">
             <Field label="Run new steps automatically" checkbox>
               <input type="checkbox" checked={automatic} onChange={(event) => setAutomatic(event.target.checked)} />

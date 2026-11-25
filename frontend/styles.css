@@ -97,6 +97,26 @@ button.primary:hover:not(:disabled), .run-split summary:hover { background: var(
   height: 100vh;
 }
 
+.app-status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  min-height: 23px;
+  padding-inline: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.app-status .app-update {
+  min-height: 0;
+  padding: 1px 3px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent-ink);
+}
+
 .app-bar {
   position: relative;
   z-index: 2;
@@ -715,6 +735,11 @@ td input {
   color: var(--accent-ink); background: var(--accent-soft); box-shadow: inset 2px 0 var(--accent);
 }
 .settings-content { flex: 1; min-width: 0; padding: 12px; overflow: auto; scrollbar-gutter: stable; }
+.desktop-settings-fields { display: grid; gap: 10px; }
+.desktop-settings-fields p { margin: 0; }
+.desktop-settings-fields label { display: grid; gap: 4px; }
+.desktop-settings-fields .desktop-checkbox, .desktop-settings-actions { display: flex; align-items: center; gap: 8px; }
+.update-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 .settings-category { min-width: 0; padding: 9px; margin: 0 0 12px; border: 1px solid var(--line); }
 .settings-category legend { padding-inline: 5px; color: var(--muted); font-size: .86rem; font-weight: 600; }
 .settings-feedback { flex: none; min-height: 24px; padding: 2px 12px; }

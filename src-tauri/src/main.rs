@@ -1,13 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod desktop_config;
+mod updates;
 mod worker;
 
+use desktop_config::{Engine, PythonRuntime};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{path::PathBuf, sync::Mutex};
+use std::path::PathBuf;
 use tauri::{Manager, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-use worker::Worker;
 
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -149,18 +151,26 @@ enum Action {
     },
 }
 
-type Engine = Mutex<Option<Worker>>;
-
 fn request_engine(window: &WebviewWindow, request: &Value) -> Result<Value, String> {
     let engine = window.state::<Engine>();
     let mut engine = engine.lock().map_err(|err| err.to_string())?;
     if engine.is_none() {
-        let plugins = window
-            .path()
-            .app_data_dir()
-            .map_err(|err| err.to_string())?
-            .join("plugins");
-        *engine = Some(Worker::start(&plugins)?);
+        let runtime = desktop_config::preferences(window).python;
+        let launched = desktop_config::start(window, &runtime).and_then(|mut worker| {
+            if runtime != PythonRuntime::Bundled {
+                worker.request(&json!({ "action": "state", "_paged": true }))?;
+            }
+            Ok(worker)
+        });
+        *engine = Some(match launched {
+            Ok(worker) => worker,
+            Err(error) if runtime != PythonRuntime::Bundled => {
+                let mut worker = desktop_config::start(window, &PythonRuntime::Bundled)?;
+                worker.fallback = Some(error);
+                worker
+            }
+            Err(error) => return Err(error),
+        });
     }
     engine.as_mut().unwrap().request(request)
 }
@@ -571,11 +581,17 @@ fn file_request(action: &str, path: PathBuf) -> Result<Value, String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Engine::default())
+        .manage(updates::AvailableUpdate::default())
         .invoke_handler(tauri::generate_handler![
             workspace,
             save_rendered_figure,
-            save_python_script
+            save_python_script,
+            desktop_config::desktop_info,
+            desktop_config::set_desktop_preferences,
+            updates::check_for_update,
+            updates::install_update,
         ])
         .build(tauri::generate_context!())
         .expect("Could not start Nigiro.")

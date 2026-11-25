@@ -13,13 +13,14 @@ dependencies = [
     "matplotlib>=3.6",
     "numpy>=1.24",
     "scipy>=1.10",
+    "typst==0.15.2",
 ]
 
 [project.optional-dependencies]
 qt = ["PyQt6>=6.5"]
 
 [dependency-groups]
-desktop = ["pyinstaller>=6.20", "typst==0.15.2"]
+desktop = ["pyinstaller>=6.20"]
 
 [tool.setuptools.package-data]
 nigiro = ["fonts/*.ttf", "fonts/*.txt"]

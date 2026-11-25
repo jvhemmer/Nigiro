@@ -1,10 +1,11 @@
 import { Fragment, useCallback, useEffect, useId, useRef, useState, type MouseEvent, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import appLogo from "../proposed-logos/data-matrix.svg";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   Brackets, Calculator, ChartColumn, ChartLine, ChartNoAxesCombined, ChartScatter, Database, FileCode2, FileInput,
-  FileOutput, FilePlus, Filter, FlaskConical, FolderOpen, FolderPlus, History, ListFilter, PackagePlus, Play,
+  FileOutput, FilePlus, Filter, FlaskConical, FolderOpen, FolderPlus, History, Info, ListFilter, PackagePlus, Play,
   NotebookPen, Save, SaveAll, ScanSearch, Settings2, SquareFunction, Table2, Variable, Workflow as WorkflowIcon,
 } from "lucide-react";
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
@@ -19,6 +20,7 @@ import { arrayFormulaId, columnFormulaId } from "./FormulaEditor";
 import { ArraySourceDialog } from "./ArraySourceDialog";
 import { ScalarSourceDialog } from "./ScalarSourceDialog";
 import { FigureSettings } from "./FigureSettings";
+import type { DesktopInfo, DesktopPreferences, Release } from "./DesktopSettings";
 import { axisSettings, cycleColor, type StyleSection } from "./figureStyle";
 import { FigurePlot, hasEditableLine, traceAppearance, type CaptureFigure } from "./FitPlot";
 import { ItemDialog, type ItemAction } from "./ItemDialog";
@@ -444,7 +446,14 @@ export function App() {
   const [arrayDialog, setArrayDialog] = useState(false);
   const [stepDialog, setStepDialog] = useState<WorkflowStep | null>(null);
   const [workflowDialog, setWorkflowDialog] = useState<"save" | "run" | null>(null);
-  const [settingsDialog, setSettingsDialog] = useState(false);
+  const [settingsDialog, setSettingsDialog] = useState<"appearance" | "updates" | null>(null);
+  const [desktopInfo, setDesktopInfo] = useState<DesktopInfo | null>(null);
+  const [release, setRelease] = useState<Release | null>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateInstalling, setUpdateInstalling] = useState(false);
+  const [updateChecked, setUpdateChecked] = useState(false);
+  const [updateError, setUpdateError] = useState("");
+  const startupUpdateChecked = useRef(false);
   const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
   const [exportDialog, setExportDialog] = useState<ExportTarget | null>(null);
   const [itemDialog, setItemDialog] = useState<ItemAction | null>(null);
@@ -495,7 +504,8 @@ export function App() {
   }, [updateNotes]);
 
   useEffect(() => {
-    void run({ action: "state" });
+    void run({ action: "state" }).then(() => invoke<DesktopInfo>("desktop_info"))
+      .then(setDesktopInfo, (reason: unknown) => setUpdateError(String(reason)));
 
     const currentWindow = getCurrentWindow();
     let confirmingClose = false;
@@ -520,6 +530,65 @@ export function App() {
     void unlisten.catch((reason: unknown) => setError(String(reason)));
     return () => { void unlisten.then((stop) => stop(), () => {}); };
   }, [run]);
+
+  const checkUpdates = useCallback(async () => {
+    setUpdateChecking(true);
+    setUpdateError("");
+    try {
+      setRelease(await invoke<Release | null>("check_for_update"));
+      setUpdateChecked(true);
+    } catch (reason) {
+      setUpdateError(String(reason));
+    } finally {
+      setUpdateChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (desktopInfo?.preferences.check_updates && !desktopInfo.updates_unavailable && !startupUpdateChecked.current) {
+      startupUpdateChecked.current = true;
+      void checkUpdates();
+    }
+  }, [desktopInfo, checkUpdates]);
+
+  async function installUpdate() {
+    if (!release || inFlight.current || updateChecking) return;
+    if (hasProjectChanges(projectRef.current, notesDraft.current) || projectRef.current?.workspace?.dirty) {
+      setUpdateError("Save your project and workspace before restarting Nigiro.");
+      return;
+    }
+    inFlight.current = true;
+    setBusy(true);
+    setUpdateInstalling(true);
+    setUpdateError("");
+    try {
+      await invoke("install_update", { version: release.version });
+    } catch (reason) {
+      setUpdateError(String(reason));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+      setUpdateInstalling(false);
+    }
+  }
+
+  async function saveDesktopPreferences(settings: DesktopPreferences | undefined) {
+    if (inFlight.current) return false;
+    if (!settings || JSON.stringify(settings) === JSON.stringify(desktopInfo?.preferences)) return true;
+    inFlight.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      setDesktopInfo(await invoke<DesktopInfo>("set_desktop_preferences", { settings }));
+      return true;
+    } catch (reason) {
+      setError(String(reason));
+      return false;
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!project?.appearance) return;
@@ -592,7 +661,7 @@ export function App() {
       setError("");
       setInputDialog({ plugin: request.plugin });
     }
-    else if (request.action === "settings") { setError(""); setSettingsDialog(true); }
+    else if (request.action === "settings") { setError(""); setSettingsDialog("appearance"); }
     else if (request.action === "choose_scale") { setError(""); setInputDialog("scale"); }
     else if (request.action === "choose_scalar") { setError(""); setScalarDialog(true); }
     else if (request.action === "choose_array") { setError(""); setArrayDialog(true); }
@@ -606,7 +675,7 @@ export function App() {
   }
 
   const menuBusy = busy || scalarDialog || arrayDialog || stepDialog !== null || workflowDialog !== null
-    || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
+    || settingsDialog !== null || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
   const newProject: MenuCommand = { label: "New…", keywords: "create project", icon: FilePlus, request: { action: "new" }, shortcut: "N" };
   const openProject: MenuCommand = { label: "Open Project…", icon: FolderOpen, request: { action: "open" }, shortcut: "O" };
   const newWorkspace: MenuCommand = { label: "New Workspace", icon: FolderPlus, keywords: "create", request: { action: "new_workspace" } };
@@ -830,9 +899,13 @@ export function App() {
         <FigureSettings global runAutomatically={project.run_automatically} appearance={project.appearance} initial={project.global_figure_style} defaults={project.factory_figure_style}
           initialSection="figure" labels={{ x: "", y: "" }}
           categoricalX={false} bar markers line busy={busy} saveError={error}
-          onClose={() => { setSettingsDialog(false); setError(""); }}
-          onApply={async (style, appearance, run_automatically) => {
-            if (appearance && await run({ action: "set_preferences", style, appearance, run_automatically })) setSettingsDialog(false);
+          desktop={{ info: desktopInfo, initialPage: settingsDialog, pythonVersion: project.versions.python,
+            update: { release, checking: updateChecking, installing: updateInstalling, checked: updateChecked,
+              error: updateError, check: checkUpdates, install: installUpdate } }}
+          onClose={() => { setSettingsDialog(null); setError(""); }}
+          onApply={async (style, appearance, run_automatically, desktop) => {
+            if (appearance && await saveDesktopPreferences(desktop)
+              && await run({ action: "set_preferences", style, appearance, run_automatically })) setSettingsDialog(null);
           }} />
       )}
       {project && figure && project.figure_id !== null && figureDialog && (
@@ -880,6 +953,14 @@ export function App() {
           </div>
         </main>
       )}
+      <footer className="app-status">
+        {desktopInfo && <span>v{desktopInfo.version}</span>}
+        {release && <button type="button" className="app-update"
+          title={`Version ${release.version} is available`} aria-label={`Version ${release.version} is available`}
+          disabled={menuBusy} onClick={() => { setError(""); setSettingsDialog("updates"); }}>
+          <Info size={14} aria-hidden="true" />
+        </button>}
+      </footer>
     </div>
   );
 }

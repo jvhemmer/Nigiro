@@ -741,6 +741,7 @@ dependencies = [
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "typst" },
 ]
 
 [package.optional-dependencies]
@@ -751,7 +752,6 @@ qt = [
 [package.dev-dependencies]
 desktop = [
     { name = "pyinstaller" },
-    { name = "typst" },
 ]
 
 [package.metadata]
@@ -760,14 +760,12 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.24" },
     { name = "pyqt6", marker = "extra == 'qt'", specifier = ">=6.5" },
     { name = "scipy", specifier = ">=1.10" },
+    { name = "typst", specifier = "==0.15.2" },
 ]
 provides-extras = ["qt"]
 
 [package.metadata.requires-dev]
-desktop = [
-    { name = "pyinstaller", specifier = ">=6.20" },
-    { name = "typst", specifier = "==0.15.2" },
-]
+desktop = [{ name = "pyinstaller", specifier = ">=6.20" }]
 
 [[package]]
 name = "numpy"
