@@ -15,6 +15,7 @@ def _finite(value: object) -> bool:
 
 LENGTH_UNITS = {"px": 1, "pt": 96 / 72, "pc": 16, "in": 96, "cm": 96 / 2.54, "mm": 96 / 25.4, "q": 96 / 101.6}
 ANGLE_UNITS = {"deg": 1, "°": 1, "rad": 180 / math.pi, "turn": 360}
+TEXT_RENDERERS = ("auto", "plain", "inline", "latex")
 
 
 @cache
@@ -88,7 +89,7 @@ class AxisStyle:
     units: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if any(renderer not in ("auto", "plain", "latex") for renderer in (self.label_renderer, self.tick_renderer)):
+        if any(renderer not in TEXT_RENDERERS for renderer in (self.label_renderer, self.tick_renderer)):
             raise ValueError("Choose an axis text renderer.")
         normalize_units(self, ("tick_length", "line_width", "label_size", "tick_size"), ("angle",))
         for family in (self.label_family, self.tick_family):
@@ -173,6 +174,7 @@ class FigureStyle:
     background: str = "#ffffff"
     plot_background: str | None = None
     legend: str = "auto"
+    legend_renderer: str = "auto"
     legend_frame: bool = False
     legend_border_color: str = "#444444"
     legend_border_width: float = 1
@@ -196,8 +198,8 @@ class FigureStyle:
     units: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self, residual=None) -> None:
-        if self.title_renderer not in ("auto", "plain", "latex"):
-            raise ValueError("Choose a text renderer for the title.")
+        if any(renderer not in TEXT_RENDERERS for renderer in (self.title_renderer, self.legend_renderer)):
+            raise ValueError("Choose a text renderer for the title and legend.")
         if self.math_alphabet not in ("default", "roman", "sans", "mono"):
             raise ValueError("Choose a MathJax alphabet.")
         if not isinstance(self.math_preamble, str):

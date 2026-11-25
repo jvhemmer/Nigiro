@@ -1,4 +1,4 @@
-import { formatPlotTicks, plotText } from "./plotText.mjs";
+import { decodePlotText, formatPlotTicks, plotText } from "./plotText.mjs";
 import { loadMathJax } from "./mathText";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Data, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
@@ -85,8 +85,9 @@ function traceAppearance(trace: Data, index: number, data: PluginFigure, style: 
   const element = data.elements?.[index];
   const custom = cycleColor(style, data.series_cycle?.[index]);
   const color = custom ?? data.series_colors?.[index] ?? (element ? colors[element] : undefined);
-  const name = typeof trace.name === "string" && /\$[^$]+\$/.test(trace.name)
-    ? { name: plotText(trace.name, "auto", style) } : {};
+  const renderer = style.legend_renderer ?? "auto";
+  const name = typeof trace.name === "string" && (renderer !== "auto" || /\$[^$]+\$/.test(trace.name))
+    ? { name: plotText(decodePlotText(trace.name), renderer, style) } : {};
   if (trace.type === "bar" && color && (element || custom)) {
     return { ...name, marker: { color }, ...(element && { width: style.bar_width }) };
   }

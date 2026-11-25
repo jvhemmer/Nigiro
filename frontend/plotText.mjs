@@ -3,6 +3,72 @@ const latexEscapes = {
   "&": "\\&", "#": "\\#", "_": "\\_", "^": "\\textasciicircum{}", "~": "\\textasciitilde{}",
 };
 
+const greek = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega".split(" ");
+const inlineSymbols = new Map([
+  ...greek.map((name, index) => [name, [..."αβγδεζηθικλμνξοπρστυφχψω"][index]]),
+  ...greek.map((name, index) => [name[0].toUpperCase() + name.slice(1), [..."ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ"][index]]),
+  ...Object.entries({ varepsilon: "ϵ", vartheta: "ϑ", varphi: "ϕ", varpi: "ϖ", varrho: "ϱ", varsigma: "ς",
+    times: "×", cdot: "·", pm: "±", mp: "∓", div: "÷", le: "≤", leq: "≤", ge: "≥", geq: "≥",
+    ne: "≠", neq: "≠", approx: "≈", infty: "∞", partial: "∂", degree: "°", to: "→" }),
+]);
+const inlineStyles = new Map([["text", ""], ["mathrm", ""], ["mathbf", "b"], ["mathit", "i"]]);
+const mathSpan = /(?<!\\)\$([^$]+)(?<!\\)\$/g;
+
+function escapePlotText(text) {
+  return text.replaceAll("&", "&amp;").replaceAll("$", "&#36;")
+    .replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>");
+}
+
+export function decodePlotText(text) {
+  return text.replaceAll("<br>", "\n").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+}
+
+function enclosed(tag, text) {
+  return tag ? `<${tag}>${text}</${tag}>` : text;
+}
+
+function inlineMath(expression) {
+  const tokens = expression.match(/\\(?:[A-Za-z]+|.)|[\s\S]/gu) ?? [];
+  let position = 0;
+
+  function atom(style, depth) {
+    if (depth > 32) return null;
+    const token = tokens[position++];
+    if (!token || token === "}" || token === "_" || token === "^") return null;
+    if (token === "{") {
+      const text = sequence(style, depth + 1);
+      return tokens[position++] === "}" ? text : null;
+    }
+    if (token.startsWith("\\")) {
+      const command = token.slice(1);
+      if (inlineStyles.has(command) && tokens[position] === "{") {
+        return atom(inlineStyles.get(command), depth + 1);
+      }
+      const symbol = inlineSymbols.get(command);
+      if (symbol) return enclosed(/\p{L}/u.test(symbol) ? style : "", symbol);
+      if (/^[{}_^% #&]$/.test(command)) return escapePlotText(command);
+      return null;
+    }
+    return enclosed(/\p{L}/u.test(token) ? style : "", escapePlotText(token === "-" ? "−" : token));
+  }
+
+  function sequence(style, depth) {
+    let text = "";
+    while (position < tokens.length && tokens[position] !== "}") {
+      const token = tokens[position];
+      const script = token === "^" ? "sup" : token === "_" ? "sub" : "";
+      if (script) position++;
+      const value = atom(style, depth);
+      if (value === null) return null;
+      text += enclosed(script, value);
+    }
+    return text;
+  }
+
+  const text = sequence("i", 0);
+  return text !== null && position === tokens.length ? text : null;
+}
+
 export function plotText(text, renderer = "auto", math) {
   function formatMath(expression) {
     const command = { default: "", roman: "mathrm", sans: "mathsf", mono: "mathtt" }[math?.math_alphabet ?? "default"];
@@ -11,8 +77,10 @@ export function plotText(text, renderer = "auto", math) {
     return preamble ? "$" + `{${preamble}\n${body}}$` : `$${body}$`;
   }
   if (!text) return text;
+  if (renderer === "inline") return text.split(mathSpan).map((part, index) =>
+    index % 2 ? inlineMath(part) ?? escapePlotText(`$${part}$`) : escapePlotText(part)).join("");
   if (renderer !== "plain") {
-    const parts = text.split(/(?<!\\)\$([^$]+)(?<!\\)\$/g);
+    const parts = text.split(mathSpan);
     if (parts.length > 1) {
       const expression = parts.map((part, index) => index % 2 || !part ? part
         : `\\text{${part.replace(/[\\{}%$&#_^~]/g, (character) => latexEscapes[character])}}`).join("");
@@ -20,8 +88,7 @@ export function plotText(text, renderer = "auto", math) {
     }
     if (renderer === "latex") return formatMath(text);
   }
-  return text.replaceAll("&", "&amp;").replaceAll("$", "&#36;")
-    .replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>");
+  return escapePlotText(text);
 }
 
 export function formatPlotTicks(layout, renderers, math) {
@@ -30,8 +97,7 @@ export function formatPlotTicks(layout, renderers, math) {
     if (!Array.isArray(axis?.ticktext)) continue;
     axis.ticktext = axis.ticktext.map((text) => {
       if (typeof text !== "string" || (renderer === "auto" && !/\$[^$]+\$/.test(text))) return text;
-      const label = text.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
-      return plotText(label, renderer, math);
+      return plotText(decodePlotText(text), renderer, math);
     });
   }
 }

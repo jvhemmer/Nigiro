@@ -1,7 +1,7 @@
 import { plotText } from "./plotText.mjs";
 import type { Layout, LayoutAxis } from "plotly.js";
 
-export type TextRenderer = "auto" | "plain" | "latex";
+export type TextRenderer = "auto" | "plain" | "inline" | "latex";
 export type AxisKey = "x" | "y";
 export type StyleSection = "figure" | AxisKey;
 export type AxisSettingsKey = AxisKey | "global_axis";
@@ -64,6 +64,7 @@ export interface FigureStyle extends Typography {
   background: string;
   plot_background: string | null;
   legend: "auto" | "none" | "above" | "top_left" | "top_right" | "bottom_left" | "bottom_right";
+  legend_renderer: TextRenderer;
   line_width: number;
   legend_frame: boolean;
   legend_border_color: string;

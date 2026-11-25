@@ -8,6 +8,7 @@ import type { AxisKey, AxisSettingsKey, AxisStyle, FigureStyle, StyleSection, Te
 
 type FigureTab = "figure" | "traces" | "legend" | "text";
 type SettingsTab = FigureTab | "axes";
+const textRenderers = [["auto", "Auto"], ["plain", "Plain text"], ["inline", "Inline math"], ["latex", "LaTeX (MathJax)"]] as const;
 export type SettingsSection = "figure" | AxisSettingsKey;
 
 const defaultAppearance: Appearance = { theme: "system", accent: "#245883" };
@@ -20,7 +21,7 @@ const figureTabFields: Record<FigureTab, (keyof FigureStyle)[]> = {
   figure: ["title", "title_renderer", "axes_width", "axes_height", "background", "plot_background", "text_color",
     "font_family", "font_face", "font_bold", "font_italic", "title_family", "title_face", "title_size", "title_bold", "title_italic"],
   traces: ["color_cycle", "bar_width", "show_markers", "marker_size", "marker_symbol", "show_lines", "line_width", "line_dash", "marker_color", "line_color"],
-  legend: ["legend", "legend_frame", "legend_border_color", "legend_border_width", "legend_background",
+  legend: ["legend", "legend_renderer", "legend_frame", "legend_border_color", "legend_border_width", "legend_background",
     "legend_family", "legend_face", "legend_size", "legend_bold", "legend_italic"],
   text: ["math_alphabet", "math_preamble"],
 };
@@ -28,7 +29,7 @@ const figureTabFields: Record<FigureTab, (keyof FigureStyle)[]> = {
 const fieldKeys: Record<string, string> = {
   "Label font family": "label_family", "Label font style": "label_face", "Label size (px)": "label_size",
   "Tick font family": "tick_family", "Tick font style": "tick_face", "Tick size (px)": "tick_size", "Tick text renderer": "tick_renderer",
-  "Title text renderer": "title_renderer", "Axis label text renderer": "label_renderer",
+  "Title text renderer": "title_renderer", "Axis label text renderer": "label_renderer", "Legend text renderer": "legend_renderer",
   "TeX font": "math_alphabet", "TeX preamble": "math_preamble",
   "Figure title": "title", "Axes width (px)": "axes_width", "Axes height (px)": "axes_height",
   "Show markers": "show_markers", "Show trace lines": "show_lines", "Number notation": "notation", "Font family": "font_family", "Font style": "font_face", "Axis label size (px)": "label_size", "Tick and legend size (px)": "tick_size",
@@ -162,7 +163,7 @@ function TextField({ label, value, renderer, rendererLabel, onChange, onRenderer
   return <>
     <Field label={label}><input value={value} onChange={(event) => onChange(event.target.value)} /></Field>
     <Choice label={rendererLabel} value={renderer} onChange={onRenderer}
-      options={[["auto", "Auto"], ["plain", "Plain text"], ["latex", "LaTeX (MathJax)"]]} />
+      options={textRenderers} />
   </>;
 }
 
@@ -276,7 +277,7 @@ function AxisFields({ axes, inheritedFamily, global, withControls }: {
 
   function renderer(label: string, key: "label_renderer" | "tick_renderer") {
     return row(label, (axis) => <Choice label={label} value={axis.style[key]} onChange={(value) => set(axis, key, value)}
-      options={[["auto", "Auto"], ["plain", "Plain text"], ["latex", "LaTeX (MathJax)"]]} />);
+      options={textRenderers} />);
   }
 
   function typography(kind: "label" | "tick") {
@@ -492,6 +493,8 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
         ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"],
       ]} />
     <TextOverrides role="legend" style={style} onChange={onChange} />
+    <Choice label="Legend text renderer" value={style.legend_renderer} onChange={(value) => set("legend_renderer", value)}
+      options={textRenderers} />
     <OptionalColor label="Legend background" value={style.legend_background} fallback={style.background === "transparent" ? "#ffffff" : style.background}
       onChange={(value) => set("legend_background", value)} />
     <Field label="Show frame" checkbox><input type="checkbox" checked={style.legend_frame}
