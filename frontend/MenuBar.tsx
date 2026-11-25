@@ -207,7 +207,12 @@ export function MenuBar({ menus, busy, onRun }: MenuBarProps) {
                         <div className="menu-popup menu-submenu-popup" role="menu" aria-label={command.label}>
                           {command.submenu.map((item) => <button className="menu-command" type="button"
                             key={item.label} role="menuitem" tabIndex={-1} aria-disabled={busy || !item.request}
-                            onClick={() => runCommand(item)}>{item.label}</button>)}
+                            onClick={() => runCommand(item)}>
+                            <span className="menu-command-label">
+                              {item.icon && <item.icon size={14} aria-hidden="true" />}
+                              <span>{item.label}</span>
+                            </span>
+                          </button>)}
                         </div>
                       </div>
                     ) : (

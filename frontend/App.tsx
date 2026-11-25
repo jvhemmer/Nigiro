@@ -2,7 +2,9 @@ import { Fragment, useCallback, useEffect, useId, useRef, useState, type MouseEv
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
-  Brackets, ChartNoAxesCombined, Database, FileSpreadsheet, History, ScanSearch, Table2, Variable,
+  Brackets, Calculator, ChartColumn, ChartLine, ChartNoAxesCombined, ChartScatter, Database, FileCode2, FileInput,
+  FileOutput, FilePlus, FileSpreadsheet, Filter, FlaskConical, FolderOpen, History, ListFilter, PackagePlus, Play,
+  Save, SaveAll, ScanSearch, Settings2, SquareFunction, Table2, Variable, Workflow as WorkflowIcon,
 } from "lucide-react";
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
@@ -464,6 +466,9 @@ export function App() {
       const required = plugin.distinct_columns ? columns : Math.min(columns, 1);
       return {
         label: `${plugin.name}…`,
+        icon: plugin.id === "nigiro.scatter" ? ChartScatter : plugin.id === "nigiro.bar" ? ChartColumn
+          : plugin.id === "nigiro.line" || plugin.id === "nigiro.linear_fit" ? ChartLine
+          : menu === "plot" ? ChartNoAxesCombined : SquareFunction,
         request: (project?.sources.some(({ columns }) => columns.length >= required)
           || (supportsPairedSources(plugin) && (project?.sources.filter(({ columns }) => columns.length > 0).length ?? 0) >= 2))
           ? { action: "choose_plugin", plugin } as const : null,
@@ -508,37 +513,37 @@ export function App() {
 
   const menuBusy = busy || scalarDialog || arrayDialog || stepDialog !== null || workflowDialog !== null
     || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
-  const newProject: MenuCommand = { label: "New…", request: { action: "new" }, shortcut: "N" };
-  const openProject: MenuCommand = { label: "Open Project…", request: { action: "open" }, shortcut: "O" };
+  const newProject: MenuCommand = { label: "New…", icon: FilePlus, request: { action: "new" }, shortcut: "N" };
+  const openProject: MenuCommand = { label: "Open Project…", icon: FolderOpen, request: { action: "open" }, shortcut: "O" };
   const dataGroups: MenuCommand[][] = [
-    [{ label: "Import Raw Data…", request: { action: "import_data" } }],
+    [{ label: "Import Raw Data…", icon: FileInput, request: { action: "import_data" } }],
     [
       { label: "Add Variable/Constant…", icon: Variable, request: { action: "choose_scalar" } },
       { label: "Add Array…", icon: Brackets, request: { action: "choose_array" } },
     ],
-    [{ label: "Try Sample Data", request: { action: "sample" } }],
+    [{ label: "Try Sample Data", icon: FlaskConical, request: { action: "sample" } }],
   ];
   const exportCommands: MenuCommand[] = [
-    { label: "Export Figure…", request: exportName ? { action: "choose_export", target: "figure" } : null },
-    { label: "Export Python Script…", request: exportName ? { action: "choose_export", target: "script" } : null },
+    { label: "Export Figure…", icon: FileOutput, request: exportName ? { action: "choose_export", target: "figure" } : null },
+    { label: "Export Python Script…", icon: FileCode2, request: exportName ? { action: "choose_export", target: "script" } : null },
   ];
   const figureSettings: MenuCommand = {
     label: "Figure Settings…", request: exportName ? { action: "figure_settings" } : null,
   };
   const scaleCommand: MenuCommand = {
-    label: "Scalar multiplication…",
+    label: "Scalar multiplication…", icon: Calculator,
     request: project?.sources.some((source) => source.kind === "raw" && source.columns.length)
       ? { action: "choose_scale" } : null,
   };
   const plotCommands = pluginCommands("plot");
   const filterPlugin = plugins.find((plugin) => plugin.id === "nigiro.filter");
-  const filterCommand: MenuCommand = { label: "Filter…", request: filterPlugin && project?.sources.length
+  const filterCommand: MenuCommand = { label: "Filter…", icon: Filter, request: filterPlugin && project?.sources.length
     ? { action: "choose_plugin", plugin: filterPlugin } : null };
   const filterSegments = plugins.find((plugin) => plugin.id === "nigiro.filter_segments");
-  const filterSegmentsCommand: MenuCommand = { label: "Filter Segments…", request: filterSegments && project?.sources.length
+  const filterSegmentsCommand: MenuCommand = { label: "Filter Segments…", icon: ListFilter, request: filterSegments && project?.sources.length
     ? { action: "choose_plugin", plugin: filterSegments } : null };
   const formula = plugins.find((plugin) => plugin.id === columnFormulaId);
-  const formulaCommand: MenuCommand = { label: "Column Formula…", request: formula && project?.sources.length
+  const formulaCommand: MenuCommand = { label: "Column Formula…", icon: SquareFunction, request: formula && project?.sources.length
     ? { action: "choose_plugin", plugin: formula } : null };
   const analysisCommands = pluginCommands("analysis");
 
@@ -620,24 +625,24 @@ export function App() {
                 [newProject],
                 [openProject],
                 [
-                  { label: "Save Project", request: project ? saveRequest(project) : null, shortcut: "S" },
+                  { label: "Save Project", icon: Save, request: project ? saveRequest(project) : null, shortcut: "S" },
                   {
-                    label: "Save Project as…",
+                    label: "Save Project as…", icon: SaveAll,
                     request: project ? { action: "save_as", name: projectStem(project) } : null,
                     shortcut: "Shift+S",
                   },
                 ],
                 [
-                  { label: "Save as Workflow…", request: project?.workflow.completed ? { action: "choose_save_workflow" } : null },
-                  { label: "Import Workflow…", request: { action: "import_workflow" } },
-                  { label: "Run Workflow…", request: project?.saved_workflows?.length ? { action: "choose_run_workflow" } : null },
+                  { label: "Save as Workflow…", icon: WorkflowIcon, request: project?.workflow.completed ? { action: "choose_save_workflow" } : null },
+                  { label: "Import Workflow…", icon: FileInput, request: { action: "import_workflow" } },
+                  { label: "Run Workflow…", icon: Play, request: project?.saved_workflows?.length ? { action: "choose_run_workflow" } : null },
                 ],
                 exportCommands,
               ],
             },
             {
               label: "Edit",
-              groups: [[{ label: "Settings…", request: { action: "settings" } }]],
+              groups: [[{ label: "Settings…", icon: Settings2, request: { action: "settings" } }]],
             },
             {
               label: "Data",
@@ -650,13 +655,13 @@ export function App() {
             {
               label: "Analysis",
               groups: [analysisCommands, [
-                { label: "Operations", request: null, submenu: [formulaCommand, scaleCommand, filterCommand] },
-                { label: "Electrochemistry", request: null, submenu: [filterSegmentsCommand] },
+                { label: "Operations", icon: Calculator, request: null, submenu: [formulaCommand, scaleCommand, filterCommand] },
+                { label: "Electrochemistry", icon: FlaskConical, request: null, submenu: [filterSegmentsCommand] },
               ]],
             },
             {
               label: "Plugins",
-              groups: [[{ label: "Install Python Plugin…", request: { action: "install_plugin" } }]],
+              groups: [[{ label: "Install Python Plugin…", icon: PackagePlus, request: { action: "install_plugin" } }]],
             },
           ]}
         />
