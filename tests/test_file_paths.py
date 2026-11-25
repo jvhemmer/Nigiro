@@ -15,6 +15,44 @@ from nigiro.storage import load_project, save_project
 
 
 class FilePathsTest(unittest.TestCase):
+    def test_workspace_round_trip_switching_and_recent_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace_file = root / "ORR.nigiro-workspace"
+            first = root / "Roughening CVs.nigiro"
+            second = root / "Steady State.nigiro"
+            settings = root / "settings.json"
+            with patch.dict(os.environ, {"NIGIRO_SETTINGS_PATH": str(settings)}):
+                worker = Workspace()
+                worker.dispatch({"action": "save", "path": str(first), "notes": "First set"})
+                created = worker.dispatch({"action": "new_workspace"})["project"]
+                self.assertEqual(created["notes"], "First set")
+                self.assertTrue(created["workspace"]["dirty"])
+                worker.dispatch({"action": "new"})
+                worker.dispatch({"action": "save", "path": str(second), "notes": "Second set"})
+                saved = worker.dispatch({"action": "save_workspace", "path": str(workspace_file)})["project"]
+                self.assertFalse(saved["workspace"]["dirty"])
+                self.assertEqual(saved["workspace"]["name"], "ORR")
+                self.assertEqual([item["name"] for item in saved["workspace"]["projects"]], ["Roughening CVs", "Steady State"])
+                record = json.loads(workspace_file.read_text())
+                self.assertEqual(record["projects"], [first.name, second.name])
+                self.assertEqual(record["active"], second.name)
+
+                reopened = Workspace()
+                initial = reopened.dispatch({"action": "state"})["project"]
+                self.assertEqual(initial["recent_workspaces"], [{"name": "ORR", "path": str(workspace_file)}])
+                loaded = reopened.dispatch({"action": "open_recent_workspace", "path": str(workspace_file)})["project"]
+                self.assertEqual(loaded["notes"], "Second set")
+                switched = reopened.dispatch({"action": "switch_workspace_project", "path": str(first)})["project"]
+                self.assertEqual(switched["notes"], "First set")
+                self.assertFalse(switched["workspace"]["dirty"])
+                with self.assertRaisesRegex(ValueError, "active workspace"):
+                    reopened.dispatch({"action": "switch_workspace_project", "path": str(root / "Unlisted.nigiro")})
+                second.unlink()
+                recovered = reopened.dispatch({"action": "open_workspace", "path": str(workspace_file)})["project"]
+                self.assertEqual(recovered["workspace"]["active_project"], str(first))
+                self.assertEqual(len(recovered["workspace"]["projects"]), 2)
+
     def test_project_folder_takes_priority_and_session_survives_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

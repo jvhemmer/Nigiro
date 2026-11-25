@@ -37,6 +37,7 @@ class Settings:
         self.run_automatically = True
         self.last_import_path: str | None = None
         self.last_project_path: str | None = None
+        self.recent_workspaces: list[str] = []
         if path.exists():
             record = json.loads(path.read_text(encoding="utf-8"))
             self.figure_style = shared_figure_axes(FigureStyle(**record.get("figure_style", record)))
@@ -48,6 +49,9 @@ class Settings:
                     if value is not None and not isinstance(value, str):
                         raise ValueError("Invalid saved file path.")
                     setattr(self, key, value)
+                recent = record.get("recent_workspaces", [])
+                if isinstance(recent, list):
+                    self.recent_workspaces = list(dict.fromkeys(path for path in recent if isinstance(path, str)))[:10]
 
     def save(self, style: FigureStyle) -> None:
         style = shared_figure_axes(style)
@@ -64,11 +68,14 @@ class Settings:
         if run_automatically is not None:
             self.run_automatically = run_automatically
 
-    def remember(self, *, import_path: str | None = None, project_path: str | None = None) -> None:
+    def remember(self, *, import_path: str | None = None, project_path: str | None = None,
+                 workspace_path: str | None = None) -> None:
         if import_path is not None:
             self.last_import_path = import_path
         if project_path is not None:
             self.last_project_path = project_path
+        if workspace_path is not None:
+            self.recent_workspaces = [workspace_path, *(path for path in self.recent_workspaces if path != workspace_path)][:10]
         self.write(self.figure_style)
 
     def write(self, style: FigureStyle, appearance: Appearance | None = None, run_automatically: bool | None = None) -> None:
@@ -82,6 +89,7 @@ class Settings:
                     "run_automatically": self.run_automatically if run_automatically is None else run_automatically,
                     "last_import_path": self.last_import_path,
                     "last_project_path": self.last_project_path,
+                    "recent_workspaces": self.recent_workspaces,
                 }, file, indent=2, allow_nan=False)
             except BaseException:
                 temporary.unlink(missing_ok=True)

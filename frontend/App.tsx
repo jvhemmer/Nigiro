@@ -4,12 +4,13 @@ import appLogo from "../proposed-logos/data-matrix.svg";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   Brackets, Calculator, ChartColumn, ChartLine, ChartNoAxesCombined, ChartScatter, Database, FileCode2, FileInput,
-  FileOutput, FilePlus, FileSpreadsheet, Filter, FlaskConical, FolderOpen, History, ListFilter, PackagePlus, Play,
+  FileOutput, FilePlus, Filter, FlaskConical, FolderOpen, FolderPlus, History, ListFilter, PackagePlus, Play,
   NotebookPen, Save, SaveAll, ScanSearch, Settings2, SquareFunction, Table2, Variable, Workflow as WorkflowIcon,
 } from "lucide-react";
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
 import { CommandSearch } from "./CommandSearch";
 import { NotesPanel } from "./NotesPanel";
+import { ProjectBreadcrumb } from "./ProjectBreadcrumb";
 import { dragTitleBar, WindowControls } from "./WindowControls";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ExportDialog } from "./ExportDialog";
@@ -31,7 +32,7 @@ import { RunWorkflowDialog, SaveWorkflowDialog } from "./WorkflowDialogs";
 import { Worksheet } from "./Worksheet";
 import { SourcePath } from "./SourceChecklist";
 import {
-  elementNames, formatNumber, lineDashes, workspace,
+  elementNames, formatNumber, lineDashes, replacesProject, workspace,
   type FigureElement, type PluginDefinition, type PluginRun, type Project, type Request, type TraceLineStyle, type WorkflowStep, type WorkspaceItem,
 } from "./workspace";
 
@@ -50,9 +51,14 @@ function saveRequest(project: Project): Request {
   return project.file_name ? { action: "save" } : { action: "save_as", name: projectStem(project) };
 }
 
-function confirmDiscard() {
-  return confirm("Discard the unsaved changes to this project?", {
-    title: "Unsaved project",
+function hasProjectChanges(project: Project | null, notes: string | null) {
+  return !!project?.dirty || (notes !== null && notes !== (project?.notes ?? ""));
+}
+
+function confirmDiscard(projectDirty: boolean, workspaceDirty: boolean) {
+  const target = projectDirty && workspaceDirty ? "the project and workspace" : workspaceDirty ? "this workspace" : "this project";
+  return confirm(`Discard the unsaved changes to ${target}?`, {
+    title: "Unsaved changes",
     kind: "warning",
     okLabel: "Discard changes",
     cancelLabel: "Cancel",
@@ -457,10 +463,12 @@ export function App() {
     setBusy(true);
     setError("");
     try {
-      const replace = request.action === "new" || request.action === "open";
+      const replace = replacesProject(request);
       const draft = notesDraft.current;
-      const notesChanged = draft !== null && draft !== (projectRef.current?.notes ?? "");
-      if (replace && (projectRef.current?.dirty || notesChanged) && !await confirmDiscard()) return false;
+      const replacesWorkspace = ["new_workspace", "open_workspace", "open_recent_workspace"].includes(request.action);
+      const projectDirty = replace && hasProjectChanges(projectRef.current, draft);
+      const workspaceDirty = replacesWorkspace && !!projectRef.current?.workspace?.dirty;
+      if ((projectDirty || workspaceDirty) && !await confirmDiscard(projectDirty, workspaceDirty)) return false;
       if (request.action === "delete_step" && !await confirm("Delete this recorded step? Later steps that use its outputs may fail when rerun.", {
         title: "Delete recorded step",
         kind: "warning",
@@ -492,14 +500,16 @@ export function App() {
     const currentWindow = getCurrentWindow();
     let confirmingClose = false;
     const unlisten = currentWindow.onCloseRequested(async (event) => {
+      const projectDirty = hasProjectChanges(projectRef.current, notesDraft.current);
+      const workspaceDirty = !!projectRef.current?.workspace?.dirty;
       if (inFlight.current) {
         event.preventDefault();
-      } else if (projectRef.current?.dirty || (notesDraft.current !== null && notesDraft.current !== (projectRef.current?.notes ?? ""))) {
+      } else if (projectDirty || workspaceDirty) {
         event.preventDefault();
         if (confirmingClose) return;
         confirmingClose = true;
         try {
-          if (await confirmDiscard()) await currentWindow.destroy();
+          if (await confirmDiscard(projectDirty, workspaceDirty)) await currentWindow.destroy();
         } catch (reason) {
           setError(reason instanceof Error ? reason.message : String(reason));
         } finally {
@@ -599,6 +609,8 @@ export function App() {
     || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
   const newProject: MenuCommand = { label: "New…", keywords: "create project", icon: FilePlus, request: { action: "new" }, shortcut: "N" };
   const openProject: MenuCommand = { label: "Open Project…", icon: FolderOpen, request: { action: "open" }, shortcut: "O" };
+  const newWorkspace: MenuCommand = { label: "New Workspace", icon: FolderPlus, keywords: "create", request: { action: "new_workspace" } };
+  const openWorkspace: MenuCommand = { label: "Open Workspace…", icon: FolderOpen, request: { action: "open_workspace" } };
   const dataGroups: MenuCommand[][] = [
     [{ label: "Import Raw Data…", keywords: "csv open load", icon: FileInput, request: { action: "import_data" } }],
     [
@@ -710,6 +722,12 @@ export function App() {
           },
         ],
         [
+          newWorkspace,
+          { label: "Save Workspace…", icon: Save, request: project?.workspace
+            ? { action: "save_workspace", name: project.workspace.name, choose_path: project.workspace.path === null } : null },
+          openWorkspace,
+        ],
+        [
           { label: "Save as Workflow…", icon: WorkflowIcon, request: project?.workflow.completed ? { action: "choose_save_workflow" } : null },
           { label: "Import Workflow…", icon: FileInput, request: { action: "import_workflow" } },
           { label: "Run Workflow…", icon: Play, request: project?.saved_workflows?.length ? { action: "choose_run_workflow" } : null },
@@ -751,16 +769,11 @@ export function App() {
         </div>
         <CommandSearch menus={menus} busy={menuBusy} onRun={runMenu} />
         <div className="app-bar-end">
-          {project && <div className="project-name">
-            <FileSpreadsheet size={17} />
-            <span title={project.file_name ?? "Untitled"}>
-              {project.file_name ?? "Untitled"}
-            </span>
-            {(project.dirty || (notes !== null && notes !== (project.notes ?? "")))
-              && <span className="dirty" title="Unsaved changes" aria-label="Unsaved changes" />}
-          </div>}
           <WindowControls onError={setError} />
         </div>
+        {project && <ProjectBreadcrumb project={project} projectName={project.file_name ? projectStem(project) : "Untitled project"}
+          projectDirty={hasProjectChanges(project, notes)} busy={menuBusy}
+          openWorkspace={openWorkspace} newWorkspace={newWorkspace} onRun={runMenu} />}
       </header>
       {scalarDialog && <ScalarSourceDialog busy={busy} error={error}
         onClose={() => { setScalarDialog(false); setError(""); }}

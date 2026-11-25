@@ -83,6 +83,18 @@ enum Action {
     Sample,
     ImportData,
     Open,
+    NewWorkspace,
+    SaveWorkspace {
+        name: String,
+        choose_path: bool,
+    },
+    OpenWorkspace,
+    OpenRecentWorkspace {
+        path: String,
+    },
+    SwitchWorkspaceProject {
+        path: String,
+    },
     Correct {
         row: usize,
         column: usize,
@@ -407,6 +419,35 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
                 .transpose();
         }
         Action::Open => return pick_file(window, "open", "Open project", "Nigiro", "nigiro"),
+        Action::NewWorkspace => json!({ "action": "new_workspace" }),
+        Action::SaveWorkspace { name, choose_path } => {
+            if choose_path {
+                return save_file(
+                    window,
+                    "save_workspace",
+                    "Save workspace",
+                    "Nigiro Workspace",
+                    &name,
+                    "nigiro-workspace",
+                );
+            }
+            json!({ "action": "save_workspace" })
+        }
+        Action::OpenWorkspace => {
+            return pick_file(
+                window,
+                "open_workspace",
+                "Open workspace",
+                "Nigiro Workspace",
+                "nigiro-workspace",
+            );
+        }
+        Action::OpenRecentWorkspace { path } => {
+            json!({ "action": "open_recent_workspace", "path": path })
+        }
+        Action::SwitchWorkspaceProject { path } => {
+            json!({ "action": "switch_workspace_project", "path": path })
+        }
         Action::InstallPlugin => {
             let Some(request) = pick_file(
                 window,

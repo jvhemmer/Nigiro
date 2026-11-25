@@ -153,8 +153,15 @@ export interface WorkflowOutput {
   name: string;
 }
 
+export interface SavedPath {
+  name: string;
+  path: string;
+}
+
 export interface Project {
   notes: string;
+  workspace: { name: string; path: string | null; dirty: boolean; active_project: string | null; projects: SavedPath[] } | null;
+  recent_workspaces: SavedPath[];
   trace_styles: Record<number, TraceLineStyle>;
   saved_workflows: SavedWorkflow[];
   appearance: Appearance;
@@ -199,7 +206,9 @@ export interface TraceLineStyle {
 }
 
 export type Request =
-  | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "install_plugin" }
+  | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "install_plugin" | "new_workspace" | "open_workspace" }
+  | { action: "open_recent_workspace" | "switch_workspace_project"; path: string }
+  | { action: "save_workspace"; name: string; choose_path: boolean }
   | { action: "save"; notes?: string }
   | { action: "move_step"; step_id: number; direction: number }
   | { action: "save_workflow"; name: string; steps: number[]; inputs: Record<string, string>; outputs: WorkflowOutput[] }
@@ -231,18 +240,23 @@ export const elementNames: Record<FigureElement, string> = {
   observations: "Observations",
 };
 
+export function replacesProject(request: Request): boolean {
+  return ["new", "open", "open_workspace", "open_recent_workspace", "switch_workspace_project"].includes(request.action);
+}
+
 const figureCache = new Map<number, { token: string; figure: PluginFigure }>();
 let appearance: { style: string; colors: string; lines: string; project: Project } | null = null;
 
 export async function workspace(request: Request) {
-  const knownFigures = Object.fromEntries([...figureCache].map(([id, entry]) => [id, entry.token]));
+  const replacing = replacesProject(request);
+  const knownFigures = replacing ? {} : Object.fromEntries([...figureCache].map(([id, entry]) => [id, entry.token]));
   const response = await invoke<{ project: Project; plugins: PluginDefinition[] } | null>("workspace", {
     request, paged: true, knownFigures,
   });
   if (!response) return response;
   const project = response.project;
   project.trace_styles ??= {};
-  if (request.action === "new" || request.action === "open") figureCache.clear();
+  if (replacing) figureCache.clear();
   if (project.figure_id !== null && project.figure_token) {
     const cached = figureCache.get(project.figure_id);
     if (project.figure_cached && cached) project.figure = cached.figure;

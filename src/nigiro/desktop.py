@@ -33,6 +33,7 @@ from nigiro.settings import Appearance, Settings
 from nigiro.storage import load_project_session, operation_record, save_project
 from nigiro.workflow import Step, Workflow, map_references
 from nigiro.workflow_file import read_workflow, register_workflow, validate_workflow, workflow_catalog, write_workflow
+from nigiro.workspace_file import ProjectCollection
 
 
 SAMPLE = b"""Time (s),Signal
@@ -62,6 +63,7 @@ class Workspace:
         self.workflow = Workflow(self.project)
         self.fonts = SystemFonts()
         self.path: Path | None = None
+        self.collection: ProjectCollection | None = None
         self.dirty = False
         folder = os.environ.get("NIGIRO_PLUGIN_DIR")
         settings_path = os.environ.get("NIGIRO_SETTINGS_PATH")
@@ -86,8 +88,34 @@ class Workspace:
         self.workflow = Workflow(project)
         self.figure_id = project.last_figure_id
         self.source_id = None
+        self.row_offset = 0
         self.path = path
         self.dirty = path is None and project.source is not None
+
+    def open_project(self, path: Path) -> None:
+        project, workflow = load_project_session(path)
+        self.set_project(project, path)
+        self.workflow = workflow
+        imported = project.last_import_path
+        self.remember_paths(
+            import_path=imported if imported and Path(imported).parent.is_dir() else None,
+            project_path=str(path),
+        )
+
+    def open_workspace(self, path: Path) -> None:
+        collection = ProjectCollection.open(path)
+        candidates = tuple(dict.fromkeys(project for project in (collection.active, *collection.projects) if project is not None))
+        for project in candidates:
+            try:
+                self.open_project(project)
+            except (OSError, ValueError, csv.Error):
+                continue
+            collection = collection.select(project)
+            break
+        else:
+            self.set_project(Project(), None)
+        self.collection = collection
+        self.remember_paths(workspace_path=str(path))
 
     def execute(self, project: Project, record: FigureRecord, sources: dict[str, SourceTable]) -> Execution:
         step = plugin_step(record.recipe)
@@ -321,6 +349,14 @@ class Workspace:
         workflow_runs = self.workflow_source_runs()
         state["project"] = {
             "notes": project.notes,
+            "workspace": {
+                "name": self.collection.path.stem if self.collection.path else "Untitled workspace",
+                "path": str(self.collection.path) if self.collection.path else None,
+                "dirty": self.collection.dirty,
+                "active_project": str(self.path) if self.path in self.collection.projects else None,
+                "projects": [{"name": path.stem, "path": str(path)} for path in self.collection.projects],
+            } if self.collection else None,
+            "recent_workspaces": [{"name": Path(path).stem, "path": path} for path in self.settings.recent_workspaces],
             "source_name": project.source.name if project.source else None,
             "file_name": self.path.name if self.path else None,
             "dirty": self.dirty,
@@ -736,6 +772,27 @@ class Workspace:
                 pass
             case "new":
                 self.set_project(Project(), None)
+            case "new_workspace":
+                self.collection = ProjectCollection().select(self.path) if self.path else ProjectCollection()
+            case "open_workspace" | "open_recent_workspace":
+                path = Path(request["path"]).resolve()
+                if request["action"] == "open_recent_workspace" and str(path) not in self.settings.recent_workspaces:
+                    raise ValueError("Choose a recently opened workspace.")
+                self.open_workspace(path)
+            case "save_workspace":
+                if self.collection is None:
+                    raise ValueError("Create a workspace before saving it.")
+                path = Path(request["path"]).resolve() if request.get("path") else self.collection.path
+                if path is None:
+                    raise ValueError("Choose a file name for the workspace.")
+                self.collection = self.collection.save(path)
+                self.remember_paths(workspace_path=str(path))
+            case "switch_workspace_project":
+                path = Path(request["path"]).resolve()
+                if self.collection is None or path not in self.collection.projects:
+                    raise ValueError("Choose a project in the active workspace.")
+                self.open_project(path)
+                self.collection = self.collection.select(path)
             case "sample":
                 self.enqueue({"action": "import_data"}, "Import sample data", (Source("Sample data.csv", SAMPLE),))
             case "import_data":
@@ -750,14 +807,9 @@ class Workspace:
                 self.remember_paths(import_path=str(paths[-1]))
             case "open":
                 path = Path(request["path"]).resolve()
-                project, workflow = load_project_session(path)
-                self.set_project(project, path)
-                self.workflow = workflow
-                imported = self.project.last_import_path
-                self.remember_paths(
-                    import_path=imported if imported and Path(imported).parent.is_dir() else None,
-                    project_path=str(path),
-                )
+                self.open_project(path)
+                if self.collection is not None:
+                    self.collection = self.collection.select(path)
             case "install_plugin":
                 self.plugins.install(Path(request["path"]))
                 if any(result.error for result in self.results.values()):
@@ -1044,13 +1096,15 @@ class Workspace:
                 self.project = project.apply(operation)
                 self.dirty = True
             case "save":
-                path = Path(request["path"]) if "path" in request else self.path
+                path = Path(request["path"]).resolve() if "path" in request else self.path
                 if path is None or path.suffix.lower() != ".nigiro":
                     raise ValueError("Choose a file name with the .nigiro extension.")
                 updated = replace(project, notes=project.notes if request.get("notes") is None else request["notes"])
                 save_project(path, replace(updated, saved_sources=self.sources), self.workflow)
                 self.project = updated
                 self.path = path
+                if self.collection is not None:
+                    self.collection = self.collection.select(path)
                 self.dirty = False
             case "export":
                 self.export(Path(request["path"]))
