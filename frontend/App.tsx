@@ -671,12 +671,10 @@ export function App() {
   return (
     <div className="app" onContextMenu={openContextMenu}>
       <header className="app-bar">
-        <div className="brand"><ChartNoAxesCombined size={21} /><span>Nigiro</span></div>
-        <MenuBar
-          busy={menuBusy}
-          onRun={runMenu}
-          menus={menus}
-        />
+        <div className="app-bar-start">
+          <div className="brand"><ChartNoAxesCombined size={21} /><span>Nigiro</span></div>
+          <MenuBar busy={menuBusy} onRun={runMenu} menus={menus} />
+        </div>
         <CommandSearch menus={menus} busy={menuBusy} onRun={runMenu} />
         {project && (
           <div className="project-name">
