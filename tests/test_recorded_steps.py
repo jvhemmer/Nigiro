@@ -4,12 +4,55 @@ import runpy
 import tempfile
 import unittest
 from dataclasses import replace
+from json import dumps, loads
 from pathlib import Path
 
+from nigiro.batch_figure import overlay_figures
+from nigiro.builtin_plugins import BUILTINS, linear_fit_view
 from nigiro.desktop import Workspace
+from nigiro.project import PluginStep
+from nigiro.source_tables import output_tables
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_overlay_keeps_input_figures_and_replays_with_one_pair_of_axes(self):
+        worker = Workspace()
+        worker.settings.run_automatically = True
+        worker.dispatch({"action": "sample"})
+        plot = {"action": "execute_plugin", "plugin_id": "nigiro.line", "version": "1", "checksum": None,
+                "output": "overlay", "runs": [{"source_id": None, "options": {"x": 0, "y": 1}}]}
+        first = worker.dispatch(plot)["project"]["figure_id"]
+        second = worker.dispatch({**plot, "plugin_id": "nigiro.scatter"})["project"]["figure_id"]
+        worker.dispatch({"action": "figure_style", "figure_id": second, "style": {"x": {"label": "Common X"}}})
+        overlay = worker.dispatch({"action": "overlay_figures", "figure_ids": [second, first]})["project"]
+        self.assertEqual([figure["id"] for figure in overlay["figures"]], [first, second, overlay["figure_id"]])
+        self.assertEqual([trace["name"] for trace in overlay["figure"]["traces"]], ["Scatter 1", "Line 1"])
+        self.assertEqual([trace["mode"] for trace in overlay["figure"]["traces"]], ["markers", "lines"])
+        self.assertEqual(overlay["figure_style"]["x"]["label"], "Common X")
+        self.assertEqual(overlay["workflow"]["steps"][-1]["label"], "Plot: Overlay")
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "overlay.nigiro"
+            combined = worker.dispatch({"action": "overlay_figures", "figure_ids": [overlay["figure_id"], first]})["project"]
+            self.assertEqual(combined["figure"]["series_cycle"], [0, 1, 2])
+            worker.dispatch({"action": "save", "path": str(path)})
+            reopened = Workspace()
+            self.assertEqual(reopened.dispatch({"action": "open", "path": str(path)})["project"]["figure"], combined["figure"])
+            replay = reopened.dispatch({"action": "run_all"})["project"]["figure"]
+            traces = combined["figure"]["traces"]
+            self.assertEqual(replay["traces"], traces)
+            recipe = loads(dumps(reopened.dispatch({"action": "export_recipe"})["project"]["script_recipe"]))
+            replay_figure = runpy.run_path(str(Path(__file__).resolve().parents[1] / "frontend/replay.py"), init_globals={
+                "BUILTINS": BUILTINS, "PluginStep": PluginStep, "output_tables": output_tables,
+                "REFERENCE_FORMULA_PLUGINS": set(), "linear_fit_view": linear_fit_view, "overlay_figures": overlay_figures,
+            })["replay_figure"]
+            self.assertEqual(replay_figure(reopened.project, {"traces": [{}, {}, {}], "layout": {}}, recipe)["traces"], traces)
+
+        bar = worker.dispatch({**plot, "plugin_id": "nigiro.bar"})["project"]["figure_id"]
+        with self.assertRaisesRegex(ValueError, "different types of X axes"):
+            worker.dispatch({"action": "overlay_figures", "figure_ids": [first, bar]})
+        self.assertEqual(worker.figure_id, bar)
+
     def test_line_style_persists_for_only_the_selected_trace(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "lines.nigiro"

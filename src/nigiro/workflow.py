@@ -73,6 +73,8 @@ def map_references(request: dict, transform: Callable) -> dict:
     for field, kind in (("source_id", "source"), ("figure_id", "figure"), ("target_id", "figure")):
         if field in result and (field == "source_id" or result[field] is not None):
             result[field] = transform(kind, result[field])
+    if "figure_ids" in result:
+        result["figure_ids"] = [transform("figure", value) for value in result["figure_ids"]]
     if "item" in result:
         item = result["item"]
         result["item"] = {**item, "id": transform(item["kind"], item["id"])}

@@ -301,6 +301,7 @@ class ItemEdit:
 class OverlayFigure:
     figure_ids: tuple[int, ...]
     fit_id: int | None = None
+    keep_inputs: bool = False
 
     def __post_init__(self) -> None:
         if (
@@ -311,6 +312,8 @@ class OverlayFigure:
             raise ValueError("Choose at least two different figures to overlay.")
         if self.fit_id is not None and (type(self.fit_id) is not int or self.fit_id < 0):
             raise ValueError("Invalid fit overlay reference.")
+        if type(self.keep_inputs) is not bool:
+            raise ValueError("Choose whether to keep the input figures.")
         object.__setattr__(self, "figure_ids", tuple(self.figure_ids))
 
 
@@ -350,6 +353,10 @@ class FigureRecord:
 
     def members(self, figure_id: int) -> tuple[int, ...]:
         return (self.overlay.figure_ids if self.overlay else (figure_id,)) + self.layers
+
+    @property
+    def combined_input_count(self) -> int:
+        return len(self.overlay.figure_ids) if self.overlay and self.overlay.keep_inputs else 0
 
 
 @dataclass(frozen=True)
@@ -420,7 +427,9 @@ class Project:
     @cached_property
     def visible_figures(self) -> dict[int, FigureRecord]:
         members = {
-            key for op in self.operations if isinstance(op, (OverlayFigure, AddFigureLayers)) for key in op.figure_ids
+            key for op in self.operations
+            if isinstance(op, AddFigureLayers) or (isinstance(op, OverlayFigure) and not op.keep_inputs)
+            for key in op.figure_ids
         }
         return {
             key: figure for key, figure in self.figures.items()
@@ -473,7 +482,7 @@ class Project:
                     legacy_colors.copy(), part="residual", fit_id=op.fit_id,
                 )
             elif isinstance(op, OverlayFigure):
-                if any(key not in figures or figures[key].overlay for key in op.figure_ids):
+                if any(key not in figures or (figures[key].overlay and not op.keep_inputs) for key in op.figure_ids):
                     raise ValueError("An overlay refers to a missing or combined figure.")
                 current = index
                 first = figures[op.figure_ids[0]]
@@ -483,6 +492,8 @@ class Project:
                 ):
                     raise ValueError("A residual overlay needs a fit overlay.")
                 figures[index] = replace(first, fit_id=op.fit_id, overlay=op)
+                if op.keep_inputs:
+                    figures[index] = replace(figures[index], layers=(), trace_styles={})
             elif isinstance(op, AddFigureLayers):
                 target = figures.get(op.target_id)
                 if target is None or any(

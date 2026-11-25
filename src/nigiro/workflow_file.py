@@ -13,7 +13,7 @@ from .workflow import map_references
 ACTIONS = {
     "import_data", "add_scalar", "add_array", "apply_formula", "execute_plugin",
     "run_plugin", "scale_column", "correct", "edit_item", "color", "figure_style",
-    "run_batch", "trace_style",
+    "run_batch", "trace_style", "overlay_figures",
 }
 OUTPUT_KEY = re.compile(r"([1-9][0-9]*)/(source|figure)/([0-9]+)")
 TABLE_KEY = re.compile(r"[a-z][a-z0-9_-]*")

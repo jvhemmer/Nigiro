@@ -97,12 +97,20 @@ def replay_figure(project, figure, recipe):
             residuals[key] = linear_fit_view(result, "residual")
             result = linear_fit_view(result, "fit")
         figures[key] = result
-    target = recipe["figure_id"]
-    if str(target) in overlays:
-        overlay = overlays[str(target)]
-        result = overlay_figures([figures[key] for key in overlay["members"]], overlay["labels"], overlay["preserve_first"])
-    else:
-        result = figures[target]
+    combined = {}
+
+    def resolve(key):
+        overlay = overlays.get(str(key))
+        if overlay is None:
+            return figures[key]
+        if key not in combined:
+            count = overlay.get("combined_input_count", 0)
+            inputs = [resolve(member) if index < count else figures[member]
+                      for index, member in enumerate(overlay["members"])]
+            combined[key] = overlay_figures(inputs, overlay["labels"], overlay["preserve_first"], single_axes=bool(count))
+        return combined[key]
+
+    result = resolve(recipe["figure_id"])
     return {
         **figure,
         "traces": [merge_style(trace, style) for trace, style in zip(result["traces"], figure["traces"], strict=True)],

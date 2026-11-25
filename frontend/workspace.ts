@@ -61,12 +61,6 @@ export interface PluginSubmission {
   runs: { source_id: string | null; options: PluginOptions; target_id: number | null; references?: PluginRun["references"] }[];
 }
 
-export interface OverlayInput {
-  plugin: PluginRun & { source: string | null; part?: "fit" | "residual" };
-  input: SourceTable | null;
-  label: string;
-}
-
 export interface PluginFigure {
   definition: PluginDefinition;
   recipe: PluginRun;
@@ -82,7 +76,7 @@ export interface PluginFigure {
   summary?: Record<string, number | string | boolean | null>;
   series_colors?: (string | null)[];
   series_cycle?: (number | null)[];
-  overlay_inputs?: OverlayInput[];
+  overlay_inputs?: { label: string }[];
   preserve_first?: boolean;
 }
 
@@ -95,7 +89,7 @@ export type RecordedStep =
   | ({ kind: "figure_style" } & FigureStyle)
   | { kind: "figure_appearance"; figure_id: number; style: FigureStyle }
   | { kind: "residual_figure"; fit_id: number }
-  | { kind: "overlay_figure"; figure_ids: number[] }
+  | { kind: "overlay_figure"; figure_ids: number[]; keep_inputs?: boolean }
   | { kind: "add_figure_layers"; target_id: number; figure_ids: number[] }
   | { kind: "item_edit"; target: WorkspaceItem["kind"]; item_id: WorkspaceItem["id"]; name: string | null };
 
@@ -188,7 +182,7 @@ export interface Project {
   rows: string[][];
   original_rows: string[][];
   operations: RecordedStep[];
-  figures: { id: number; name: string; token?: string }[];
+  figures: { id: number; name: string; overlayable: boolean; token?: string }[];
   figure_id: number | null;
   figure_input: SourceTable | null;
   sources: ProjectSource[];
@@ -237,6 +231,7 @@ export type Request =
   | ({ action: "execute_plugin" } & Pick<PluginRun, "plugin_id" | "version" | "checksum"> & PluginSubmission)
   | { action: "select_source"; source_id: string | null }
   | { action: "select_figure"; figure_id: number }
+  | { action: "overlay_figures"; figure_ids: number[] }
   | { action: "edit_item"; item: WorkspaceItem; name: string | null }
   | { action: "color"; element: FigureElement; color: string; figure_id: number }
   | { action: "trace_style"; figure_id: number; trace: number; style: TraceLineStyle | null }

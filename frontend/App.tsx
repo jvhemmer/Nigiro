@@ -6,7 +6,7 @@ import appLogo from "../proposed-logos/data-matrix.svg";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   Brackets, Calculator, ChartColumn, ChartLine, ChartNoAxesCombined, ChartScatter, Database, FileCode2, FileInput,
-  FileOutput, FilePlus, Filter, FlaskConical, FolderOpen, FolderPlus, History, Info, ListFilter, PackagePlus, Play,
+  FileOutput, FilePlus, Filter, FlaskConical, FolderOpen, FolderPlus, History, Info, Layers, ListFilter, PackagePlus, Play,
   NotebookPen, Save, SaveAll, ScanSearch, Settings2, SquareFunction, Table2, Variable, Workflow as WorkflowIcon,
 } from "lucide-react";
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
@@ -16,6 +16,7 @@ import { ProjectBreadcrumb } from "./ProjectBreadcrumb";
 import { dragTitleBar, WindowControls } from "./WindowControls";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ExportDialog } from "./ExportDialog";
+import { OverlayDialog } from "./OverlayDialog";
 import { applyAppearance, cacheAppearance } from "./appearance";
 import { arrayFormulaId, columnFormulaId } from "./FormulaEditor";
 import { ArraySourceDialog } from "./ArraySourceDialog";
@@ -269,6 +270,8 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
   const traceMode = scatter ? trace.mode : undefined;
   const color = seriesColor ?? (role ? project.colors[role] : typeof traceColor === "string" ? traceColor : undefined);
   const figureName = project.figures.find(({ id }) => id === inspection.id)?.name;
+  const operation = project.operations[inspection.id];
+  const isOverlay = operation?.kind === "overlay_figure" && operation.keep_inputs;
   const input = project.sources.find(({ id }) => id === (figure.recipe.source_id ?? null));
   const override = index === undefined ? undefined : project.trace_styles[index];
   const appearance = trace && index !== undefined && hasEditableLine(trace)
@@ -285,7 +288,7 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
     {trace && <button type="button" className="trace-list-back" onClick={() => onInspectFigure(inspection.id)}>All traces</button>}
     <h2>{trace ? trace.name || `Trace ${(index ?? 0) + 1}` : figureName}</h2>
     <dl>
-      <dt>Plugin</dt><dd>{figure.definition.name}</dd>
+      <dt>{isOverlay ? "Plot" : "Plugin"}</dt><dd>{isOverlay ? "Overlay" : figure.definition.name}</dd>
       {figure.overlay_inputs ? <><dt>Inputs</dt><dd>{figure.overlay_inputs.map(({ label }) => label).join(", ")}</dd></>
         : input && <><dt>Input</dt><dd>{input.name}</dd></>}
       {trace && <>
@@ -444,6 +447,7 @@ export function App() {
   }, []);
   const [plugins, setPlugins] = useState<PluginDefinition[]>([]);
   const [inputDialog, setInputDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | "scale" | null>(null);
+  const [overlayDialog, setOverlayDialog] = useState(false);
   const [scalarDialog, setScalarDialog] = useState(false);
   const [arrayDialog, setArrayDialog] = useState(false);
   const [stepDialog, setStepDialog] = useState<WorkflowStep | null>(null);
@@ -665,6 +669,7 @@ export function App() {
     }
     else if (request.action === "settings") { setError(""); setSettingsDialog("appearance"); }
     else if (request.action === "choose_scale") { setError(""); setInputDialog("scale"); }
+    else if (request.action === "choose_overlay") { setError(""); setOverlayDialog(true); }
     else if (request.action === "choose_scalar") { setError(""); setScalarDialog(true); }
     else if (request.action === "choose_array") { setError(""); setArrayDialog(true); }
     else if (request.action === "choose_step") { setError(""); setStepDialog(request.step); }
@@ -676,7 +681,7 @@ export function App() {
     else void run(request);
   }
 
-  const menuBusy = busy || scalarDialog || arrayDialog || stepDialog !== null || workflowDialog !== null
+  const menuBusy = busy || scalarDialog || arrayDialog || overlayDialog || stepDialog !== null || workflowDialog !== null
     || settingsDialog !== null || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
   const newProject: MenuCommand = { label: "New…", keywords: "create project", icon: FilePlus, request: { action: "new" }, shortcut: "N" };
   const openProject: MenuCommand = { label: "Open Project…", icon: FolderOpen, request: { action: "open" }, shortcut: "O" };
@@ -703,6 +708,7 @@ export function App() {
       ? { action: "choose_scale" } : null,
   };
   const plotCommands = pluginCommands("plot");
+  const overlayFigures = project?.figures.filter((figure) => figure.overlayable) ?? [];
   const filterPlugin = plugins.find((plugin) => plugin.id === "nigiro.filter");
   const filterCommand: MenuCommand = { label: "Filter…", icon: Filter, request: filterPlugin && project?.sources.length
     ? { action: "choose_plugin", plugin: filterPlugin } : null };
@@ -819,7 +825,10 @@ export function App() {
     },
     {
       label: "Plot",
-      groups: [plotCommands],
+      groups: [plotCommands, [{
+        label: "Overlay…", icon: Layers, keywords: "combine figures shared axes",
+        request: overlayFigures.length >= 2 ? { action: "choose_overlay" } : null,
+      }]],
     },
     {
       label: "Analysis",
@@ -852,6 +861,9 @@ export function App() {
       {arrayDialog && <ArraySourceDialog busy={busy} error={error} sources={project?.sources ?? []}
         onClose={() => { setArrayDialog(false); setError(""); }}
         onAdd={async (request) => { if (await run(request)) setArrayDialog(false); }} />}
+      {project && overlayDialog && <OverlayDialog figures={overlayFigures} active={project.figure_id} busy={busy} error={error}
+        onClose={() => { setOverlayDialog(false); setError(""); }}
+        onCreate={async (figure_ids) => { if (await run({ action: "overlay_figures", figure_ids })) setOverlayDialog(false); }} />}
       {stepDialog && <WorkflowStepDialog step={stepDialog} sources={project?.sources ?? []} busy={busy} error={error} onRun={run}
         onClose={() => { setStepDialog(null); setError(""); }} />}
       {project && workflowDialog === "save" && <SaveWorkflowDialog {...{ project, busy, error }} onRun={run}
@@ -940,7 +952,7 @@ export function App() {
           }}
         />
       )}
-      {error && !scalarDialog && !stepDialog && !workflowDialog && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
+      {error && !scalarDialog && !overlayDialog && !stepDialog && !workflowDialog && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
         <ProjectEditor {...{ project, projectKey, busy, run, capture }} notes={notes ?? project.notes ?? ""} onNotesChange={updateNotes}
           onEditStep={(step) => runMenu({ action: "choose_step", step })}

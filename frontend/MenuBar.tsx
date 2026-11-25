@@ -7,6 +7,7 @@ import type { PluginDefinition, Request, WorkflowStep } from "./workspace";
 
 export type MenuRequest = Request
   | { action: "choose_plugin"; plugin: PluginDefinition }
+  | { action: "choose_overlay" }
   | { action: "figure_settings" }
   | { action: "settings" }
   | { action: "choose_scale" }

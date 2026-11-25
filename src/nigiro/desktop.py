@@ -17,7 +17,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 from nigiro.analysis import FitResult, PlotResult
-from nigiro.batch_figure import overlay_figures
+from nigiro.batch_figure import overlay_figures, single_xy_figure
 from nigiro.builtin_plugins import linear_fit_view
 from nigiro.column_formula import ARRAY_FORMULA_PLUGIN, COLUMN_FORMULA_PLUGIN, REFERENCE_FORMULA_PLUGINS, parse_formula
 from nigiro.figure_style import AxisStyle, FigureStyle
@@ -146,6 +146,26 @@ class Workspace:
         table = sources[source_id]
         return Worksheet(table.columns, table.rows)
 
+    @staticmethod
+    def overlay_inputs(record, figure_id, results, combined):
+        inputs = []
+        for index, key in enumerate(record.members(figure_id)):
+            use_combined = index < record.combined_input_count
+            result = combined[key] if use_combined and key in combined else results[key]
+            if result.figure is None:
+                raise ValueError(result.error or "A figure layer is unavailable.")
+            inputs.append(result.figure)
+        return inputs
+
+    def overlay_labels(self, project, figure_id, sources, names):
+        record = project.figures[figure_id]
+        return [
+            names[key] if index < record.combined_input_count else self.source_name(
+                project, plugin_step(project.figures[key].recipe).source_id, sources, names,
+            )
+            for index, key in enumerate(record.members(figure_id))
+        ]
+
     def render(
         self, project: Project, *, changed: set[int] | None = None,
         fallback: dict[str, SourceTable] | None = None, destinations: set[int] | None = None,
@@ -186,12 +206,10 @@ class Workspace:
             if not (record.overlay or record.layers):
                 continue
             try:
-                members = record.members(figure_id)
-                inputs = [results[key] for key in members]
-                if any(result.figure is None for result in inputs):
-                    raise ValueError(next(result.error or "A figure layer is unavailable." for result in inputs if result.figure is None))
-                labels = [self.source_name(project, result.figure["recipe"]["source_id"], sources, names) for result in inputs]
-                figure = overlay_figures([result.figure for result in inputs], labels, preserve_first=record.overlay is None)
+                inputs = self.overlay_inputs(record, figure_id, results, combined)
+                labels = self.overlay_labels(project, figure_id, sources, names)
+                figure = overlay_figures(inputs, labels, preserve_first=record.overlay is None,
+                                         single_axes=bool(record.combined_input_count))
                 combined[figure_id] = Execution(figure, None, {})
             except (ValueError, KeyError, TypeError) as exc:
                 message = f"Could not combine the figures. {exc}"
@@ -214,7 +232,11 @@ class Workspace:
         names = {}
         counts: dict[str, int] = {}
         for figure_id, entry in project.figures.items():
-            if entry.overlay:
+            if entry.combined_input_count:
+                number = counts.get("overlay", 0) + 1
+                counts["overlay"] = number
+                names[figure_id] = f"Overlay {number}"
+            elif entry.overlay:
                 names[figure_id] = f"{names[entry.overlay.figure_ids[0]]} · Overlay"
             elif entry.fit_id is not None:
                 names[figure_id] = f"Residuals · {names[entry.fit_id]}"
@@ -327,15 +349,19 @@ class Workspace:
         if figure_cached:
             figure = None
         if figure and (record.overlay or record.layers):
+            members = self.overlay_inputs(record, self.figure_id, self.results, self.combined)
+            labels = self.overlay_labels(project, self.figure_id, self.sources, names)
             inputs = []
-            for key in (() if paged else record.members(self.figure_id)):
-                member = self.results[key].figure
+            for member, label in zip(members, labels, strict=True):
+                if paged:
+                    inputs.append({"label": label})
+                    continue
                 source_id = member["recipe"]["source_id"]
                 table = self.input_table(project, source_id)
                 inputs.append({
                     "plugin": {**member["recipe"], "source": member["source"], "part": member.get("part")},
                     "input": asdict(table) if table else None,
-                    "label": self.source_name(project, source_id, self.sources, names),
+                    "label": label,
                 })
             figure = {**figure, "overlay_inputs": inputs, "preserve_first": record.overlay is None}
             figure_input = None
@@ -369,8 +395,11 @@ class Workspace:
             "rows": rows[offset:end] if paged else project.worksheet.rows,
             "original_rows": (original[offset:end] if original is not None else ()) if paged else (project.source.worksheet.rows if project.source else ()),
             "operations": [operation_record(op) for op in project.operations],
-            "figures": [{"id": key, "name": names[key], **({"token": self.figure_tokens.get(key)} if paged else {})}
-                        for key in project.visible_figures],
+            "figures": [{
+                "id": key, "name": names[key],
+                "overlayable": single_xy_figure((self.combined.get(key) or self.results[key]).figure),
+                **({"token": self.figure_tokens.get(key)} if paged else {}),
+            } for key in project.visible_figures],
             "figure_id": self.figure_id,
             "figure_input": {"name": figure_input.name, "columns": figure_input.columns, "rows": () if paged else figure_input.rows} if figure_input else None,
             "sources": [
@@ -453,6 +482,8 @@ class Workspace:
                 return "Analysis: Column Formula"
             case "plot":
                 return f"Plot: {request['plot_type'].title()}"
+            case "overlay_figures":
+                return "Plot: Overlay"
             case "execute_plugin" | "run_plugin":
                 plugin = self.plugins.plugins.get((request["plugin_id"], request["version"], request["checksum"]))
                 if plugin:
@@ -877,6 +908,9 @@ class Workspace:
                 self.enqueue(command, f"Add array {name}")
             case "execute_plugin" | "run_plugin":
                 self.enqueue(request, request["plugin_id"])
+            case "overlay_figures":
+                operation = OverlayFigure(request["figure_ids"], keep_inputs=True)
+                self.enqueue({**request, "figure_ids": operation.figure_ids}, "Plot: Overlay")
             case "scale_column":
                 operations = self.scale_operations(request)
                 if len(operations) == 1:
@@ -923,14 +957,11 @@ class Workspace:
         outputs = {}
         for key, record in project.figures.items():
             if record.overlay or record.layers:
-                members = record.members(key)
                 outputs[key] = {
-                    "members": members,
-                    "labels": [
-                        self.source_name(project, plugin_step(project.figures[member].recipe).source_id, self.sources, names)
-                        for member in members
-                    ],
+                    "members": record.members(key),
+                    "labels": self.overlay_labels(project, key, self.sources, names),
                     "preserve_first": record.overlay is None,
+                    "combined_input_count": record.combined_input_count,
                 }
         return {"project": {
             "operations": [operation_record(op) for op in project.operations],
@@ -1059,6 +1090,16 @@ class Workspace:
                 self.run_batch(project, request)
             case "execute_plugin":
                 self.run_batch(project, {**request, "steps": [request]})
+            case "overlay_figures":
+                operation = OverlayFigure(request["figure_ids"], keep_inputs=True)
+                for member in operation.figure_ids:
+                    self.validate_destination(project, member)
+                figure_id = len(project.operations)
+                updated = project.apply(operation)
+                self.render(updated, changed={figure_id}, fallback=self.sources)
+                self.project = updated
+                self.figure_id = figure_id
+                self.dirty = True
             case "run_plugin" | "fit" | "plot":
                 figure_id = len(project.operations)
                 selection = figure_id
