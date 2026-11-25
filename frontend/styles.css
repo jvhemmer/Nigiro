@@ -1,9 +1,26 @@
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Variable.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Italic-Variable.ttf") format("truetype");
+  font-style: italic;
+  font-weight: 100 800;
+  font-display: swap;
+}
+
 :root {
   color: var(--text);
   background: var(--canvas);
-  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--ui-font);
   font-size: 13px;
   font-synthesis: none;
+  --ui-font: "JetBrains Mono", ui-monospace, monospace;
   --text: #19213a;
   --canvas: #e9edf1;
   --surface: #edf0f3;
@@ -42,7 +59,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: .8; }
 * { box-sizing: border-box; }
 body { margin: 0; }
 h1, h2, p, dl, dd { margin: 0; }
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
+code, kbd, pre { font-family: var(--ui-font); }
 select { height: 24px; padding-block: 0; }
 
 button {
@@ -447,7 +465,7 @@ td input {
 .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .line-swatch { height: 3px; border-radius: 2px; }
 .color-field { display: flex; align-items: center; justify-content: space-between; gap: 5px; margin-top: 10px; }
-.color-field label { display: flex; align-items: center; gap: 5px; color: var(--muted); font-family: ui-monospace, monospace; font-size: .82rem; }
+.color-field label { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: .82rem; }
 .color-field input { width: 28px; height: 27px; padding: 1px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; }
 .color-field button { min-height: 24px; padding-inline: 7px; font-size: .82rem; }
 
@@ -480,7 +498,7 @@ td input {
 .formula-surface { position: relative; }
 .formula-surface pre, .fit-settings .formula-surface textarea {
   display: block; width: 100%; margin: 0; padding: 5px 6px; border: 1px solid var(--line);
-  font: 12px/1.5 ui-monospace, monospace; white-space: pre; tab-size: 4; letter-spacing: normal;
+  font: 12px/1.5 var(--ui-font); white-space: pre; tab-size: 4; letter-spacing: normal;
 }
 .formula-surface pre {
   position: absolute; inset: 0; overflow: hidden; pointer-events: none;
@@ -638,7 +656,7 @@ td input {
 
 .math-settings { grid-column: 1 / -1; display: grid; gap: 9px; }
 .math-settings textarea {
-  width: 100%; resize: vertical; padding: 5px; font-family: monospace;
+  width: 100%; resize: vertical; padding: 5px;
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
 }
 
