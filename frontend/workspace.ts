@@ -107,6 +107,7 @@ export interface ProjectSource {
   kind: "raw" | "derived";
   scalar?: boolean;
   detail?: string;
+  array_step?: number;
   row_count: number;
 }
 
@@ -123,6 +124,7 @@ export interface WorkflowStep {
   status: "done" | "pending" | "stale" | "failed";
   options: PluginOptions[];
   labels: Record<string, string>;
+  files?: string[];
 }
 
 export interface Workflow {

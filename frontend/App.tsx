@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useId, useRef, useState, type MouseEvent, type Ref } from "react";
+import { Fragment, useCallback, useEffect, useId, useRef, useState, type MouseEvent, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
-  ChartNoAxesCombined, Database, FileSpreadsheet, History, ScanSearch, Table2, Variable,
+  Brackets, ChartNoAxesCombined, Database, FileSpreadsheet, History, ScanSearch, Table2, Variable,
 } from "lucide-react";
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
@@ -20,7 +20,7 @@ import { MenuBar, type MenuCommand, type MenuRequest } from "./MenuBar";
 import { columnFields, InputOptionsDialog } from "./InputOptionsDialog";
 import { useListDrag } from "./useListDrag";
 import { ViewTabs, viewTabId } from "./ViewTabs";
-import { WorkflowPanel, WorkflowStepDialog } from "./WorkflowPanel";
+import { statusLabels, WorkflowPanel, WorkflowStepDialog } from "./WorkflowPanel";
 import { Worksheet } from "./Worksheet";
 import { SourcePath } from "./SourceChecklist";
 import {
@@ -78,6 +78,7 @@ function ColorField({
 
 type Inspection =
   | { kind: "source"; id: string | null }
+  | { kind: "step"; id: number }
   | { kind: "figure"; id: number; trace?: number };
 
 function FigurePanel({ project, onSelect, onInspect, onEdit, busy, capture, run }: {
@@ -156,28 +157,52 @@ function FigurePanel({ project, onSelect, onInspect, onEdit, busy, capture, run 
   );
 }
 
-function InspectPanel({ project, inspection, busy, run, onConfigure }: {
+function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep }: {
   project: Project;
   inspection: Inspection | null;
   busy: boolean;
   run: Run;
   onConfigure?: () => void;
+  onEditStep: (step: WorkflowStep) => void;
 }) {
   const source = inspection?.kind === "source" ? project.sources.find(({ id }) => id === inspection.id) : undefined;
   if (source) {
+    const arrayStep = project.workflow.steps.find(({ id }) => id === source.array_step);
     return <div className="inspector inspect-details">
       <h2>{source.name}</h2>
       <dl>
-        <dt>Type</dt><dd>{source.scalar ? "Variable" : source.kind === "raw" ? "Imported data" : "Derived data"}</dd>
-        <dt>Original path</dt><dd>{source.original_path ?? "Unavailable"}</dd>
+        <dt>Type</dt><dd>{arrayStep ? "Array" : source.scalar ? "Variable" : source.kind === "raw" ? "Imported data" : "Derived data"}</dd>
+        {source.original_path && <><dt>Original path</dt><dd>{source.original_path}</dd></>}
+        {source.detail && <><dt>Definition</dt><dd>{source.detail}</dd></>}
         <dt>Rows</dt><dd>{source.row_count.toLocaleString()}</dd>
         <dt>Columns</dt><dd>{source.columns.join(", ")}</dd>
       </dl>
+      {arrayStep && <button type="button" disabled={busy} onClick={() => onEditStep(arrayStep)}>Edit Array…</button>}
+    </div>;
+  }
+  if (inspection?.kind === "step") {
+    const position = project.workflow.steps.findIndex(({ id }) => id === inspection.id);
+    const step = project.workflow.steps[position];
+    if (step) return <div className="inspector inspect-details">
+      <h2>{step.label}</h2>
+      <dl>
+        <dt>Step</dt><dd>{position + 1} of {project.workflow.steps.length}</dd>
+        <dt>Status</dt><dd>{statusLabels[step.status]}</dd>
+        {step.files?.map((file, index) => <Fragment key={index}><dt>Input file</dt><dd>{file}</dd></Fragment>)}
+        {step.options.flatMap((options, index) => Object.entries(options).map(([key, value]) => (
+          <Fragment key={`${index}:${key}`}>
+            <dt>{step.options.length > 1 && `Input ${index + 1} · `}{step.labels[key] ?? key}</dt>
+            <dd>{typeof value === "boolean" ? value ? "Yes" : "No" : value}</dd>
+          </Fragment>
+        )))}
+        {step.status === "failed" && <><dt>Error</dt><dd>{project.workflow.error}</dd></>}
+      </dl>
+      {!!step.options.length && <button type="button" disabled={busy} onClick={() => onEditStep(step)}>Edit Step…</button>}
     </div>;
   }
   const figure = inspection?.kind === "figure" && inspection.id === project.figure_id ? project.figure : null;
   if (!figure || inspection?.kind !== "figure") {
-    return <p className="dock-empty">Select a source, figure, or trace to inspect it.</p>;
+    return <p className="dock-empty">Select a source, figure, trace, or recorded step to inspect it.</p>;
   }
   const index = inspection.trace;
   const trace = index === undefined ? undefined : figure.traces[index];
@@ -257,7 +282,8 @@ function SourcesPanel({ project, busy, run, onInspect }: { project: Project; bus
               if (source.id !== project.source_id) await run({ action: "select_source", source_id: source.id });
               reveal("worksheet");
             }}>
-            {source.scalar ? <Variable size={13} aria-hidden="true" /> : <Table2 size={13} aria-hidden="true" />}
+            {source.array_step !== undefined ? <Brackets size={13} aria-hidden="true" />
+              : source.scalar ? <Variable size={13} aria-hidden="true" /> : <Table2 size={13} aria-hidden="true" />}
             <span className="source-list-name">{source.name}</span>
             {source.detail ? <span className="source-list-detail">{source.detail}</span>
               : source.original_path && <SourcePath path={source.original_path} />}
@@ -268,13 +294,14 @@ function SourcesPanel({ project, busy, run, onInspect }: { project: Project; bus
   );
 }
 
-function ProjectEditor({ project, busy, run, onConfigure, onEdit, capture }: {
+function ProjectEditor({ project, busy, run, onConfigure, onEdit, onEditStep, capture }: {
   project: Project;
   capture: Ref<CaptureFigure>;
   busy: boolean;
   run: Run;
   onConfigure?: () => void;
   onEdit: (section: StyleSection) => void;
+  onEditStep: (step: WorkflowStep) => void;
 }) {
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const inspectSource = (id: string | null) => setInspection({ kind: "source", id });
@@ -302,14 +329,16 @@ function ProjectEditor({ project, busy, run, onConfigure, onEdit, capture }: {
         id: "history", title: "Recorded steps", icon: History,
         position: { referencePanel: "sources", direction: "below" },
         initialHeight: 180, minimumWidth: 150, minimumHeight: 90,
-        content: <WorkflowPanel workflow={project.workflow} busy={busy} run={run} />,
+        content: <WorkflowPanel workflow={project.workflow} busy={busy} run={run}
+          selected={inspection?.kind === "step" ? inspection.id : undefined}
+          onInspect={(id) => setInspection({ kind: "step", id })} />,
       },
       {
         id: "analysis", title: "Inspect", icon: ScanSearch,
         position: { referencePanel: "figure", direction: "right" },
         initialWidth: 230, minimumWidth: 186,
         content: (
-          <InspectPanel {...{ project, busy, run, inspection, onConfigure }} />
+          <InspectPanel {...{ project, busy, run, inspection, onConfigure, onEditStep }} />
         ),
       },
     ]} />
@@ -476,7 +505,7 @@ export function App() {
     [{ label: "Import Raw Data…", request: { action: "import_data" } }],
     [
       { label: "Add Variable/Constant…", icon: Variable, request: { action: "choose_scalar" } },
-      { label: "Add Array…", request: { action: "choose_array" } },
+      { label: "Add Array…", icon: Brackets, request: { action: "choose_array" } },
     ],
     [{ label: "Try Sample Data", request: { action: "sample" } }],
   ];
@@ -540,7 +569,11 @@ export function App() {
       const source = project.sources[index];
       if (!source) return;
       label = "Source actions";
-      groups = [itemCommands({ kind: "source", id: source.id }, source.name), [
+      const arrayStep = project.workflow.steps.find(({ id }) => id === source.array_step);
+      groups = [[
+        ...(arrayStep ? [{ label: "Edit Array…", request: { action: "choose_step", step: arrayStep } } satisfies MenuCommand] : []),
+        ...itemCommands({ kind: "source", id: source.id }, source.name),
+      ], [
         { label: "Move Earlier", request: index > 0 ? { action: "move_source", source_id: source.id, destination: index - 1 } : null },
         { label: "Move Later", request: index < project.sources.length - 1 ? { action: "move_source", source_id: source.id, destination: index + 1 } : null },
       ]];
@@ -565,9 +598,7 @@ export function App() {
   }
 
   return (
-    <div className="app" onContextMenu={openContextMenu} onClick={(event) => {
-      if (event.target instanceof Element && event.target.closest("[data-workflow-id]")) openContextMenu(event);
-    }}>
+    <div className="app" onContextMenu={openContextMenu}>
       <header className="app-bar">
         <div className="brand"><ChartNoAxesCombined size={21} /><span>Nigiro</span></div>
         <MenuBar
@@ -714,6 +745,7 @@ export function App() {
       {error && !scalarDialog && !stepDialog && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
         <ProjectEditor key={projectKey} {...{ project, busy, run, capture }}
+          onEditStep={(step) => runMenu({ action: "choose_step", step })}
           onConfigure={figure && !figure.overlay_inputs && project.figure_id !== null
             ? () => { setError(""); setInputDialog({ plugin: figure.definition, figureId: project.figure_id ?? undefined }); }
             : undefined} onEdit={setFigureDialog} />

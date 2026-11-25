@@ -39,12 +39,18 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(entered["sources"][0]["detail"], "= [1.0, 2.0, 4.0, 8.0]")
             expression = "$Data:Value(i) - $Data:Value(i+1)"
             calculated = worker.dispatch({"action": "add_array", "name": "Difference", "expression": expression})["project"]
+            self.assertEqual(calculated["sources"][-1]["array_step"], calculated["workflow"]["steps"][-1]["id"])
             self.assertEqual(calculated["source_table"]["rows"], (("-1.0",), ("-2.0",), ("-4.0",), ("",)))
             self.assertEqual(calculated["source_table"]["name"], "Difference")
             self.assertEqual(calculated["sources"][-1]["detail"], f"= {expression}")
             recipe = worker.dispatch({"action": "export_recipe"})["project"]["script_recipe"]
             self.assertEqual(next(iter(recipe["plugins"].values()))["options"]["expression"], expression)
             step = entered["workflow"]["steps"][0]["id"]
+            self.assertEqual(entered["sources"][0]["array_step"], step)
+            worker.dispatch({"action": "edit_item", "item": {"kind": "source", "id": None}, "name": "Renamed"})
+            renamed = worker.dispatch({"action": "run_all"})["project"]
+            self.assertEqual(renamed["sources"][0]["name"], "Renamed")
+            self.assertEqual(renamed["source_table"]["rows"], calculated["source_table"]["rows"])
             worker.dispatch({"action": "edit_step", "step_id": step, "options": [{"values": "2,4,8"}]})
             worker.dispatch({"action": "save", "path": str(path)})
             reopened = Workspace()

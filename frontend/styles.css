@@ -610,6 +610,7 @@ td input {
   border-color: transparent; text-align: left; white-space: normal;
 }
 .workflow-step small { flex: none; color: var(--muted); }
+.workflow-step[aria-current="true"] { color: var(--accent-ink); background: var(--accent-soft); }
 .workflow-step small[data-status="stale"], .workflow-step small[data-status="failed"], .workflow-error { color: var(--error); }
 .workflow-error, .workflow-base { margin: 6px 8px; }
 

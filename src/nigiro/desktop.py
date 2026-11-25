@@ -244,6 +244,18 @@ class Workspace:
                 details[key] = f"= {recipe.options['expression']}"
         return details
 
+    def array_producers(self) -> dict:
+        producers = {}
+        for step in self.workflow.steps:
+            if step.request["action"] != "add_array":
+                continue
+            formula = "expression" in step.request
+            output = f"{step.id}/{'figure' if formula else 'source'}/0"
+            if output in self.workflow.bindings:
+                key = self.workflow.bindings[output]
+                producers[f"{key}:calculated" if formula else key] = step.id
+        return producers
+
     def snapshot(self, *, paged: bool = False, known_figures: dict | None = None) -> dict:
         project = self.project
         state = {"plugins": self.plugins.catalog()}
@@ -281,6 +293,7 @@ class Workspace:
         original = raw.worksheet.rows if raw else None
         available = {**project.raw_sources, **self.sources}
         details = self.source_details(project)
+        array_producers = self.array_producers()
         state["project"] = {
             "source_name": project.source.name if project.source else None,
             "file_name": self.path.name if self.path else None,
@@ -302,6 +315,7 @@ class Workspace:
                  "kind": "raw" if isinstance(table, Source) else "derived",
                  **({"scalar": True} if isinstance(table, Source) and table.scalar_value is not None else {}),
                  **({"detail": details[key]} if key in details else {}),
+                 **({"array_step": array_producers[key]} if key in array_producers else {}),
                  "row_count": len(table.worksheet.rows if isinstance(table, Source) else table.rows)}
                 for key in self.ordered_sources() for table in (available[key],)
             ],
@@ -408,6 +422,7 @@ class Workspace:
             steps.append({
                 "id": step.id, "label": self.step_label(step.request, step.label), "status": status,
                 "options": options, "labels": labels,
+                **({"files": [source.original_path or source.name for source in step.sources]} if step.sources else {}),
                 **({"formula": True} if action in ("apply_formula", "add_array") and "expression" in step.request else {}),
                 **({"array": True} if action == "add_array" else {}),
             })

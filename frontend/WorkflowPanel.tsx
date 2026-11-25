@@ -1,15 +1,19 @@
 import { FormulaEditor } from "./FormulaEditor";
 import { useEffect, useRef, useState } from "react";
 import { useListDrag } from "./useListDrag";
+import { useRevealDockPanel } from "./DockWorkspace";
 import type { PluginOptions, ProjectSource, Request, Workflow, WorkflowStep } from "./workspace";
 
-const statusLabels = { done: "Done", stale: "Stale", pending: "Queued", failed: "Failed" };
+export const statusLabels = { done: "Done", stale: "Stale", pending: "Queued", failed: "Failed" };
 
-export function WorkflowPanel({ workflow, busy, run }: {
+export function WorkflowPanel({ workflow, busy, run, onInspect, selected }: {
   workflow: Workflow;
   busy: boolean;
   run: (request: Request) => Promise<boolean>;
+  onInspect: (id: number) => void;
+  selected?: number;
 }) {
+  const reveal = useRevealDockPanel();
   const modes = useRef<HTMLDetailsElement>(null);
   const [action, setAction] = useState<"run_all" | "run_next">("run_all");
   const disabled = busy || (!workflow.needs_replay
@@ -51,7 +55,8 @@ export function WorkflowPanel({ workflow, busy, run }: {
     <ol>
       {workflow.steps.map((step, index) => <li key={step.id} {...drag(index)}>
         <button className="workflow-step" type="button" disabled={busy} data-workflow-id={step.id}
-          aria-haspopup="menu" title="Step actions">
+          aria-haspopup="menu" aria-current={step.id === selected} title="Inspect step"
+          onClick={() => { onInspect(step.id); reveal("analysis"); }}>
           <span>{step.label}</span><small data-status={step.status}>{statusLabels[step.status]}</small>
         </button>
       </li>)}
@@ -77,7 +82,7 @@ export function WorkflowStepDialog({ step, sources, busy, error, onClose, onRun 
       event.preventDefault();
       if (await onRun({ action: "edit_step", step_id: step.id, options })) onClose();
     }}>
-      <h2 id="workflow-dialog-title">{step.label}</h2>
+      <h2 id="workflow-dialog-title">{step.array ? "Edit Array" : step.label}</h2>
       <div className="fit-settings plugin-fields">
         {options.map((values, index) => <fieldset key={index}>
           {options.length > 1 && <legend>Input {index + 1}</legend>}
