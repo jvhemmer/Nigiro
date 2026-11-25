@@ -116,6 +116,9 @@ enum Action {
     SelectFigure {
         figure_id: usize,
     },
+    OverlayFigures {
+        figure_ids: Vec<usize>,
+    },
     EditItem {
         item: Value,
         name: Value,
@@ -375,6 +378,9 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         Action::SelectFigure { figure_id } => {
             json!({ "action": "select_figure", "figure_id": figure_id })
         }
+        Action::OverlayFigures { figure_ids } => {
+            json!({ "action": "overlay_figures", "figure_ids": figure_ids })
+        }
         Action::EditItem { item, name } => {
             json!({ "action": "edit_item", "item": item, "name": name })
         }
@@ -607,4 +613,19 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overlay_request_keeps_the_axes_provider_first() {
+        let request = serde_json::from_value::<Action>(json!({
+            "action": "overlay_figures", "figure_ids": [5, 2]
+        }))
+        .expect("could not parse the overlay request");
+
+        assert!(matches!(request, Action::OverlayFigures { figure_ids } if figure_ids == [5, 2]));
+    }
 }
