@@ -7,6 +7,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from html import escape
 
+from .analysis_catalog import ANALYSIS_PLUGINS
 from .analysis import run_linear_fit, run_plot
 from .column_formula import ARRAY_FORMULA_PLUGIN, COLUMN_FORMULA_PLUGIN, run_array_formula, run_column_formula
 from .project import LinearFit, Plot, Worksheet
@@ -51,7 +52,7 @@ def bar_plot(columns, rows, options):
 
 def linear_fit_figure(columns, rows, options):
     x_index, y_index = options["x"], options["y"]
-    result = run_linear_fit(Worksheet(columns, rows), LinearFit(x_index, y_index))
+    result = run_linear_fit(Worksheet(columns, rows), LinearFit(x_index, y_index), force_zero=options.get("force_zero", False))
     x, y, fitted, residuals = (values.tolist() for values in (result.x, result.y, result.fitted, result.residuals))
     first, last = x.index(min(x)), x.index(max(x))
     fractions = [index / 200 for index in range(201)]
@@ -226,3 +227,8 @@ BUILTINS[ARRAY_FORMULA_PLUGIN] = ({
         {"key": "expression", "label": "Formula", "type": "text", "default": "$Source:Column"},
     ],
 }, run_array_formula)
+
+BUILTINS["nigiro.linear_fit"][0]["fields"].append({
+    "key": "force_zero", "label": "Force fit through zero", "type": "boolean", "default": False, "optional": True,
+})
+BUILTINS.update(ANALYSIS_PLUGINS)

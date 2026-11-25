@@ -11,7 +11,7 @@ from functools import cached_property
 from typing import Literal
 
 from .figure_style import AxisStyle, FigureStyle
-from .source_tables import TABLE_ONLY_PLUGINS, SourceTable, raw_source_id, source_origin
+from .source_tables import FIT_PLUGINS, TABLE_ONLY_PLUGINS, SourceTable, raw_source_id, source_origin
 
 PAIRED_PLOT_PLUGINS = {"nigiro.scatter", "nigiro.line", "nigiro.bar"}
 
@@ -221,8 +221,11 @@ class PluginStep:
 
     references: dict[str, ColumnReference] = field(default_factory=dict)
     comment: str | None = None
+    table_only: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.table_only) is not bool or (self.table_only and self.figure_id is not None):
+            raise ValueError("Invalid plugin output type.")
         if not isinstance(self.plugin_id, str) or not self.plugin_id or not isinstance(self.version, str) or not self.version:
             raise ValueError("Invalid plugin record.")
         if self.checksum is not None and not (
@@ -422,7 +425,8 @@ class Project:
         return {
             key: figure for key, figure in self.figures.items()
             if key not in members and not self.item_deleted("figure", key)
-            and not (isinstance(figure.recipe, PluginStep) and figure.recipe.plugin_id in TABLE_ONLY_PLUGINS)
+            and not (isinstance(figure.recipe, PluginStep)
+                     and (figure.recipe.table_only or figure.recipe.plugin_id in TABLE_ONLY_PLUGINS))
         }
 
     @cached_property
@@ -437,7 +441,7 @@ class Project:
                         reference.source_id is None or source_origin(reference.source_id) not in figures
                     ) for reference in op.references.values()
                 ):
-                    raise ValueError("A plugin refers to a missing source in its expression.")
+                    raise ValueError("A plugin refers to a missing input source.")
                 updating = isinstance(op, PluginStep) and op.figure_id is not None
                 if updating:
                     current = op.figure_id
@@ -460,9 +464,9 @@ class Project:
             elif isinstance(op, ResidualFigure):
                 fit = figures.get(op.fit_id)
                 if fit is None or fit.part is not None or not (
-                    isinstance(fit.recipe, PluginStep) and fit.recipe.pin == ("nigiro.linear_fit", "1", None)
+                    isinstance(fit.recipe, PluginStep) and fit.recipe.checksum is None and fit.recipe.plugin_id in FIT_PLUGINS
                 ):
-                    raise ValueError("A residual figure needs a linear fit.")
+                    raise ValueError("A residual figure needs a fit.")
                 figures[op.fit_id] = replace(fit, part="fit")
                 figures[index] = FigureRecord(
                     fit.recipe, FigureStyle(y=AxisStyle(zero_line=True)),
@@ -574,6 +578,13 @@ class Project:
         return {
             token: (self.recipe_input(reference.source_id, step, tables), reference.column)
             for token, reference in step.references.items()
+        }
+
+    @staticmethod
+    def joint_inputs(references: dict) -> dict:
+        return {
+            key: {"columns": worksheet.columns, "rows": worksheet.rows, "column": column}
+            for key, (worksheet, column) in references.items()
         }
 
     def plugin_input(self, step: PluginStep, tables: dict[str, SourceTable]) -> Worksheet:

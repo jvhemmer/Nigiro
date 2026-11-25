@@ -43,6 +43,9 @@ def merge_style(original, changes):
 
 def replay_plugin(plugin, worksheet, references):
     args = worksheet.columns, worksheet.rows, plugin["options"].copy()
+    if plugin.get("input_mode") == "joint":
+        args[2].update({key: column for key, (_, column) in references.items()})
+        args = (*args, Project.joint_inputs(references))
     if plugin["source"] is None:
         manifest, runner = BUILTINS[plugin["plugin_id"]]
         if manifest["version"] != plugin["version"]:

@@ -27,7 +27,7 @@ from nigiro.project import (
     AddFigureLayers, Correction, FigureAppearance, FigureColor, FigureRecord, ItemEdit, LinearFit, OverlayFigure, Plot, PluginStep, Project,
     ResidualFigure, ScaleColumn, Source, TraceAppearance, Worksheet, normalize_comment,
 )
-from nigiro.source_tables import FILTER_PLUGINS, SourceTable, output_tables, source_origin
+from nigiro.source_tables import FIT_PLUGINS, SourceTable, output_tables, source_origin
 from nigiro.system_fonts import SystemFonts
 from nigiro.settings import Appearance, Settings
 from nigiro.storage import load_project_session, operation_record, save_project
@@ -696,6 +696,13 @@ class Workspace:
             action = command["action"]
             if action == "execute_plugin":
                 command["runs"] = [{**run, "options": values} for run, values in zip(command["runs"], options)]
+                plugin = self.plugins.plugins.get((command["plugin_id"], command["version"], command["checksum"]))
+                if plugin and plugin.manifest.get("input_mode") == "joint":
+                    for run in command["runs"]:
+                        run["references"] = {
+                            key: {**binding, "column": run["options"][key]}
+                            for key, binding in run["references"].items()
+                        }
             elif action == "run_plugin":
                 command["options"] = options[0]
             else:
@@ -900,7 +907,8 @@ class Workspace:
             if result.error:
                 raise ValueError(f"Cannot export {plugin.manifest['name']}. {result.error}")
             recipes[key] = {**asdict(step), "source": plugin.source,
-                            "analysis": plugin.manifest["menu"] == "analysis"}
+                            "analysis": plugin.manifest["menu"] == "analysis",
+                            "input_mode": plugin.manifest.get("input_mode", "batch")}
             if result.dependencies:
                 recipes[key]["dependencies"] = result.dependencies
         names = self.figure_names(project)
@@ -1063,6 +1071,7 @@ class Workspace:
                         source_id=source_id, figure_id=target,
                         references=previous.references if target is not None else {},
                     )
+                    recipe = replace(recipe, table_only=self.plugins.resolve(recipe).table_only)
                     if target is not None and recipe.pin != previous.pin:
                         raise ValueError("Use the original plugin to change its options.")
                 elif request["action"] == "fit":
@@ -1070,12 +1079,12 @@ class Workspace:
                 else:
                     recipe = Plot(request["plot_type"], request["x"], request["y"])
                 updated = project.apply(recipe)
-                if isinstance(recipe, PluginStep) and recipe.figure_id is None and recipe.pin == ("nigiro.linear_fit", "1", None):
+                if isinstance(recipe, PluginStep) and recipe.figure_id is None and recipe.checksum is None and recipe.plugin_id in FIT_PLUGINS:
                     updated = updated.apply(ResidualFigure(figure_id))
                 updated = self.apply_global_defaults(project, updated, request.get("default_style"))
                 self.render(updated, changed={figure_id}, fallback=self.sources)
-                self.figure_id = selection
                 self.project = updated
+                self.select_plugin_output(selection, isinstance(recipe, PluginStep) and recipe.table_only)
                 self.dirty = True
             case "color" | "figure_style" | "trace_style":
                 figure_id = request.get("figure_id", self.figure_id)
@@ -1176,9 +1185,6 @@ class Workspace:
             raise ValueError("Choose batch commands and an output mode.")
         if any(step["plugin_id"] in REFERENCE_FORMULA_PLUGINS for step in steps):
             raise ValueError("Use Column Formula to calculate a column with source references.")
-        filter_only = all(step["plugin_id"] in FILTER_PLUGINS for step in steps)
-        if filter_only:
-            output = "separate"
         operations = list(project.operations)
         changed = set()
         destinations = set()
@@ -1186,6 +1192,10 @@ class Workspace:
             runs = step["runs"]
             if not isinstance(runs, list) or not runs:
                 raise ValueError("Select at least one source.")
+            plugin = self.plugins.resolve(PluginStep(step["plugin_id"], step["version"], step["checksum"], {}))
+            table_only = plugin.table_only
+            if plugin.manifest.get("input_mode") == "joint" and len(runs) != 1:
+                raise ValueError("Submit all joint inputs as one plugin run.")
             ids, residuals, seen, targets = [], [], set(), set()
             for run in runs:
                 source_id = run["source_id"]
@@ -1194,17 +1204,17 @@ class Workspace:
                 self.input_worksheet(project, source_id, self.sources)
                 seen.add(source_id)
                 recipe = PluginStep(step["plugin_id"], step["version"], step["checksum"], run["options"],
-                                    source_id=source_id, references=run.get("references", {}))
+                                    source_id=source_id, references=run.get("references", {}), table_only=table_only)
                 if any(project.item_deleted("source", reference.source_id) for reference in recipe.references.values()):
-                    raise ValueError("Choose available sources for X and Y.")
+                    raise ValueError("Choose available sources for each input.")
                 figure_id = len(operations)
                 operations.append(recipe)
                 changed.add(figure_id)
                 ids.append(figure_id)
-                if recipe.pin == ("nigiro.linear_fit", "1", None):
+                if recipe.checksum is None and recipe.plugin_id in FIT_PLUGINS:
                     residuals.append(len(operations))
                     operations.append(ResidualFigure(figure_id))
-                destination = run.get("target_id") if output == "separate" and not filter_only else None
+                destination = run.get("target_id") if output == "separate" and not table_only else None
                 if destination is not None:
                     self.validate_destination(project, destination)
                     if destination in targets:
@@ -1213,7 +1223,7 @@ class Workspace:
                     operations.append(AddFigureLayers(destination, (figure_id,)))
                     destinations.add(destination)
                 selection = figure_id if destination is None else destination
-            if output == "overlay":
+            if output == "overlay" and not table_only:
                 destination = step.get("target_id")
                 if destination is not None:
                     self.validate_destination(project, destination)
@@ -1232,12 +1242,16 @@ class Workspace:
         updated.validate()
         self.render(updated, changed=changed, fallback=self.sources, destinations=destinations)
         self.project = updated
-        if filter_only:
-            self.source_id = f"{selection}:filtered"
+        self.select_plugin_output(selection, table_only)
+        self.dirty = True
+
+    def select_plugin_output(self, selection: int, table_only: bool) -> None:
+        if table_only:
+            key = next(iter(self.results[selection].tables))
+            self.source_id = f"{selection}:{key}"
             self.row_offset = 0
         else:
             self.figure_id = selection
-        self.dirty = True
 
     def apply_global_defaults(self, previous: Project, updated: Project, defaults: dict | None) -> Project:
         style = FigureStyle(**defaults) if defaults is not None else self.settings.figure_style

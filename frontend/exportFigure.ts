@@ -6,6 +6,9 @@ import sourceTables from "../src/nigiro/source_tables.py?raw";
 import batchFigure from "../src/nigiro/batch_figure.py?raw";
 import model from "../src/nigiro/project.py?raw";
 import analysis from "../src/nigiro/analysis.py?raw";
+import analysisPlugins from "../src/nigiro/analysis_plugins.py?raw";
+import electrochemistry from "../src/nigiro/electrochemistry.py?raw";
+import analysisCatalog from "../src/nigiro/analysis_catalog.py?raw";
 import builtinPlugins from "../src/nigiro/builtin_plugins.py?raw";
 import pluginSource from "../src/nigiro/plugin_source.py?raw";
 import pluginReplay from "./pluginReplay.py?raw";
@@ -93,7 +96,10 @@ ${sourceBody(sourceTables).replace(/^from \.column_formula import .*\n/m, "")}
 ${sourceBody(batchFigure)}
 ${sourceBody(model).replace(/^from \.(figure_style|source_tables) import .*\n/gm, "")}
 ${sourceBody(analysis).replace(/^from \.project import .*\n/m, "")}
-${sourceBody(builtinPlugins).replace(/^from \.(analysis|column_formula|project) import .*\n/gm, "")}
+${sourceBody(analysisPlugins)}
+${sourceBody(electrochemistry).replace(/^from \.analysis_plugins import .*\n/m, "")}
+${sourceBody(analysisCatalog).replace(/^from \.(analysis_plugins|electrochemistry) import .*\n/gm, "")}
+${sourceBody(builtinPlugins).replace(/^from \.(analysis|analysis_catalog|column_formula|project) import .*\n/gm, "")}
 ${sourceBody(pluginSource)}
 ${sourceBody(figureExport)}
 ${replay}

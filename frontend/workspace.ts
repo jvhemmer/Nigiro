@@ -24,6 +24,10 @@ export interface PluginField {
   min?: number;
   max?: number;
   choices?: { value: string; label: string }[];
+  help?: string;
+  required?: boolean;
+  prefer_other_source?: boolean;
+  visible_when?: Record<string, PluginOptions[string] | PluginOptions[string][]>;
 }
 
 export interface PluginDefinition {
@@ -34,6 +38,10 @@ export interface PluginDefinition {
   menu: "plot" | "analysis";
   fields: PluginField[];
   distinct_columns?: boolean;
+  table_only?: boolean;
+  input_mode?: "batch" | "joint";
+  category?: "electrochemistry" | "signal";
+  model_parameters?: Record<string, string[]>;
   outputs?: string[];
 }
 

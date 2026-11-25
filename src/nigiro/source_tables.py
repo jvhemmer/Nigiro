@@ -8,6 +8,7 @@ from .column_formula import REFERENCE_FORMULA_PLUGINS
 
 
 FILTER_PLUGINS = {"nigiro.filter", "nigiro.filter_segments"}
+FIT_PLUGINS = {"nigiro.linear_fit", "nigiro.nonlinear_fit"}
 TABLE_ONLY_PLUGINS = FILTER_PLUGINS | REFERENCE_FORMULA_PLUGINS
 
 

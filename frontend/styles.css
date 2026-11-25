@@ -869,3 +869,5 @@ td input {
 .cycle-colors { margin: 0; padding-inline-start: 25px; }
 .cycle-colors li { padding: 2px 0; }
 .cycle-colors input { vertical-align: middle; margin-inline-end: 6px; }
+
+.plugin-field-help { display: block; }

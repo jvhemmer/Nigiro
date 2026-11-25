@@ -18,7 +18,7 @@ from .builtin_plugins import BUILTINS
 from .column_formula import REFERENCE_FORMULA_PLUGINS
 from .plugin_dependencies import installed_requirements, plugin_requirements
 from .plugin_source import run_plugin_source
-from .project import LinearFit, Plot, PluginStep, Worksheet
+from .project import LinearFit, Plot, PluginStep, Project, Worksheet
 from .source_tables import TABLE_ONLY_PLUGINS
 
 
@@ -34,8 +34,12 @@ class Plugin:
         return self.manifest["id"], self.manifest["version"], self.checksum
 
     @property
+    def table_only(self) -> bool:
+        return self.manifest.get("table_only", self.manifest["id"] in TABLE_ONLY_PLUGINS)
+
+    @property
     def definition(self) -> dict:
-        return {**self.manifest, "checksum": self.checksum}
+        return {**self.manifest, "checksum": self.checksum, "table_only": self.table_only}
 
 
 def valid_value(field: dict, value: object, columns: int | None) -> bool:
@@ -50,7 +54,7 @@ def valid_value(field: dict, value: object, columns: int | None) -> bool:
         case "boolean":
             return type(value) is bool
         case "text":
-            return isinstance(value, str)
+            return isinstance(value, str) and (not field.get("required") or bool(value.strip()))
         case "choice":
             return isinstance(value, str) and any(choice["value"] == value for choice in field["choices"])
     return False
@@ -87,6 +91,15 @@ def read_plugin(content: bytes) -> Plugin:
         raise ValueError("List plugin outputs as text.")
     plugin_requirements(manifest.get("dependencies", []))
 
+    if type(manifest.get("table_only", False)) is not bool:
+        raise ValueError("Set table_only to true or false.")
+    if manifest.get("input_mode", "batch") not in ("batch", "joint"):
+        raise ValueError("Set input_mode to batch or joint.")
+    if manifest.get("input_mode") == "joint" and not any(
+        isinstance(field, dict) and field.get("type") == "column" for field in manifest["fields"]
+    ):
+        raise ValueError("Joint plugins need named column inputs.")
+
     keys = set()
     for field in manifest["fields"]:
         if not isinstance(field, dict) or not all(
@@ -108,7 +121,7 @@ def read_plugin(content: bytes) -> Plugin:
             for bound in ("min", "max"):
                 if bound in field and not valid_value({"type": "number"}, field[bound], None):
                     raise ValueError("Enter finite bounds for number controls.")
-        if not valid_value(field, field.get("default"), None):
+        if not valid_value({**field, "required": False}, field.get("default"), None):
             raise ValueError(f"Invalid default for {field['label']}.")
 
     json.dumps(manifest, allow_nan=False)
@@ -168,12 +181,21 @@ class PluginRegistry:
     def execute(self, step: PluginStep, worksheet: Worksheet, references: dict) -> tuple[dict, dict[str, str]]:
         plugin = self.resolve(step)
         fields = plugin.manifest["fields"]
-        options = step.options
+        options = {**{field["key"]: field["default"] for field in fields if field.get("optional")}, **step.options}
+        joint = plugin.manifest.get("input_mode") == "joint"
+        if joint and references.keys() != {field["key"] for field in fields if field["type"] == "column"}:
+            raise ValueError("Choose a source and column for each input.")
         if options.keys() != {field["key"] for field in fields}:
             raise ValueError("The plugin options do not match its controls.")
         columns = []
         for field in fields:
             value = options[field["key"]]
+            if joint and field["type"] == "column":
+                table, column = references[field["key"]]
+                if not valid_value(field, column, len(table.columns)):
+                    raise ValueError(f"Invalid value for {field['label']}.")
+                options[field["key"]] = column
+                continue
             if not valid_value(field, value, len(worksheet.columns)):
                 raise ValueError(f"Invalid value for {field['label']}.")
             if field["type"] == "column":
@@ -185,13 +207,21 @@ class PluginRegistry:
             dependencies = installed_requirements(plugin.manifest.get("dependencies", []))
             with redirect_stdout(sys.stderr):
                 args = worksheet.columns, worksheet.rows, options.copy()
+                if joint:
+                    args = (*args, Project.joint_inputs(references))
                 if plugin.run is None:
                     result = run_plugin_source(plugin.source, step.plugin_id, *args)
                 elif step.plugin_id in REFERENCE_FORMULA_PLUGINS:
                     result = plugin.run(*args, references)
                 else:
                     result = plugin.run(*args)
-            if not isinstance(result, dict) or not isinstance(result.get("traces"), list) or (not result["traces"] and step.plugin_id not in TABLE_ONLY_PLUGINS):
+            if not isinstance(result, dict):
+                raise ValueError("The plugin must return a dictionary.")
+            if plugin.table_only:
+                if result.get("traces") or not result.get("sources"):
+                    raise ValueError("A table-only plugin must return source tables without traces.")
+                result = {**result, "traces": []}
+            elif not isinstance(result.get("traces"), list) or not result["traces"]:
                 raise ValueError("The plugin must return a figure with at least one trace.")
             if not all(isinstance(trace, dict) for trace in result["traces"]):
                 raise ValueError("Each trace must be a dictionary.")

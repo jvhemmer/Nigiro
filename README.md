@@ -133,6 +133,19 @@ Install plugins as single files. The desktop worker supplies bundled modules suc
 
 Declare extra packages in the optional `dependencies` field, for example `"dependencies": ["scipy>=1.10"]`. Install the required packages in the Python environment you select in Nigiro. When the plugin runs, Nigiro records the installed versions of its declared packages and their dependencies.
 
+### Source outputs and joint inputs
+
+Set `"table_only": True` in the plugin manifest to create Sources. Return a `sources` dictionary. The plugin can omit `traces`.
+
+Set `"input_mode": "joint"` to receive named inputs together. Each column field lets the user select a source and a column. Define `run(columns, rows, options, inputs)` for this mode. The `inputs` dictionary uses each column field key. Each entry contains `columns`, `rows`, and the selected zero-based `column` index. In this mode, use those bindings to access the data. For example, use `inputs["reference_x"]` for the source and column bound to `reference_x`. In batch mode, the three-argument plugin runs separately for each selected source.
+
+## Analysis tools
+
+- Use **Align / Resample XY** to put two traces on a shared X grid. Select the X and Y columns for each trace. The result covers their shared X range.
+- Under **Signal Processing**, use **FFT Spectrum** for a one-sided amplitude spectrum. Use **Filter Signal** for Butterworth band-stop, notch, or harmonic filtering. Supply a sampling rate or a time column in seconds.
+- **Linear Fit** has a **Force fit through zero** option. **Nonlinear Curve Fit** offers named functions and custom expressions. Enter a guess and limits for each parameter, or leave them blank to use the model defaults. Both tools create a fit figure, a residuals figure, and result tables.
+- Under **Electrochemistry**, **Detect CV Segments** adds segment and direction columns. Use **Filter Segments** to select sweeps. **Find CV Peaks**, **Integrate Peak**, **iR Correction**, **Estimate Onset Potential**, and **Tafel Analysis (Irreversible)** use selected data columns. For Tafel analysis, enter the potential limits of the linear region.
+
 ## Edit the figure
 
 Use **Figure settings** in the Figure panel. Double-click an axis label to open its settings. Choose **Figure**, **X axis**, or **Y axis**. Residual figures use the regular Y-axis settings.

@@ -59,34 +59,38 @@ def run_plot(worksheet: Worksheet, recipe: Plot) -> PlotResult:
     )
 
 
-def run_linear_fit(worksheet: Worksheet, recipe: LinearFit) -> FitResult:
+def run_linear_fit(worksheet: Worksheet, recipe: LinearFit, *, force_zero: bool = False) -> FitResult:
     pairs = xy_pairs(worksheet, recipe.x, recipe.y)
     if len(pairs) < 2:
         raise ValueError("Linear fitting needs at least two complete X/Y pairs.")
 
     x, y = np.asarray(pairs).T
-    if np.all(x == x[0]):
-        raise ValueError("Linear fitting needs at least two distinct X values.")
-    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        result = stats.linregress(x, y)
-        fitted = result.intercept + result.slope * x
-        residuals = y - fitted
     constant_y = bool(np.all(y == y[0]))
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        if force_zero:
+            scale = np.max(np.abs(x))
+            if scale == 0:
+                raise ValueError("Fitting through zero requires at least one nonzero X value.")
+            scaled = x / scale
+            slope = (np.dot(scaled, y) / np.dot(scaled, scaled)) / scale
+            intercept = 0.0
+            fitted = slope * x
+            residuals = y - fitted
+            r_squared = None if constant_y else float(1 - np.sum(residuals**2) / np.sum((y - np.mean(y))**2))
+        else:
+            if np.all(x == x[0]):
+                raise ValueError("Linear fitting needs at least two distinct X values.")
+            result = stats.linregress(x, y)
+            slope, intercept = result.slope, result.intercept
+            fitted = intercept + slope * x
+            residuals = y - fitted
+            r_squared = None if constant_y else float(result.rvalue**2)
     if (
-        not all(math.isfinite(value) for value in (result.slope, result.intercept))
-        or (not constant_y and not math.isfinite(result.rvalue))
+        not all(math.isfinite(value) for value in (slope, intercept))
+        or (r_squared is not None and not math.isfinite(r_squared))
         or not np.isfinite(fitted).all()
         or not np.isfinite(residuals).all()
     ):
         raise ValueError("The fit exceeded the supported numeric range.")
 
-    return FitResult(
-        x=x,
-        y=y,
-        fitted=fitted,
-        residuals=residuals,
-        slope=float(result.slope),
-        intercept=float(result.intercept),
-        r_squared=None if constant_y else float(result.rvalue**2),
-        omitted_rows=len(worksheet.rows) - len(pairs),
-    )
+    return FitResult(x, y, fitted, residuals, float(slope), float(intercept), r_squared, len(worksheet.rows) - len(pairs))

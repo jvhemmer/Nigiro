@@ -622,11 +622,11 @@ export function App() {
   const initialOptions = figure && configuring
     ? figure.recipe.options : previous?.kind === "plugin" ? previous.options : undefined;
 
-  function pluginCommands(menu: PluginDefinition["menu"]) {
-    return plugins.filter((plugin) => plugin.menu === menu && plugin.id !== "nigiro.filter" && plugin.id !== "nigiro.filter_segments" && plugin.id !== columnFormulaId
+  function pluginCommands(menu: PluginDefinition["menu"], category?: PluginDefinition["category"]) {
+    return plugins.filter((plugin) => plugin.menu === menu && plugin.category === category && plugin.id !== "nigiro.filter" && plugin.id !== "nigiro.filter_segments" && plugin.id !== columnFormulaId
       && plugin.id !== arrayFormulaId && plugin.id !== "example.scaled_xy").map((plugin) => {
       const columns = columnFields(plugin).length;
-      const required = plugin.distinct_columns ? columns : Math.min(columns, 1);
+      const required = plugin.distinct_columns && plugin.input_mode !== "joint" ? columns : Math.min(columns, 1);
       return {
         label: `${plugin.name}…`,
         icon: plugin.id === "nigiro.scatter" ? ChartScatter : plugin.id === "nigiro.bar" ? ChartColumn
@@ -823,7 +823,8 @@ export function App() {
       label: "Analysis",
       groups: [analysisCommands, [
         { label: "Operations", icon: Calculator, request: null, submenu: [formulaCommand, scaleCommand, filterCommand] },
-        { label: "Electrochemistry", icon: FlaskConical, request: null, submenu: [filterSegmentsCommand] },
+        { label: "Signal Processing", icon: ChartLine, request: null, submenu: pluginCommands("analysis", "signal") },
+        { label: "Electrochemistry", icon: FlaskConical, request: null, submenu: [...pluginCommands("analysis", "electrochemistry"), filterSegmentsCommand] },
       ]],
     },
   ];
@@ -941,7 +942,7 @@ export function App() {
       {project ? (
         <ProjectEditor {...{ project, projectKey, busy, run, capture }} notes={notes ?? project.notes ?? ""} onNotesChange={updateNotes}
           onEditStep={(step) => runMenu({ action: "choose_step", step })}
-          onConfigure={figure && !figure.overlay_inputs && project.figure_id !== null
+          onConfigure={figure && !figure.overlay_inputs && figure.definition.input_mode !== "joint" && project.figure_id !== null
             ? () => { setError(""); setInputDialog({ plugin: figure.definition, figureId: project.figure_id ?? undefined }); }
             : undefined} onEdit={setFigureDialog} />
       ) : (
