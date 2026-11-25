@@ -123,6 +123,11 @@ enum Action {
         style: Value,
         figure_id: usize,
     },
+    TraceStyle {
+        figure_id: usize,
+        trace: usize,
+        style: Option<Value>,
+    },
     Save {
         notes: Option<String>,
     },
@@ -371,6 +376,13 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         }
         Action::FigureStyle { style, figure_id } => {
             json!({ "action": "figure_style", "style": style, "figure_id": figure_id })
+        }
+        Action::TraceStyle {
+            figure_id,
+            trace,
+            style,
+        } => {
+            json!({ "action": "trace_style", "figure_id": figure_id, "trace": trace, "style": style })
         }
         Action::Save { notes } => json!({ "action": "save", "notes": notes }),
         Action::ImportData => {

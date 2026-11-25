@@ -796,6 +796,16 @@ td input {
 .inspect-details dt { margin-top: 7px; color: var(--muted); }
 .inspect-details dd { margin: 2px 0 0; overflow-wrap: anywhere; }
 .inspect-comment { white-space: pre-wrap; }
+.inspect-traces { margin: 0 0 8px; padding: 0; list-style: none; }
+.inspect-traces button { width: 100%; justify-content: flex-start; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.inspect-traces li + li { margin-top: 4px; }
+.trace-list-back { margin-bottom: 6px; }
+.trace-line-editor { padding: 6px 0; }
+.trace-line-editor input {
+  min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 2px;
+  background: var(--panel); color: var(--text);
+}
+.trace-line-actions { display: flex; justify-content: flex-end; gap: 4px; }
 
 .axis-table { min-width: calc(120px + var(--axis-count) * 112px); }
 .axis-field-row {

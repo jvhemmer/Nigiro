@@ -175,6 +175,29 @@ class FigureAppearance:
 
 
 @dataclass(frozen=True)
+class TraceAppearance:
+    figure_id: int
+    trace: int
+    style: dict | None
+
+    def __post_init__(self) -> None:
+        if any(type(index) is not int or index < 0 for index in (self.figure_id, self.trace)):
+            raise ValueError("Choose a valid figure and trace.")
+        if self.style is None:
+            return
+        if not isinstance(self.style, dict) or self.style.keys() != {"color", "width", "dash"}:
+            raise ValueError("Choose a line color, width, and dash style.")
+        color, width, dash = (self.style[key] for key in ("color", "width", "dash"))
+        if not isinstance(color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            raise ValueError("Choose a valid line color.")
+        if type(width) not in (int, float) or not 0.1 <= width <= 12:
+            raise ValueError("Choose a line width from 0.1 to 12 px.")
+        if dash not in ("solid", "dash", "dot", "dashdot", "longdash", "longdashdot"):
+            raise ValueError("Choose a valid line dash style.")
+        object.__setattr__(self, "style", self.style.copy())
+
+
+@dataclass(frozen=True)
 class ColumnReference:
     source_id: str | None
     column: int
@@ -305,7 +328,7 @@ class AddFigureLayers:
 
 
 Operation = (
-    Correction | ScaleColumn | FigureRecipe | FigureColor | FigureStyle | FigureAppearance | ResidualFigure | ItemEdit
+    Correction | ScaleColumn | FigureRecipe | FigureColor | FigureStyle | FigureAppearance | TraceAppearance | ResidualFigure | ItemEdit
     | OverlayFigure | AddFigureLayers
 )
 DEFAULT_COLORS = {"observations": "#245e9b", "fit": "#be481f"}
@@ -320,6 +343,7 @@ class FigureRecord:
     fit_id: int | None = None
     overlay: OverlayFigure | None = None
     layers: tuple[int, ...] = ()
+    trace_styles: dict[int, dict] = field(default_factory=dict)
 
     def members(self, figure_id: int) -> tuple[int, ...]:
         return (self.overlay.figure_ids if self.overlay else (figure_id,)) + self.layers
@@ -476,6 +500,16 @@ class Project:
                 if op.figure_id not in figures:
                     raise ValueError("A settings change refers to a missing figure.")
                 figures[op.figure_id] = replace(figures[op.figure_id], style=op.style)
+            elif isinstance(op, TraceAppearance):
+                record = figures.get(op.figure_id)
+                if record is None:
+                    raise ValueError("A trace style refers to a missing figure.")
+                styles = record.trace_styles.copy()
+                if op.style is None:
+                    styles.pop(op.trace, None)
+                else:
+                    styles[op.trace] = op.style
+                figures[op.figure_id] = replace(record, trace_styles=styles)
             elif isinstance(op, FigureStyle) and current in figures:
                 figures[current] = replace(figures[current], style=op)
         return figures

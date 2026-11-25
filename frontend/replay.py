@@ -19,6 +19,7 @@ def replay_inputs(payload):
         "figure_color": FigureColor,
         "figure_style": FigureStyle,
         "figure_appearance": FigureAppearance,
+        "trace_appearance": TraceAppearance,
         "residual_figure": ResidualFigure,
         "item_edit": ItemEdit,
         "overlay_figure": OverlayFigure,

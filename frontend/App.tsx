@@ -19,7 +19,7 @@ import { ArraySourceDialog } from "./ArraySourceDialog";
 import { ScalarSourceDialog } from "./ScalarSourceDialog";
 import { FigureSettings } from "./FigureSettings";
 import { axisSettings, cycleColor, type StyleSection } from "./figureStyle";
-import { FigurePlot, type CaptureFigure } from "./FitPlot";
+import { FigurePlot, hasEditableLine, traceAppearance, type CaptureFigure } from "./FitPlot";
 import { ItemDialog, type ItemAction } from "./ItemDialog";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
 import { MenuBar, type Menu, type MenuCommand, type MenuRequest } from "./MenuBar";
@@ -31,8 +31,8 @@ import { RunWorkflowDialog, SaveWorkflowDialog } from "./WorkflowDialogs";
 import { Worksheet } from "./Worksheet";
 import { SourcePath } from "./SourceChecklist";
 import {
-  elementNames, formatNumber, workspace,
-  type FigureElement, type PluginDefinition, type PluginRun, type Project, type Request, type WorkflowStep, type WorkspaceItem,
+  elementNames, formatNumber, lineDashes, workspace,
+  type FigureElement, type PluginDefinition, type PluginRun, type Project, type Request, type TraceLineStyle, type WorkflowStep, type WorkspaceItem,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<boolean>;
@@ -81,6 +81,34 @@ function ColorField({
       <button disabled={busy || color === draft}>Apply</button>
     </form>
   );
+}
+
+function TraceLineEditor({ initial, overridden, busy, onApply }: {
+  initial: TraceLineStyle;
+  overridden: boolean;
+  busy: boolean;
+  onApply: (style: TraceLineStyle | null) => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  const valid = draft.width >= 0.1 && draft.width <= 12;
+  const changed = draft.color !== initial.color || draft.width !== initial.width || draft.dash !== initial.dash;
+  return <form className="fit-settings trace-line-editor" onSubmit={(event) => {
+    event.preventDefault();
+    if (valid && changed && !busy) onApply(draft);
+  }}>
+    <label><span>Line color</span><input type="color" value={draft.color}
+      onChange={(event) => setDraft({ ...draft, color: event.target.value })} /></label>
+    <label><span>Line width (px)</span><input type="number" min={0.1} max={12} step="any" required
+      value={Number.isFinite(draft.width) ? draft.width : ""} onChange={(event) => setDraft({ ...draft, width: event.target.valueAsNumber })} /></label>
+    <label><span>Line style</span><select value={draft.dash}
+      onChange={(event) => setDraft({ ...draft, dash: event.target.value as TraceLineStyle["dash"] })}>
+      {Object.entries(lineDashes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+    </select></label>
+    <div className="trace-line-actions">
+      {overridden && <button type="button" disabled={busy} onClick={() => onApply(null)}>Reset</button>}
+      <button type="submit" disabled={busy || !changed || !valid}>Apply</button>
+    </div>
+  </form>;
 }
 
 type Inspection =
@@ -139,9 +167,11 @@ function FigurePanel({ project, onSelect, onInspect, onEdit, busy, capture, run 
                   data={stored.figure!}
                   colors={stored.colors}
                   style={stored.figure_style}
+                  traceStyles={stored.trace_styles}
                   revision={id}
                   onEdit={onEdit}
                   onSelect={onSelect}
+                  onInspect={onInspect}
                 />
               </div>
             ))}
@@ -164,13 +194,15 @@ function FigurePanel({ project, onSelect, onInspect, onEdit, busy, capture, run 
   );
 }
 
-function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep }: {
+function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep, onInspectFigure, onInspectTrace }: {
   project: Project;
   inspection: Inspection | null;
   busy: boolean;
   run: Run;
   onConfigure?: () => void;
   onEditStep: (step: WorkflowStep) => void;
+  onInspectFigure: (id: number) => void;
+  onInspectTrace: (id: number, trace: number) => void;
 }) {
   const source = inspection?.kind === "source" ? project.sources.find(({ id }) => id === inspection.id) : undefined;
   if (source) {
@@ -228,7 +260,19 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep 
   const color = seriesColor ?? (role ? project.colors[role] : typeof traceColor === "string" ? traceColor : undefined);
   const figureName = project.figures.find(({ id }) => id === inspection.id)?.name;
   const input = project.sources.find(({ id }) => id === (figure.recipe.source_id ?? null));
+  const override = index === undefined ? undefined : project.trace_styles[index];
+  const appearance = trace && index !== undefined && hasEditableLine(trace)
+    ? traceAppearance(trace, index, figure, project.figure_style, project.colors, override) : undefined;
+  const renderedLine = appearance?.line;
+  const stroke = renderedLine?.color ?? traceColor ?? color;
+  const dash = renderedLine?.dash ?? (line && "dash" in line ? line.dash : undefined);
+  const initialLine: TraceLineStyle | undefined = appearance ? {
+    color: typeof stroke === "string" && /^#[0-9a-f]{6}$/i.test(stroke) ? stroke : project.colors.observations,
+    width: renderedLine?.width ?? line?.width ?? 2,
+    dash: typeof dash === "string" && Object.hasOwn(lineDashes, dash) ? dash as TraceLineStyle["dash"] : "solid",
+  } : undefined;
   return <div className="inspector inspect-details">
+    {trace && <button type="button" className="trace-list-back" onClick={() => onInspectFigure(inspection.id)}>All traces</button>}
     <h2>{trace ? trace.name || `Trace ${(index ?? 0) + 1}` : figureName}</h2>
     <dl>
       <dt>Plugin</dt><dd>{figure.definition.name}</dd>
@@ -237,16 +281,24 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep 
       {trace && <>
         <dt>Legend label</dt><dd>{trace.name ?? "Unnamed"}</dd>
         <dt>Trace type</dt><dd>{trace.type ?? "Scatter"}</dd>
-        {color && <><dt>Color</dt><dd><span className="swatch" style={{ backgroundColor: color }} /> {color}</dd></>}
-        {role && traceMode?.includes("lines") && project.figure_style.show_lines &&
-          <><dt>Line</dt><dd>{project.figure_style.line_width} px · {project.figure_style.line_dash}
-            {project.figure_style.line_color && ` · ${project.figure_style.line_color}`}</dd></>}
+        {!initialLine && color && <><dt>Color</dt><dd><span className="swatch" style={{ backgroundColor: color }} /> {color}</dd></>}
         {role && traceMode?.includes("markers") && project.figure_style.show_markers &&
           <><dt>Markers</dt><dd>{project.figure_style.marker_size} px · {project.figure_style.marker_symbol}
             {project.figure_style.marker_color && ` · ${project.figure_style.marker_color}`}</dd></>}
       </>}
     </dl>
-    {trace && role && color && !figure.overlay_inputs && <ColorField
+    {!trace && <ul className="inspect-traces" aria-label="Figure traces">
+      {figure.traces.map(({ name }, traceIndex) => <li key={traceIndex}>
+        <button type="button" onClick={() => onInspectTrace(inspection.id, traceIndex)}>
+          {name || `Trace ${traceIndex + 1}`}
+        </button>
+      </li>)}
+    </ul>}
+    {index !== undefined && initialLine && <TraceLineEditor
+      key={`${inspection.id}:${index}:${initialLine.color}:${initialLine.width}:${initialLine.dash}`}
+      initial={initialLine} overridden={!!override} busy={busy}
+      onApply={(style) => { void run({ action: "trace_style", figure_id: inspection.id, trace: index, style }); }} />}
+    {!initialLine && trace && role && color && !figure.overlay_inputs && <ColorField
       key={`${inspection.id}:${role}:${color}`} figureId={inspection.id}
       element={role} color={color} busy={busy} run={run} />}
     {onConfigure && <button type="button" disabled={busy} onClick={onConfigure}>Plugin settings…</button>}
@@ -363,7 +415,8 @@ function ProjectEditor({ project, projectKey, busy, run, onConfigure, onEdit, on
         position: { referencePanel: "figure", direction: "right" },
         initialWidth: 230, minimumWidth: 186,
         content: (
-          <InspectPanel key={projectKey} {...{ project, busy, run, inspection, onConfigure, onEditStep }} />
+          <InspectPanel key={projectKey} {...{ project, busy, run, inspection, onConfigure, onEditStep }}
+            onInspectFigure={inspectFigure} onInspectTrace={inspectTrace} />
         ),
       },
     ]} />

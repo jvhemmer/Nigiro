@@ -155,6 +155,7 @@ export interface WorkflowOutput {
 
 export interface Project {
   notes: string;
+  trace_styles: Record<number, TraceLineStyle>;
   saved_workflows: SavedWorkflow[];
   appearance: Appearance;
   row_count: number;
@@ -187,6 +188,16 @@ export interface Project {
   versions: { python: string; numpy: string; scipy: string };
 }
 
+export const lineDashes = {
+  solid: "Solid", dash: "Dash", dot: "Dot", dashdot: "Dash dot", longdash: "Long dash", longdashdot: "Long dash dot",
+} as const;
+
+export interface TraceLineStyle {
+  color: string;
+  width: number;
+  dash: keyof typeof lineDashes;
+}
+
 export type Request =
   | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "install_plugin" }
   | { action: "save"; notes?: string }
@@ -209,6 +220,7 @@ export type Request =
   | { action: "select_figure"; figure_id: number }
   | { action: "edit_item"; item: WorkspaceItem; name: string | null }
   | { action: "color"; element: FigureElement; color: string; figure_id: number }
+  | { action: "trace_style"; figure_id: number; trace: number; style: TraceLineStyle | null }
   | { action: "set_preferences"; style: FigureStyle; appearance: Appearance; run_automatically?: boolean }
   | { action: "set_global_style"; style: FigureStyle }
   | { action: "figure_style"; style: FigureStyle; figure_id: number }
@@ -220,7 +232,7 @@ export const elementNames: Record<FigureElement, string> = {
 };
 
 const figureCache = new Map<number, { token: string; figure: PluginFigure }>();
-let appearance: { style: string; colors: string; project: Project } | null = null;
+let appearance: { style: string; colors: string; lines: string; project: Project } | null = null;
 
 export async function workspace(request: Request) {
   const knownFigures = Object.fromEntries([...figureCache].map(([id, entry]) => [id, entry.token]));
@@ -229,6 +241,7 @@ export async function workspace(request: Request) {
   });
   if (!response) return response;
   const project = response.project;
+  project.trace_styles ??= {};
   if (request.action === "new" || request.action === "open") figureCache.clear();
   if (project.figure_id !== null && project.figure_token) {
     const cached = figureCache.get(project.figure_id);
@@ -241,9 +254,11 @@ export async function workspace(request: Request) {
   }
   const style = JSON.stringify(project.figure_style);
   const colors = JSON.stringify(project.colors);
+  const lines = JSON.stringify(project.trace_styles);
   if (appearance?.style === style) project.figure_style = appearance.project.figure_style;
   if (appearance?.colors === colors) project.colors = appearance.project.colors;
-  appearance = { style, colors, project };
+  if (appearance?.lines === lines && appearance) project.trace_styles = appearance.project.trace_styles;
+  appearance = { style, colors, lines, project };
   return response;
 }
 

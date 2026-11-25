@@ -10,6 +10,26 @@ from nigiro.desktop import Workspace
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_line_style_persists_for_only_the_selected_trace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "lines.nigiro"
+            worker = Workspace()
+            worker.settings.run_automatically = True
+            worker.dispatch({"action": "sample"})
+            plot = {"action": "execute_plugin", "plugin_id": "nigiro.line", "version": "1", "checksum": None,
+                    "output": "overlay", "runs": [{"source_id": None, "options": {"x": 0, "y": 1}}]}
+            first = worker.dispatch(plot)["project"]["figure_id"]
+            layered = worker.dispatch({**plot, "target_id": first})["project"]
+            self.assertEqual(len(layered["figure"]["traces"]), 2)
+            style = {"color": "#3548a0", "width": 2.5, "dash": "dashdot"}
+            command = {"action": "trace_style", "figure_id": first, "trace": 1, "style": style}
+            self.assertEqual(worker.dispatch(command)["project"]["trace_styles"], {1: style})
+            worker.dispatch({"action": "save", "path": str(path)})
+            reopened = Workspace()
+            self.assertEqual(reopened.dispatch({"action": "open", "path": str(path)})["project"]["trace_styles"], {1: style})
+            self.assertEqual(reopened.dispatch({"action": "run_all"})["project"]["trace_styles"], {1: style})
+            self.assertEqual(reopened.dispatch({**command, "style": None})["project"]["trace_styles"], {})
+
     def test_project_notes_survive_save_and_workflow_replay(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "notes.nigiro"

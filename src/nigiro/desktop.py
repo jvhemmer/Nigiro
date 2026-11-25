@@ -25,7 +25,7 @@ from nigiro.plotting import draw_fit, draw_plot
 from nigiro.plugin_registry import PluginRegistry, plugin_step
 from nigiro.project import (
     AddFigureLayers, Correction, FigureAppearance, FigureColor, FigureRecord, ItemEdit, LinearFit, OverlayFigure, Plot, PluginStep, Project,
-    ResidualFigure, ScaleColumn, Source, Worksheet, normalize_comment,
+    ResidualFigure, ScaleColumn, Source, TraceAppearance, Worksheet, normalize_comment,
 )
 from nigiro.source_tables import FILTER_PLUGINS, SourceTable, output_tables, source_origin
 from nigiro.system_fonts import SystemFonts
@@ -358,6 +358,7 @@ class Workspace:
             "figure_cached": figure_cached,
             "figure": figure,
             "figure_error": figure_error,
+            "trace_styles": record.trace_styles if record else {},
             "fit": legacy if not paged and isinstance(recipe, LinearFit) else None,
             "fit_error": figure_error if isinstance(recipe, LinearFit) else None,
             "plot": {**operation_record(recipe), **legacy} if not paged and isinstance(recipe, Plot) and legacy is not None else None,
@@ -820,9 +821,9 @@ class Workspace:
                 else:
                     label = f"Multiply columns in {len(operations)} sources"
                 self.enqueue(request, label)
-            case "correct" | "fit" | "plot" | "color" | "figure_style" | "edit_item" | "run_batch":
+            case "correct" | "fit" | "plot" | "color" | "figure_style" | "trace_style" | "edit_item" | "run_batch":
                 labels = {"correct": "Correct worksheet cell", "fit": "Analysis: Linear Fit", "plot": "Plot",
-                          "color": "Change trace color", "figure_style": "Change figure settings",
+                          "color": "Change trace color", "figure_style": "Change figure settings", "trace_style": "Change trace line style",
                           "edit_item": "Edit item", "run_batch": "Run analysis batch"}
                 self.enqueue(request, labels[request["action"]])
             case _:
@@ -1018,7 +1019,7 @@ class Workspace:
                 self.figure_id = selection
                 self.project = updated
                 self.dirty = True
-            case "color" | "figure_style":
+            case "color" | "figure_style" | "trace_style":
                 figure_id = request.get("figure_id", self.figure_id)
                 if type(figure_id) is not int or figure_id not in project.visible_figures:
                     raise ValueError("Select a figure first.")
@@ -1026,6 +1027,14 @@ class Workspace:
                 if request["action"] == "color":
                     operation = FigureColor(request["element"], request["color"], figure_id)
                     if record.colors[operation.element] == operation.color:
+                        return
+                elif request["action"] == "trace_style":
+                    operation = TraceAppearance(figure_id, request["trace"], request.get("style"))
+                    result = self.combined.get(figure_id) or self.results.get(figure_id)
+                    traces = result.figure["traces"] if result and result.figure else []
+                    if operation.trace >= len(traces) or traces[operation.trace].get("type") not in (None, "scatter", "scattergl"):
+                        raise ValueError("Choose an available line trace.")
+                    if record.trace_styles.get(operation.trace) == operation.style:
                         return
                 else:
                     style = FigureStyle(**request["style"])

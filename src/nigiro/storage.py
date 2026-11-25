@@ -13,7 +13,7 @@ from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 from .figure_style import FigureStyle
 from .project import (
     AddFigureLayers, Correction, FigureAppearance, FigureColor, ItemEdit, LinearFit, Operation, OverlayFigure, Plot, PluginStep,
-    Project, ResidualFigure, ScaleColumn, Source,
+    Project, ResidualFigure, ScaleColumn, Source, TraceAppearance,
 )
 from .source_tables import SourceTable
 from .workflow import Step, Workflow
@@ -28,6 +28,7 @@ OPERATION_TYPES = {
     "figure_color": FigureColor,
     "figure_style": FigureStyle,
     "figure_appearance": FigureAppearance,
+    "trace_appearance": TraceAppearance,
     "residual_figure": ResidualFigure,
     "item_edit": ItemEdit,
     "overlay_figure": OverlayFigure,

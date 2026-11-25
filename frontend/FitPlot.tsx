@@ -1,9 +1,10 @@
 import { decodePlotText, formatPlotTicks, plotText } from "./plotText.mjs";
 import { loadMathJax } from "./mathText";
+import { useRevealDockPanel } from "./DockWorkspace";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Data, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
 import { cycleColor, figureFont, figureLayout, tickRenderers, type FigureStyle, type StyleSection, type TextRenderer } from "./figureStyle";
-import type { FigureElement, PluginFigure } from "./workspace";
+import type { FigureElement, PluginFigure, TraceLineStyle } from "./workspace";
 
 type Colors = Record<FigureElement, string>;
 type Renderer = typeof import("plotly.js-basic-dist-min");
@@ -50,10 +51,14 @@ interface FigurePlotProps {
   data: PluginFigure;
   colors: Colors;
   style: FigureStyle;
+  traceStyles: ProjectTraceStyles;
   revision: number;
   onEdit: (section: StyleSection) => void;
   onSelect: (id: number, index: number) => void;
+  onInspect: (id: number) => void;
 }
+
+type ProjectTraceStyles = Record<number, TraceLineStyle>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -81,7 +86,14 @@ function differences(base: object, current: object): object {
   }));
 }
 
-function traceAppearance(trace: Data, index: number, data: PluginFigure, style: FigureStyle, colors: Colors) {
+export function hasEditableLine(trace: Data): boolean {
+  return (trace.type === "scatter" || trace.type === "scattergl" || trace.type == null)
+    && (!("mode" in trace) || (trace.mode ?? "lines").includes("lines"));
+}
+
+export function traceAppearance(
+  trace: Data, index: number, data: PluginFigure, style: FigureStyle, colors: Colors, override?: TraceLineStyle,
+): { name?: string; marker?: object; line?: Partial<TraceLineStyle>; mode?: string; width?: number } {
   const element = data.elements?.[index];
   const custom = cycleColor(style, data.series_cycle?.[index]);
   const color = custom ?? data.series_colors?.[index] ?? (element ? colors[element] : undefined);
@@ -94,29 +106,31 @@ function traceAppearance(trace: Data, index: number, data: PluginFigure, style: 
   if ((trace.type === "scatter" || trace.type === "scattergl") && color) {
     if (element) {
       const marker = { color: style.marker_color ?? color, size: style.marker_size, symbol: style.marker_symbol };
-      const line = { color: style.line_color ?? color, width: style.line_width, dash: style.line_dash };
+      const line = { color: style.line_color ?? color, width: style.line_width, dash: style.line_dash, ...override };
       const mode = (trace.mode ?? "lines").split("+").filter((part) =>
         (part !== "markers" || style.show_markers) && (part !== "lines" || style.show_lines));
       return { ...name, marker, line, mode: mode.join("+") || "none" };
     }
-    if (custom) return { ...name, marker: { color }, line: { color } };
+    if (custom) return { ...name, marker: { color }, line: { color, ...override } };
   }
-  return name;
+  return override ? { ...name, line: override } : name;
 }
 
-export function FigurePlot({ capture, data, colors, style, revision, onEdit, onSelect }: FigurePlotProps) {
+export function FigurePlot({ capture, data, colors, style, traceStyles, revision, onEdit, onSelect, onInspect }: FigurePlotProps) {
+  const reveal = useRevealDockPanel();
   const viewport = useRef<HTMLDivElement>(null);
   const scrollArea = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
   const [available, setAvailable] = useState({ width: 0, height: 0 });
   const [error, setError] = useState("");
+  const selectedTrace = useRef(false);
   const plotly = useRef<Renderer | null>(null);
   const webGLFailed = useRef(false);
   const traces = useMemo(() => structuredClone(data.traces), [data]);
   const rendered = useRef<PlotlyHTMLElement | null>(null);
   const drawing = useRef<Promise<void>>(Promise.resolve());
-  const lastDraw = useRef<{ data: PluginFigure; colors: Colors; style: FigureStyle; width: number; height: number } | null>(null);
+  const lastDraw = useRef<{ data: PluginFigure; colors: Colors; style: FigureStyle; traceStyles: ProjectTraceStyles; width: number; height: number } | null>(null);
   const lockedWidth = style.axes_width;
   const lockedHeight = style.axes_height;
   const width = lockedWidth ?? available.width;
@@ -155,7 +169,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
           const current = graph.data[index];
           const visible = current && "visible" in current ? current.visible : undefined;
           return {
-            ...traceAppearance(trace, index, data, style, colors),
+            ...traceAppearance(trace, index, data, style, colors, traceStyles[index]),
             ...(visible !== undefined && (!("visible" in trace) || visible !== trace.visible) && { visible }),
           };
         });
@@ -175,7 +189,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
         return { traces, layout: differences(data.layout ?? {}, layout), width, height, uses_math, tick_renderers: renderers, tick_math };
       },
     };
-  }, [colors, data, style, visible]);
+  }, [colors, data, style, traceStyles, visible]);
 
   useEffect(() => {
     const node = container.current!;
@@ -232,9 +246,13 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
     let chart: PlotlyHTMLElement | undefined;
     function selectPoint(event: PlotMouseEvent) {
       const index = event.points[0]?.curveNumber;
-      if (index !== undefined) onSelect(revision, index);
+      if (index !== undefined) {
+        selectedTrace.current = true;
+        onSelect(revision, index);
+      }
     }
     function selectLegend(event: LegendClickEvent) {
+      selectedTrace.current = true;
       onSelect(revision, event.curveNumber);
       return false;
     }
@@ -249,7 +267,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
       if (!active) return;
       const previous = lastDraw.current;
       if (previous?.data === data && previous.colors === colors && previous.style === style
-        && previous.width === width && previous.height === height && rendered.current) {
+        && previous.traceStyles === traceStyles && previous.width === width && previous.height === height && rendered.current) {
         chart = rendered.current;
         chart.on("plotly_click", selectPoint);
         chart.on("plotly_legendclick", selectLegend);
@@ -280,7 +298,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
         node.style.height = `${canvasHeight}px`;
         return { width: canvasWidth, height: canvasHeight };
       }
-      const series = traces.map((trace, index) => merge(trace, traceAppearance(trace, index, data, style, colors)));
+      const series = traces.map((trace, index) => merge(trace, traceAppearance(trace, index, data, style, colors, traceStyles[index])));
       const options = { ...layout, ...setCanvas(), autosize: false };
       if (plotly.current && plotly.current !== renderer) plotly.current.purge(node);
       plotly.current = renderer;
@@ -309,7 +327,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
         await plotly.current.relayout(next, setCanvas());
       }
       if (active) {
-        lastDraw.current = { data, colors, style, width, height };
+        lastDraw.current = { data, colors, style, traceStyles, width, height };
         chart = next;
         rendered.current = next;
         chart.on("plotly_click", selectPoint);
@@ -325,7 +343,7 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
       chart?.removeAllListeners?.("plotly_click");
       chart?.removeAllListeners?.("plotly_legendclick");
     };
-  }, [data, traces, colors, style, revision, onSelect, width, height, lockedWidth, lockedHeight, visible]);
+  }, [data, traces, colors, style, traceStyles, revision, onSelect, width, height, lockedWidth, lockedHeight, visible]);
 
   return (
     <div className="chart-panel">
@@ -334,6 +352,11 @@ export function FigurePlot({ capture, data, colors, style, revision, onEdit, onS
         <div className="plot-scroll-area" ref={scrollArea}>
           <div className="plot-canvas" ref={canvas}>
             <div className="plot" ref={container} aria-label={data.definition.name}
+              onPointerDownCapture={() => { selectedTrace.current = false; }}
+              onClick={() => {
+                if (!selectedTrace.current) onInspect(revision);
+                reveal("analysis");
+              }}
               onDoubleClick={(event) => {
                 const target = event.target;
                 if (!(target instanceof Element)) return;
