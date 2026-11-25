@@ -21,6 +21,7 @@ import { columnFields, InputOptionsDialog, supportsPairedSources } from "./Input
 import { useListDrag } from "./useListDrag";
 import { ViewTabs, viewTabId } from "./ViewTabs";
 import { statusLabels, WorkflowPanel, WorkflowStepDialog } from "./WorkflowPanel";
+import { RunWorkflowDialog, SaveWorkflowDialog } from "./WorkflowDialogs";
 import { Worksheet } from "./Worksheet";
 import { SourcePath } from "./SourceChecklist";
 import {
@@ -189,6 +190,7 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep 
         <dt>Step</dt><dd>{position + 1} of {project.workflow.steps.length}</dd>
         <dt>Status</dt><dd>{statusLabels[step.status]}</dd>
         {step.files?.map((file, index) => <Fragment key={index}><dt>Input file</dt><dd>{file}</dd></Fragment>)}
+        {step.workflow_outputs?.map((name, index) => <Fragment key={index}><dt>Workflow output</dt><dd>{name}</dd></Fragment>)}
         {step.options.flatMap((options, index) => Object.entries(options).map(([key, value]) => (
           <Fragment key={`${index}:${key}`}>
             <dt>{step.options.length > 1 && `Input ${index + 1} · `}{step.labels[key] ?? key}</dt>
@@ -353,6 +355,7 @@ export function App() {
   const [scalarDialog, setScalarDialog] = useState(false);
   const [arrayDialog, setArrayDialog] = useState(false);
   const [stepDialog, setStepDialog] = useState<WorkflowStep | null>(null);
+  const [workflowDialog, setWorkflowDialog] = useState<"save" | "run" | null>(null);
   const [settingsDialog, setSettingsDialog] = useState(false);
   const [figureDialog, setFigureDialog] = useState<StyleSection | null>(null);
   const [exportDialog, setExportDialog] = useState<ExportTarget | null>(null);
@@ -495,13 +498,16 @@ export function App() {
     else if (request.action === "choose_scalar") { setError(""); setScalarDialog(true); }
     else if (request.action === "choose_array") { setError(""); setArrayDialog(true); }
     else if (request.action === "choose_step") { setError(""); setStepDialog(request.step); }
+    else if (request.action === "choose_save_workflow") { setError(""); setWorkflowDialog("save"); }
+    else if (request.action === "choose_run_workflow") { setError(""); setWorkflowDialog("run"); }
     else if (request.action === "figure_settings") { setError(""); setFigureDialog("figure"); }
     else if (request.action === "choose_export") setExportDialog(request.target);
     else if (request.action === "manage_item") setItemDialog(request.change);
     else void run(request);
   }
 
-  const menuBusy = busy || scalarDialog || arrayDialog || stepDialog !== null || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
+  const menuBusy = busy || scalarDialog || arrayDialog || stepDialog !== null || workflowDialog !== null
+    || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
   const newProject: MenuCommand = { label: "New…", request: { action: "new" }, shortcut: "N" };
   const openProject: MenuCommand = { label: "Open Project…", request: { action: "open" }, shortcut: "O" };
   const dataGroups: MenuCommand[][] = [
@@ -621,6 +627,11 @@ export function App() {
                     shortcut: "Shift+S",
                   },
                 ],
+                [
+                  { label: "Save as Workflow…", request: project?.workflow.completed ? { action: "choose_save_workflow" } : null },
+                  { label: "Import Workflow…", request: { action: "import_workflow" } },
+                  { label: "Run Workflow…", request: project?.saved_workflows?.length ? { action: "choose_run_workflow" } : null },
+                ],
                 exportCommands,
               ],
             },
@@ -667,6 +678,10 @@ export function App() {
         onAdd={async (request) => { if (await run(request)) setArrayDialog(false); }} />}
       {stepDialog && <WorkflowStepDialog step={stepDialog} sources={project?.sources ?? []} busy={busy} error={error} onRun={run}
         onClose={() => { setStepDialog(null); setError(""); }} />}
+      {project && workflowDialog === "save" && <SaveWorkflowDialog {...{ project, busy, error }} onRun={run}
+        onClose={() => { setWorkflowDialog(null); setError(""); }} />}
+      {project && workflowDialog === "run" && <RunWorkflowDialog {...{ project, busy, error }} onRun={run}
+        onClose={() => { setWorkflowDialog(null); setError(""); }} />}
       {contextMenu && <ContextMenu menu={contextMenu} onClose={closeContextMenu} onRun={runMenu} />}
       {itemDialog && (
         <ItemDialog change={itemDialog} onClose={() => setItemDialog(null)} onApply={(name) => {
@@ -745,7 +760,7 @@ export function App() {
           }}
         />
       )}
-      {error && !scalarDialog && !stepDialog && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
+      {error && !scalarDialog && !stepDialog && !workflowDialog && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
         <ProjectEditor key={projectKey} {...{ project, busy, run, capture }}
           onEditStep={(step) => runMenu({ action: "choose_step", step })}

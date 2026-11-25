@@ -126,6 +126,8 @@ export interface WorkflowStep {
   options: PluginOptions[];
   labels: Record<string, string>;
   files?: string[];
+  scalar?: boolean;
+  workflow_outputs?: string[];
 }
 
 export interface Workflow {
@@ -136,7 +138,21 @@ export interface Workflow {
   needs_replay: boolean;
 }
 
+export interface SavedWorkflow {
+  id: string;
+  name: string;
+  inputs: { output: string; kind: "csv" | "number"; name: string; default?: number }[];
+  outputs: { kind: "source" | "figure"; name: string }[];
+}
+
+export interface WorkflowOutput {
+  kind: "source" | "figure";
+  id: string | number | null;
+  name: string;
+}
+
 export interface Project {
+  saved_workflows: SavedWorkflow[];
   appearance: Appearance;
   row_count: number;
   row_offset: number;
@@ -171,6 +187,9 @@ export interface Project {
 export type Request =
   | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "save" | "install_plugin" }
   | { action: "move_step"; step_id: number; direction: number }
+  | { action: "save_workflow"; name: string; steps: number[]; inputs: Record<string, string>; outputs: WorkflowOutput[] }
+  | { action: "import_workflow" }
+  | { action: "run_saved_workflow"; id: string; name: string; sources: Record<string, string | null>; numbers: Record<string, number> }
   | { action: "edit_step"; step_id: number; options: PluginOptions[] }
   | { action: "delete_step"; step_id: number }
   | { action: "move_source"; source_id: ProjectSource["id"]; destination: number }

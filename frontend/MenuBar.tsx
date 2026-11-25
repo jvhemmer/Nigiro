@@ -12,6 +12,8 @@ export type MenuRequest = Request
   | { action: "choose_scale" }
   | { action: "choose_scalar" }
   | { action: "choose_array" }
+  | { action: "choose_save_workflow" }
+  | { action: "choose_run_workflow" }
   | { action: "choose_step"; step: WorkflowStep }
   | { action: "choose_export"; target: ExportTarget }
   | { action: "manage_item"; change: ItemAction };

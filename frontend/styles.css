@@ -501,6 +501,10 @@ td input {
 .formula-suggestions li[aria-selected="true"], .formula-suggestions li:hover { background: var(--accent-soft); }
 .formula-editor > p { margin-top: 5px; }
 .settings-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 11px; }
+.workflow-dialog { width: min(480px, calc(100% - 32px)); }
+.workflow-dialog fieldset { min-width: 0; margin-block: 8px; border: 1px solid var(--line); }
+.workflow-dialog .workflow-check { display: flex; align-items: center; gap: 7px; overflow-wrap: anywhere; }
+.workflow-port + .workflow-port { margin-top: 7px; }
 
 .plugin-dialog { width: min(640px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; }
 .plugin-tabs { display: flex; gap: 3px; border-bottom: 1px solid var(--line); margin-bottom: 9px; }

@@ -16,6 +16,19 @@ enum Action {
     RunAll,
     RunNext,
     ExportRecipe,
+    SaveWorkflow {
+        name: String,
+        steps: Vec<usize>,
+        inputs: Value,
+        outputs: Value,
+    },
+    ImportWorkflow,
+    RunSavedWorkflow {
+        id: String,
+        name: String,
+        sources: Value,
+        numbers: Value,
+    },
     MoveStep {
         step_id: usize,
         direction: i64,
@@ -232,6 +245,42 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         Action::RunAll => json!({ "action": "run_all" }),
         Action::RunNext => json!({ "action": "run_next" }),
         Action::ExportRecipe => json!({ "action": "export_recipe" }),
+        Action::SaveWorkflow {
+            name,
+            steps,
+            inputs,
+            outputs,
+        } => {
+            let Some(file) = save_file(
+                window,
+                "save_workflow",
+                "Save as Workflow",
+                "Nigiro Workflow",
+                &name,
+                "nigiro-workflow",
+            )?
+            else {
+                return Ok(None);
+            };
+            json!({ "action": "save_workflow", "path": file["path"], "name": name, "steps": steps, "inputs": inputs, "outputs": outputs })
+        }
+        Action::ImportWorkflow => {
+            return pick_file(
+                window,
+                "import_workflow",
+                "Import Workflow",
+                "Nigiro Workflow",
+                "nigiro-workflow",
+            );
+        }
+        Action::RunSavedWorkflow {
+            id,
+            name,
+            sources,
+            numbers,
+        } => {
+            json!({ "action": "run_saved_workflow", "id": id, "name": name, "sources": sources, "numbers": numbers })
+        }
         Action::MoveStep { step_id, direction } => {
             json!({ "action": "move_step", "step_id": step_id, "direction": direction })
         }

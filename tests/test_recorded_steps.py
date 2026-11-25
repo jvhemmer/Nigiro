@@ -10,6 +10,49 @@ from nigiro.desktop import Workspace
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_reusable_workflow_rebinds_inputs_and_keeps_runs_separate(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {
+            "NIGIRO_SETTINGS_PATH": str(Path(directory) / "settings.json"),
+        }):
+            root = Path(directory)
+            example, other = root / "example.csv", root / "other.csv"
+            example.write_text("E,I\n1,2\n3,4\n")
+            other.write_text("E,I\n5,6\n7,8\n")
+            template = Workspace()
+            template.dispatch({"action": "import_data", "paths": [str(example)]})
+            template.dispatch({"action": "add_scalar", "name": "R", "value": 2})
+            template.dispatch({"action": "scale_column", "runs": [{"source_id": None, "column": 1}], "factor": 10})
+            template.dispatch({"action": "add_array", "name": "Corrected", "expression": "$example:E - $example:I * $R"})
+            path = root / "correction.nigiro-workflow"
+            template.dispatch({
+                "action": "save_workflow", "path": str(path), "name": "Correction", "steps": [1, 2, 3, 4],
+                "inputs": {"1/source/0": "Data", "2/source/0": "Resistance"},
+                "outputs": [{"kind": "source", "id": template.source_id, "name": "Potential"}],
+            })
+            self.assertNotIn(str(example), path.read_text())
+
+            worker = Workspace()
+            imported = worker.dispatch({"action": "import_workflow", "path": str(path)})["project"]
+            worker.dispatch({"action": "import_data", "paths": [str(other)]})
+            run = {"action": "run_saved_workflow", "id": imported["saved_workflows"][0]["id"],
+                   "sources": {"1/source/0": None}}
+            first = worker.dispatch({**run, "name": "First", "numbers": {"2/source/0": 1}})["project"]
+            self.assertEqual(first["source_table"]["rows"], (("-55.0",), ("-73.0",)))
+            second = worker.dispatch({**run, "name": "Second", "numbers": {"2/source/0": 2}})["project"]
+            self.assertEqual(second["source_table"]["rows"], (("-115.0",), ("-153.0",)))
+            self.assertEqual([source["name"] for source in second["sources"]],
+                             ["other.csv", "First · Potential", "Second · Potential"])
+            self.assertEqual(worker.project.working_worksheets[None].rows[0], ("5", "6"))
+            saved = root / "runs.nigiro"
+            worker.dispatch({"action": "save", "path": str(saved)})
+            reopened = Workspace()
+            reopened.dispatch({"action": "open", "path": str(saved)})
+            replayed = reopened.dispatch({"action": "run_all"})["project"]
+            self.assertEqual(replayed["source_table"]["rows"], second["source_table"]["rows"])
+            self.assertEqual(replayed["workflow"]["completed"], 3)
+
     def test_plot_paired_arrays_and_replay_export(self):
         import json
         from nigiro.builtin_plugins import BUILTINS

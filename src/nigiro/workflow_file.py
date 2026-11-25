@@ -1,0 +1,112 @@
+"""Read and write reusable workflow definitions."""
+
+from __future__ import annotations
+
+import json
+import re
+from hashlib import sha256
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+
+from .workflow import map_references
+
+ACTIONS = {
+    "import_data", "add_scalar", "add_array", "apply_formula", "execute_plugin",
+    "run_plugin", "scale_column", "correct", "edit_item", "color", "figure_style",
+    "run_batch",
+}
+OUTPUT_KEY = re.compile(r"([1-9][0-9]*)/(source|figure)/([0-9]+)")
+TABLE_KEY = re.compile(r"[a-z][a-z0-9_-]*")
+
+
+def validate_workflow(record: dict) -> dict:
+    def require(condition, message="Invalid workflow definition."):
+        if not condition:
+            raise ValueError(message)
+
+    def check_reference(kind, reference):
+        match = OUTPUT_KEY.fullmatch(str(reference.get("output", ""))) if isinstance(reference, dict) else None
+        require(match is not None, "Include the step that produces each input.")
+        producer, output_kind, _ = match.groups()
+        table = reference.get("table")
+        require(int(producer) in available, "Include each input's producer before the step that uses it.")
+        require((kind == output_kind and table is None)
+                or (kind == "source" and output_kind == "figure" and isinstance(table, str) and TABLE_KEY.fullmatch(table)))
+        return reference
+
+    require(isinstance(record, dict) and record.get("version") == 1)
+    require(isinstance(record.get("name"), str) and bool(record["name"].strip()))
+    require(all(isinstance(record.get(key), list) for key in ("steps", "inputs", "outputs")))
+    require(bool(record["steps"]) and bool(record["outputs"]), "Choose steps and at least one output.")
+    available = {}
+    for step in record["steps"]:
+        require(isinstance(step, dict) and type(step.get("id")) is int and step["id"] > 0 and step["id"] not in available)
+        require(isinstance(step.get("label"), str) and isinstance(step.get("request"), dict))
+        action = step["request"].get("action")
+        require(isinstance(action, str) and action in ACTIONS, "This step cannot be saved in a reusable workflow.")
+        map_references(step["request"], check_reference)
+        available[step["id"]] = action
+
+    ports = set()
+    for port in record["inputs"]:
+        require(isinstance(port, dict) and isinstance(port.get("name"), str) and bool(port["name"].strip()))
+        output = port.get("output")
+        require(isinstance(output, str) and output not in ports)
+        check_reference("source", {"output": output})
+        step_id, _, index = OUTPUT_KEY.fullmatch(output).groups()
+        action = available[int(step_id)]
+        require((port.get("kind") == "csv" and action == "import_data")
+                or (port.get("kind") == "number" and action == "add_scalar" and index == "0"))
+        ports.add(output)
+    for step_id, action in available.items():
+        if action == "import_data":
+            prefix = f"{step_id}/source/"
+            indexes = sorted(int(port.rsplit("/", 1)[1]) for port in ports if port.startswith(prefix))
+            require(indexes and indexes == list(range(len(indexes))), "Each CSV import must have a workflow input.")
+
+    references = set()
+    for port in record["outputs"]:
+        require(isinstance(port, dict) and isinstance(port.get("name"), str) and bool(port["name"].strip()))
+        require(port.get("kind") in ("source", "figure"))
+        ref = check_reference(port["kind"], port.get("reference"))
+        identity = (ref["output"], ref.get("table"))
+        require(identity not in references, "Choose each workflow output only once.")
+        references.add(identity)
+    return record
+
+
+def read_workflow(path: Path) -> dict:
+    try:
+        return validate_workflow(json.loads(path.read_text(encoding="utf-8")))
+    except (ValueError, TypeError, KeyError, AttributeError) as error:
+        raise ValueError(f"Could not read workflow. {error}") from error
+
+
+def write_workflow(path: Path, record: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile(dir=path.parent, mode="w", encoding="utf-8", delete=False) as file:
+        pending = Path(file.name)
+        try:
+            json.dump(record, file, indent=2, ensure_ascii=False, allow_nan=False)
+            file.write("\n")
+            file.close()
+            pending.replace(path)
+        finally:
+            pending.unlink(missing_ok=True)
+
+
+def register_workflow(directory: Path, record: dict) -> str:
+    digest = sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()[:16]
+    write_workflow(directory / f"{digest}.nigiro-workflow", record)
+    return digest
+
+
+def workflow_catalog(directory: Path) -> dict[str, dict]:
+    catalog = {}
+    for path in sorted(directory.glob("*.nigiro-workflow")):
+        try:
+            record = read_workflow(path)
+        except (OSError, ValueError):
+            continue
+        catalog[path.stem] = record
+    return catalog

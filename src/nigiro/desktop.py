@@ -6,6 +6,7 @@ import csv
 import json
 import os
 import sys
+from copy import copy
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from nigiro.system_fonts import SystemFonts
 from nigiro.settings import Appearance, Settings
 from nigiro.storage import load_project, load_workflow, operation_record, save_project
 from nigiro.workflow import Step, Workflow, map_references
+from nigiro.workflow_file import read_workflow, register_workflow, validate_workflow, workflow_catalog, write_workflow
 
 
 SAMPLE = b"""Time (s),Signal
@@ -65,6 +67,8 @@ class Workspace:
         settings_path = os.environ.get("NIGIRO_SETTINGS_PATH")
         config = Path(folder).parent if folder else Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "nigiro"
         self.settings = Settings(Path(settings_path) if settings_path else config / "settings.json")
+        self.workflow_directory = self.settings.path.parent / "workflows"
+        self.saved_workflows = workflow_catalog(self.workflow_directory)
         self.plugins = PluginRegistry(Path(folder) if folder else None)
         self.results: dict[int, Execution] = {}
         self.combined: dict[int, Execution] = {}
@@ -301,6 +305,8 @@ class Workspace:
             "dirty": self.dirty,
             "run_automatically": self.settings.run_automatically,
             "workflow": self.workflow_snapshot(),
+            "saved_workflows": [{"id": key, "name": record["name"], "inputs": record["inputs"], "outputs": record["outputs"]}
+                                for key, record in self.saved_workflows.items()],
             "columns": project.worksheet.columns,
             "rows": rows[offset:end] if paged else project.worksheet.rows,
             "original_rows": (original[offset:end] if original is not None else ()) if paged else (project.source.worksheet.rows if project.source else ()),
@@ -380,6 +386,8 @@ class Workspace:
                 return f"Add variable {request['name']}"
             case "add_array":
                 return f"Add array {request['name']}"
+            case "invoke_workflow":
+                return f"Workflow: {request['name']}"
             case "apply_formula":
                 return "Analysis: Column Formula"
             case "plot":
@@ -414,6 +422,8 @@ class Workspace:
             elif action == "add_array":
                 key = "expression" if "expression" in step.request else "values"
                 options, labels = [{key: step.request[key]}], {key: "Formula" if key == "expression" else "Values"}
+            elif action == "invoke_workflow":
+                options, labels = [], {}
             elif action in ("scale_column", "correct", "fit", "plot"):
                 keys = {"scale_column": ["factor"], "correct": ["value"], "fit": ["x", "y"], "plot": ["x", "y"]}[action]
                 options = [{key: step.request[key] for key in keys}]
@@ -426,6 +436,9 @@ class Workspace:
                 **({"files": [source.original_path or source.name for source in step.sources]} if step.sources else {}),
                 **({"formula": True} if action in ("apply_formula", "add_array") and "expression" in step.request else {}),
                 **({"array": True} if action == "add_array" else {}),
+                **({"scalar": True} if action == "add_scalar" else {}),
+                **({"workflow_outputs": [port["name"] for port in step.request["definition"]["outputs"]]}
+                   if action == "invoke_workflow" else {}),
             })
         return {"steps": steps, "completed": plan.completed, "error": plan.error, "needs_replay": plan.needs_replay,
                 "has_base": plan.base.source is not None}
@@ -456,13 +469,117 @@ class Workspace:
         plan = self.workflow
         request = map_references(step.request, plan.resolve)
         before = self.project
-        if step.sources:
+        if request["action"] == "invoke_workflow":
+            for index, (kind, value) in enumerate(self.invoke_saved_workflow(request)):
+                plan.bindings[f"{step.id}/{kind}/{index}"] = value
+        elif step.sources:
             self.import_sources(step.sources, import_path=request.get("import_path"), remember=False)
         else:
             self.apply(request)
-        plan.bind(step, before, self.project)
+        if request["action"] != "invoke_workflow":
+            plan.bind(step, before, self.project)
         plan.completed += 1
         plan.executed.add(step.id)
+
+    def save_workflow_definition(self, request: dict) -> None:
+        plan = self.workflow
+        selected = set(request["steps"])
+        steps = [step for step in plan.steps[:plan.completed] if step.id in selected]
+        if len(steps) != len(selected):
+            raise ValueError("Choose recorded steps that have finished running.")
+        ports = request["inputs"]
+        inputs = []
+        commands = []
+        for step in steps:
+            action = step.request["action"]
+            command = step.request if action != "import_data" else {"action": "import_data"}
+            commands.append({"id": step.id, "label": step.label, "request": command})
+            for index, _ in enumerate(step.sources):
+                key = f"{step.id}/source/{index}"
+                inputs.append({"output": key, "kind": "csv", "name": ports.get(key, "").strip()})
+            key = f"{step.id}/source/0"
+            if action == "add_scalar" and key in ports:
+                inputs.append({"output": key, "kind": "number", "name": ports[key].strip(), "default": step.request["value"]})
+        outputs = []
+        for output in request["outputs"]:
+            kind, value = output["kind"], output["id"]
+            if (kind == "source" and value not in self.ordered_sources()) or (
+                kind == "figure" and value not in self.project.visible_figures
+            ):
+                raise ValueError("Choose an available source or figure for each output.")
+            outputs.append({"kind": kind, "name": output["name"].strip(), "reference": plan.reference(kind, value)})
+        definition = validate_workflow({"version": 1, "name": request["name"].strip(), "steps": commands,
+                                        "inputs": inputs, "outputs": outputs})
+        write_workflow(Path(request["path"]), definition)
+        self.add_saved_workflow(definition)
+
+    def add_saved_workflow(self, definition: dict) -> None:
+        key = register_workflow(self.workflow_directory, definition)
+        self.saved_workflows[key] = definition
+
+    def invoke_saved_workflow(self, request: dict) -> list:
+        definition = validate_workflow(request["definition"])
+        base = self.project
+        local = copy(self)
+        local.workflow = Workflow(base)
+        inputs = {port["output"]: port for port in definition["inputs"]}
+        for record in definition["steps"]:
+            step = Step(record["id"], record["label"], record["request"])
+            prefix = f"{step.id}/source/"
+            if step.request["action"] == "import_data":
+                ports = sorted((key for key in inputs if key.startswith(prefix)), key=lambda key: int(key.rsplit("/", 1)[1]))
+                sources = []
+                for key in ports:
+                    source_id = request["references"][key]["source_id"]
+                    source = base.raw_sources.get(source_id)
+                    if source is None or source.scalar_value is not None or base.item_deleted("source", source_id):
+                        raise ValueError(f"Choose an imported source for {inputs[key]['name']}.")
+                    sources.append(source)
+                step = replace(step, sources=tuple(sources))
+            elif step.request["action"] == "add_scalar" and f"{prefix}0" in inputs:
+                key = f"{prefix}0"
+                if key in request["references"]:
+                    source_id = request["references"][key]["source_id"]
+                    source = base.raw_sources.get(source_id)
+                    if source is None or source.scalar_value is None or base.item_deleted("source", source_id):
+                        raise ValueError(f"Choose a variable for {inputs[key]['name']}.")
+                    value = source.scalar_value
+                else:
+                    value = request["numbers"][key]
+                step = replace(step, request={**step.request, "value": value})
+            try:
+                local.execute_step(step)
+            except (ValueError, KeyError, TypeError, OSError) as error:
+                raise ValueError(f"{step.label}. {error}") from error
+
+        outputs = []
+        edits = []
+        for port in definition["outputs"]:
+            kind = port["kind"]
+            value = local.workflow.resolve(kind, port["reference"])
+            if (kind == "source" and value not in local.ordered_sources()) or (
+                kind == "figure" and value not in local.project.visible_figures
+            ):
+                raise ValueError(f"The workflow did not produce {port['name']}.")
+            outputs.append((kind, value))
+            edits.append(ItemEdit(kind, value, f"{request['name']} · {port['name']}"))
+        exposed = set(outputs)
+        for value in local.ordered_sources():
+            if value is not None and value not in base.raw_sources and value not in self.sources and ("source", value) not in exposed:
+                edits.append(ItemEdit("source", value, None))
+        for value in local.project.visible_figures.keys() - base.visible_figures.keys():
+            if ("figure", value) not in exposed:
+                edits.append(ItemEdit("figure", value, None))
+        updated = replace(local.project, operations=(*local.project.operations, *edits))
+        updated.validate()
+        local.render(updated, changed=set())
+        self.project = updated
+        self.results, self.combined, self.sources = local.results, local.combined, local.sources
+        self.render_version, self.figure_tokens = local.render_version, local.figure_tokens
+        self.source_id = next((value for kind, value in reversed(outputs) if kind == "source"), self.source_id)
+        self.figure_id = next((value for kind, value in reversed(outputs) if kind == "figure"), self.figure_id)
+        self.row_offset = 0
+        return outputs
 
     def run_workflow(self, *, restart: bool = False, limit: int | None = None) -> None:
         plan = self.workflow
@@ -622,6 +739,20 @@ class Workspace:
                 self.plugins.install(Path(request["path"]))
                 if any(result.error for result in self.results.values()):
                     self.render(self.project, fallback=self.sources)
+            case "save_workflow":
+                self.save_workflow_definition(request)
+            case "import_workflow":
+                self.add_saved_workflow(read_workflow(Path(request["path"])))
+            case "run_saved_workflow":
+                recipe = self.saved_workflows.get(request["id"])
+                if recipe is None:
+                    raise ValueError("Import the workflow before running it.")
+                name = request["name"].strip()
+                if not name:
+                    raise ValueError("Enter a name for the workflow run.")
+                references = {key: {"source_id": value} for key, value in request["sources"].items()}
+                self.enqueue({"action": "invoke_workflow", "name": name, "definition": recipe,
+                              "references": references, "numbers": request["numbers"]}, f"Workflow: {name}")
             case "export_script":
                 from nigiro.script_export import write_script
 
