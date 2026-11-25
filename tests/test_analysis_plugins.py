@@ -78,6 +78,44 @@ class NumericalPluginsTest(unittest.TestCase):
 
 
 class PluginContractTest(unittest.TestCase):
+    def test_filter_potential_segments_keeps_columns_and_enables_peak_integration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "cv.csv"
+            potential = [-1.1, -1, -.9, -.8, -.7, -.6, -.7, -.8, -.9, -1, -1.1]
+            current = [0, 0, 0, 0, 0, 0, -1, -3, -5, -1, 0]
+            path.write_text("Time,Working Electrode (V),Current (A)\n" + "".join(
+                f"{time},{x},{y}\n" for time, (x, y) in enumerate(zip(potential, current))
+            ))
+            with patch.dict(os.environ, {"NIGIRO_PLUGIN_DIR": str(root / "plugins")}):
+                worker = Workspace()
+                worker.dispatch({"action": "import_data", "paths": [str(path)]})
+
+                def integrate(source_id, interval):
+                    return worker.dispatch({
+                        "action": "run_plugin", "plugin_id": "nigiro.integrate_peak", "version": "1",
+                        "checksum": None, "source_id": source_id,
+                        "options": plugin_options("integrate_peak", x=1, y=2, range=interval),
+                    })
+
+                with self.assertRaisesRegex(ValueError, r"Found 0 in 'Working Electrode \(V\)'\. This source spans -1.1 to -0.6"):
+                    integrate(None, "-2,-1.5")
+                with self.assertRaisesRegex(ValueError, "one monotonic sweep"):
+                    integrate(None, "-1,-0.7")
+
+                command = {
+                    "action": "execute_plugin", "plugin_id": "nigiro.filter_segments", "version": "1",
+                    "checksum": None, "output": "separate",
+                    "runs": [{"source_id": None, "options": plugin_options("filter_segments", column=1, segments="2")}],
+                }
+                filtered = worker.dispatch(command)["project"]
+                self.assertEqual(filtered["source_table"]["columns"], ("Time", "Working Electrode (V)", "Current (A)"))
+                self.assertEqual([float(row[1]) for row in filtered["source_table"]["rows"]], potential[6:])
+                result = integrate(filtered["source_id"], "-1,-0.7")["project"]
+                self.assertAlmostEqual(result["figure"]["summary"]["Signed area"], .6)
+                replay = worker.dispatch({"action": "run_all"})["project"]
+                self.assertEqual(replay["figure"]["summary"], result["figure"]["summary"])
+
     def test_joint_table_can_feed_fit_after_reopening_and_rerunning(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

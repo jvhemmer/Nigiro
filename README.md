@@ -144,7 +144,7 @@ Set `"input_mode": "joint"` to receive named inputs together. Each column field 
 - Use **Align / Resample XY** to put two traces on a shared X grid. Select the X and Y columns for each trace. The result covers their shared X range.
 - Under **Signal Processing**, use **FFT Spectrum** for a one-sided amplitude spectrum. Use **Filter Signal** for Butterworth band-stop, notch, or harmonic filtering. Supply a sampling rate or a time column in seconds.
 - **Linear Fit** has a **Force fit through zero** option. **Nonlinear Curve Fit** offers named functions and custom expressions. Enter a guess and limits for each parameter, or leave them blank to use the model defaults. Both tools create a fit figure, a residuals figure, and result tables.
-- Under **Electrochemistry**, **Detect CV Segments** adds segment and direction columns. Use **Filter Segments** to select sweeps. **Find CV Peaks**, **Integrate Peak**, **iR Correction**, **Estimate Onset Potential**, and **Tafel Analysis (Irreversible)** use selected data columns. For Tafel analysis, enter the potential limits of the linear region.
+- Under **Electrochemistry**, **Filter Segments** detects sweeps from a potential column and keeps the rows you select. It can also use an existing segment column. **Detect CV Segments** adds segment and direction columns for inspection. **Find CV Peaks**, **Integrate Peak**, **iR Correction**, **Estimate Onset Potential**, and **Tafel Analysis (Irreversible)** use selected data columns. For Tafel analysis, enter the potential limits of the linear region.
 
 ### Fit an impedance spectrum
 

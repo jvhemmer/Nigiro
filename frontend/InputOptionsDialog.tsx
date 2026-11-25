@@ -99,6 +99,11 @@ function matchColumn(source: SourceChoice, reference: SourceChoice, index: numbe
   return matches.length === 1 ? matches[0] : -1;
 }
 
+function cvInputColumn(columns: string[], mode: PluginOptions[string]) {
+  const pattern = mode === "column" ? /^segments?\b/i : /working electrode|\b(potential|voltage|ewe)\b/i;
+  return columns.findIndex((name) => pattern.test(name.trim()));
+}
+
 function Destination({ label, figures, value, onChange }: {
   label: string;
   figures: Project["figures"];
@@ -160,12 +165,16 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
     }),
   ));
   const filterSegments = plugin?.id === "nigiro.filter_segments";
-  const segmentColumn = initialSource?.columns.findIndex((name) => /^segments?\b/i.test(name.trim())) ?? -1;
+  const segmentModeField = filterSegments ? definitionFields.find(({ key }) => key === "mode") : undefined;
+  const defaultSegmentMode = cvInputColumn(initialSource?.columns ?? [], "column") >= 0 ? "column" : "potential";
+  const preferredSegmentColumn = cvInputColumn(initialSource?.columns ?? [], previous?.mode ?? defaultSegmentMode);
   const [tab, setTab] = useState<(typeof tabs)[number]>("Inputs");
   const [picked, setPicked] = useState(() => new Set(initialSource ? [initialSource.id] : []));
   const [referenceId, setReferenceId] = useState<SourceId>(initialSource?.id ?? null);
   const [options, setOptions] = useState<PluginOptions>(() => Object.fromEntries(definitionFields.map((field) => {
-    const value = previous?.[field.key] ?? (filterSegments && field.key === "column" && segmentColumn >= 0 ? segmentColumn : field.default);
+    const defaultValue = filterSegments && field.key === "mode" ? defaultSegmentMode
+      : filterSegments && field.key === "column" && preferredSegmentColumn >= 0 ? preferredSegmentColumn : field.default;
+    const value = previous?.[field.key] ?? defaultValue;
     return [field.key, field.type === "column" ? Math.min(Number(value), (initialSource?.columns.length ?? 0) - 1) : value];
   })));
   const [overrides, setOverrides] = useState(new Map<SourceId, Record<string, number>>());
@@ -174,7 +183,8 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
   const [destinations, setDestinations] = useState(new Map<SourceId, number | null>());
   const inputs = sources.filter(({ id }) => picked.has(id));
   const reference = inputs.find(({ id }) => id === referenceId) ?? inputs[0];
-  const fields = definitionFields.filter((field) => field.type === "column");
+  const fields = definitionFields.filter((field) => field.type === "column").map((field) =>
+    filterSegments && options.mode === "column" ? { ...field, label: "Segment column" } : field);
   const formula = plugin?.id === columnFormulaId;
   const filter = plugin?.id === "nigiro.filter";
   const outputField = filter ? definitionFields.find(({ key }) => key === "output") : undefined;
@@ -182,7 +192,8 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
     return Object.entries(field.visible_when ?? {}).every(([key, value]) =>
       Array.isArray(value) ? value.includes(options[key]) : options[key] === value);
   }
-  const config = definitionFields.filter((field) => field.type !== "column" && field !== outputField && isVisible(field));
+  const config = definitionFields.filter((field) =>
+    field.type !== "column" && field !== outputField && field !== segmentModeField && isVisible(field));
   const submittedOptions = Object.fromEntries(definitionFields.map((field) => [
     field.key, isVisible(field) ? options[field.key] : field.default,
   ]));
@@ -231,7 +242,11 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
   useEffect(() => { dialog.current?.showModal(); }, []);
 
   function change(key: string, value: PluginOptions[string]) {
+    const segmentModeChanged = filterSegments && key === "mode" && value !== options.mode;
+    const preferred = segmentModeChanged ? cvInputColumn(reference?.columns ?? [], value) : -1;
+    if (segmentModeChanged) setOverrides(new Map());
     setOptions((current) => ({ ...current,
+      ...(preferred >= 0 ? { column: preferred } : {}),
       ...(plugin?.model_parameters && (key === "model" || key === "parameters") ? { guesses: "", lower: "", upper: "" } : {}),
       [key]: value,
     }));
@@ -245,7 +260,8 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
       const next = { ...current };
       for (const { key } of fields) {
         const matched = matchColumn(source, before, Number(current[key]));
-        next[key] = matched >= 0 ? matched : Math.min(Number(current[key]), source.columns.length - 1);
+        const preferred = filterSegments ? cvInputColumn(source.columns, current.mode) : -1;
+        next[key] = matched >= 0 ? matched : preferred >= 0 ? preferred : Math.min(Number(current[key]), source.columns.length - 1);
       }
       return next;
     });
@@ -337,6 +353,8 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
           }} />
           {reference && fields.length > 0 && <>
             <div className="batch-controls fit-settings plugin-fields">
+              {segmentModeField && <PluginOptionField field={segmentModeField} columns={[]}
+                value={options.mode} onChange={(value) => change("mode", value)} />}
               {inputs.length > 1 && <label><span>Match columns from</span>
                 <select aria-label="Match columns from" value={sourceKey(reference.id)} onChange={(event) => {
                   const source = inputs.find(({ id }) => sourceKey(id) === event.target.value);

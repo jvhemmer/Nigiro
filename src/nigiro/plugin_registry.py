@@ -181,7 +181,9 @@ class PluginRegistry:
     def execute(self, step: PluginStep, worksheet: Worksheet, references: dict) -> tuple[dict, dict[str, str]]:
         plugin = self.resolve(step)
         fields = plugin.manifest["fields"]
-        options = {**{field["key"]: field["default"] for field in fields if field.get("optional")}, **step.options}
+        defaults = {field["key"]: field.get("saved_default", field["default"])
+                    for field in fields if field.get("optional")}
+        options = {**defaults, **step.options}
         joint = plugin.manifest.get("input_mode") == "joint"
         if joint and references.keys() != {field["key"] for field in fields if field["type"] == "column"}:
             raise ValueError("Choose a source and column for each input.")

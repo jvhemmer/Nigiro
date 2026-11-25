@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import ast
-import re
-from decimal import Decimal, InvalidOperation
 from html import escape
 
 from .analysis_catalog import ANALYSIS_PLUGINS
@@ -177,36 +175,6 @@ BUILTINS["nigiro.filter"] = ({
         ]},
     ],
 }, filter_rows)
-
-
-def filter_segments(columns, rows, options):
-    entries = [item.strip() for item in options["segments"].split(",")]
-    if any(not re.fullmatch(r"[0-9]+", item) for item in entries):
-        raise ValueError("Enter segment numbers separated by commas, for example 1,2,3,5.")
-    segments = {Decimal(item) for item in entries}
-    column = options["column"]
-    matches = []
-    for row in rows:
-        try:
-            segment = Decimal(str(row[column]))
-        except InvalidOperation:
-            continue
-        if segment.is_finite() and segment in segments:
-            matches.append(row)
-    return {"traces": [], "sources": {"filtered": {
-        "name": "Filtered segments", "columns": columns, "rows": matches,
-    }}}
-
-
-BUILTINS["nigiro.filter_segments"] = ({
-    "api": 1, "id": "nigiro.filter_segments", "version": "1", "name": "Filter Segments", "menu": "analysis",
-    "outputs": ["One source per input with all columns and rows from the selected segments"],
-    "fields": [
-        {"key": "column", "label": "Segment column", "type": "column", "default": 0},
-        {"key": "segments", "label": "Segment numbers", "type": "text", "default": "1"},
-    ],
-}, filter_segments)
-
 
 
 BUILTINS[COLUMN_FORMULA_PLUGIN] = ({

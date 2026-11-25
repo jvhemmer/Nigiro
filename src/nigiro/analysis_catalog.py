@@ -2,7 +2,7 @@
 
 from .analysis_plugins import align_resample, fft_spectrum, nonlinear_fit, signal_filter
 from .eis import default_eis_circuit, eis_fit
-from .electrochemistry import detect_cv_segments, find_cv_peaks, integrate_peak, ir_correction, onset_potential, tafel_analysis
+from .electrochemistry import detect_cv_segments, filter_segments, find_cv_peaks, integrate_peak, ir_correction, onset_potential, tafel_analysis
 
 
 def analysis_field(key, label, kind, default, **settings):
@@ -105,6 +105,15 @@ ANALYSIS_PLUGINS = dict([
     analysis_plugin("detect_cv_segments", "Detect CV Segments", detect_cv_segments,
                     [voltage_current[0], *segment_options], ["Source with segment and direction columns"],
                     category="electrochemistry", table_only=True),
+    analysis_plugin("filter_segments", "Filter Segments", filter_segments, [
+        analysis_field("column", "Potential column", "column", 0),
+        analysis_choice("mode", "Segment selection", "potential",
+                        ("potential", "Detect from potential"), ("column", "Use existing segment numbers"),
+                        optional=True, saved_default="column"),
+        analysis_field("segments", "Segment numbers", "text", "1"),
+        *(dict(field, optional=True, visible_when={"mode": "potential"}) for field in segment_options),
+    ], ["Source with all columns and rows from the selected segments"],
+        category="electrochemistry", table_only=True),
     analysis_plugin("cv_peaks", "Find CV Peaks", find_cv_peaks, [*voltage_current,
         analysis_choice("grouping", "Sweeps", "detect", ("detect", "Detect reversals"), ("column", "Use Segment column"),
                         ("one", "Treat input as one sweep")),

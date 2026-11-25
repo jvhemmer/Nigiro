@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import re
+from decimal import Decimal, InvalidOperation
 
 import numpy as np
 from scipy import constants, integrate, optimize, signal, special, stats
@@ -39,6 +41,37 @@ def segment_potential(potential, tolerance, minimum):
     if not directions:
         raise ValueError("No sweep meets the reversal threshold. Check the tolerance and confirmation length.")
     return list(zip(turns, (*turns[1:], len(potential)), directions))
+
+
+def filter_segments(columns, rows, options):
+    entries = [item.strip() for item in options["segments"].split(",")]
+    if any(not re.fullmatch(r"[0-9]+", item) for item in entries):
+        raise ValueError("Enter segment numbers separated by commas, for example 1,2,3,5.")
+    column = options["column"]
+    if options.get("mode", "column") == "potential":
+        requested = {int(item) for item in entries}
+        potential = numeric_column(rows, column, columns[column])
+        minimum = integer_option(options.get("confirmation", 2), "confirmation steps")
+        segments = segment_potential(potential, options.get("tolerance", 0), minimum)
+        missing = requested.difference(range(1, len(segments) + 1))
+        if missing:
+            unavailable = ", ".join(map(str, sorted(missing)))
+            raise ValueError(f"Detected {len(segments)} segments numbered from 1. Segment numbers unavailable: {unavailable}.")
+        matches = [row for number, (start, stop, _) in enumerate(segments, start=1)
+                   if number in requested for row in rows[start:stop]]
+    else:
+        requested = {Decimal(item) for item in entries}
+        matches = []
+        for row in rows:
+            try:
+                segment = Decimal(str(row[column]))
+            except InvalidOperation:
+                continue
+            if segment.is_finite() and segment in requested:
+                matches.append(row)
+    return {"traces": [], "sources": {
+        "filtered": analysis_table("Filtered segments", columns, matches),
+    }}
 
 
 def detect_cv_segments(columns, rows, options):
@@ -102,9 +135,14 @@ def integrate_peak(columns, rows, options):
     ix, iy = options["x"], options["y"]
     x, y = numeric_column(rows, ix, "X"), numeric_column(rows, iy, "Y")
     keep = analysis_window(x, options["range"])
+    count = int(keep.sum())
+    if count < 2:
+        raise ValueError(
+            f"Select at least two points in the integration range. "
+            f"Found {count} in {columns[ix]!r}. "
+            f"This source spans {x.min():.9g} to {x.max():.9g} in that column."
+        )
     x, y = x[keep], y[keep]
-    if len(x) < 2:
-        raise ValueError("Select at least two points in the integration range.")
     if not (np.all(np.diff(x) > 0) or np.all(np.diff(x) < 0)):
         raise ValueError("Select one monotonic sweep or time interval with distinct X values.")
     span = x[-1] - x[0]
