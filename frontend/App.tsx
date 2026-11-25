@@ -7,6 +7,7 @@ import {
   Save, SaveAll, ScanSearch, Settings2, SquareFunction, Table2, Variable, Workflow as WorkflowIcon,
 } from "lucide-react";
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
+import { CommandSearch } from "./CommandSearch";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ExportDialog } from "./ExportDialog";
 import { applyAppearance, cacheAppearance } from "./appearance";
@@ -18,7 +19,7 @@ import { axisSettings, cycleColor, type StyleSection } from "./figureStyle";
 import { FigurePlot, type CaptureFigure } from "./FitPlot";
 import { ItemDialog, type ItemAction } from "./ItemDialog";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
-import { MenuBar, type MenuCommand, type MenuRequest } from "./MenuBar";
+import { MenuBar, type Menu, type MenuCommand, type MenuRequest } from "./MenuBar";
 import { columnFields, InputOptionsDialog, supportsPairedSources } from "./InputOptionsDialog";
 import { useListDrag } from "./useListDrag";
 import { ViewTabs, viewTabId } from "./ViewTabs";
@@ -522,13 +523,13 @@ export function App() {
 
   const menuBusy = busy || scalarDialog || arrayDialog || stepDialog !== null || workflowDialog !== null
     || settingsDialog || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
-  const newProject: MenuCommand = { label: "New…", icon: FilePlus, request: { action: "new" }, shortcut: "N" };
+  const newProject: MenuCommand = { label: "New…", keywords: "create project", icon: FilePlus, request: { action: "new" }, shortcut: "N" };
   const openProject: MenuCommand = { label: "Open Project…", icon: FolderOpen, request: { action: "open" }, shortcut: "O" };
   const dataGroups: MenuCommand[][] = [
-    [{ label: "Import Raw Data…", icon: FileInput, request: { action: "import_data" } }],
+    [{ label: "Import Raw Data…", keywords: "csv open load", icon: FileInput, request: { action: "import_data" } }],
     [
-      { label: "Add Variable/Constant…", icon: Variable, request: { action: "choose_scalar" } },
-      { label: "Add Array…", icon: Brackets, request: { action: "choose_array" } },
+      { label: "Add Variable/Constant…", keywords: "create variables constants scalar", icon: Variable, request: { action: "choose_scalar" } },
+      { label: "Add Array…", keywords: "create arrays formula", icon: Brackets, request: { action: "choose_array" } },
     ],
     [{ label: "Try Sample Data", icon: FlaskConical, request: { action: "sample" } }],
   ];
@@ -620,6 +621,53 @@ export function App() {
     });
   }
 
+  const menus: Menu[] = [
+    {
+      label: "File",
+      groups: [
+        [newProject],
+        [openProject],
+        [
+          { label: "Save Project", icon: Save, request: project ? saveRequest(project) : null, shortcut: "S" },
+          {
+            label: "Save Project as…", icon: SaveAll,
+            request: project ? { action: "save_as", name: projectStem(project) } : null,
+            shortcut: "Shift+S",
+          },
+        ],
+        [
+          { label: "Save as Workflow…", icon: WorkflowIcon, request: project?.workflow.completed ? { action: "choose_save_workflow" } : null },
+          { label: "Import Workflow…", icon: FileInput, request: { action: "import_workflow" } },
+          { label: "Run Workflow…", icon: Play, request: project?.saved_workflows?.length ? { action: "choose_run_workflow" } : null },
+        ],
+        exportCommands,
+      ],
+    },
+    {
+      label: "Edit",
+      groups: [[{ label: "Settings…", icon: Settings2, request: { action: "settings" } }]],
+    },
+    {
+      label: "Data",
+      groups: dataGroups,
+    },
+    {
+      label: "Plot",
+      groups: [plotCommands],
+    },
+    {
+      label: "Analysis",
+      groups: [analysisCommands, [
+        { label: "Operations", icon: Calculator, request: null, submenu: [formulaCommand, scaleCommand, filterCommand] },
+        { label: "Electrochemistry", icon: FlaskConical, request: null, submenu: [filterSegmentsCommand] },
+      ]],
+    },
+    {
+      label: "Plugins",
+      groups: [[{ label: "Install Python Plugin…", icon: PackagePlus, request: { action: "install_plugin" } }]],
+    },
+  ];
+
   return (
     <div className="app" onContextMenu={openContextMenu}>
       <header className="app-bar">
@@ -627,53 +675,9 @@ export function App() {
         <MenuBar
           busy={menuBusy}
           onRun={runMenu}
-          menus={[
-            {
-              label: "File",
-              groups: [
-                [newProject],
-                [openProject],
-                [
-                  { label: "Save Project", icon: Save, request: project ? saveRequest(project) : null, shortcut: "S" },
-                  {
-                    label: "Save Project as…", icon: SaveAll,
-                    request: project ? { action: "save_as", name: projectStem(project) } : null,
-                    shortcut: "Shift+S",
-                  },
-                ],
-                [
-                  { label: "Save as Workflow…", icon: WorkflowIcon, request: project?.workflow.completed ? { action: "choose_save_workflow" } : null },
-                  { label: "Import Workflow…", icon: FileInput, request: { action: "import_workflow" } },
-                  { label: "Run Workflow…", icon: Play, request: project?.saved_workflows?.length ? { action: "choose_run_workflow" } : null },
-                ],
-                exportCommands,
-              ],
-            },
-            {
-              label: "Edit",
-              groups: [[{ label: "Settings…", icon: Settings2, request: { action: "settings" } }]],
-            },
-            {
-              label: "Data",
-              groups: dataGroups,
-            },
-            {
-              label: "Plot",
-              groups: [plotCommands],
-            },
-            {
-              label: "Analysis",
-              groups: [analysisCommands, [
-                { label: "Operations", icon: Calculator, request: null, submenu: [formulaCommand, scaleCommand, filterCommand] },
-                { label: "Electrochemistry", icon: FlaskConical, request: null, submenu: [filterSegmentsCommand] },
-              ]],
-            },
-            {
-              label: "Plugins",
-              groups: [[{ label: "Install Python Plugin…", icon: PackagePlus, request: { action: "install_plugin" } }]],
-            },
-          ]}
+          menus={menus}
         />
+        <CommandSearch menus={menus} busy={menuBusy} onRun={runMenu} />
         {project && (
           <div className="project-name">
             <FileSpreadsheet size={17} />

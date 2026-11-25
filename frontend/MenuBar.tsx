@@ -23,11 +23,12 @@ export interface MenuCommand {
   request: MenuRequest | null;
   shortcut?: string;
   icon?: LucideIcon;
+  keywords?: string;
   disabledReason?: string;
   submenu?: MenuCommand[];
 }
 
-interface Menu {
+export interface Menu {
   label: string;
   groups: MenuCommand[][];
 }
