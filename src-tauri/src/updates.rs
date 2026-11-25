@@ -1,7 +1,7 @@
 use crate::desktop_config::Engine;
 use serde::Serialize;
 use std::{sync::Mutex, time::Duration};
-use tauri::{Manager, WebviewWindow};
+use tauri::{Config, Manager, WebviewWindow};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 #[derive(Default)]
@@ -13,15 +13,20 @@ pub struct Release {
     notes: Option<String>,
 }
 
+pub fn configured(config: &Config) -> bool {
+    let Some(updater) = config.plugins.0.get("updater") else {
+        return false;
+    };
+    updater["pubkey"]
+        .as_str()
+        .is_some_and(|key| !key.trim().is_empty())
+        && updater["endpoints"]
+            .as_array()
+            .is_some_and(|urls| !urls.is_empty())
+}
+
 pub fn unavailable(window: &WebviewWindow) -> Option<&'static str> {
-    let config = window.config().plugins.0.get("updater");
-    let configured = config
-        .and_then(|value| value["pubkey"].as_str())
-        .is_some_and(|key| !key.is_empty())
-        && config
-            .and_then(|value| value["endpoints"].as_array())
-            .is_some_and(|urls| !urls.is_empty());
-    if !configured {
+    if !configured(window.config()) {
         return Some("Updates are available in signed release builds.");
     }
     #[cfg(target_os = "linux")]
@@ -94,4 +99,31 @@ pub async fn install_update(window: WebviewWindow, version: String) -> Result<()
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn updater_requires_a_key_and_endpoints() {
+        let mut config: Config = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert!(!configured(&config));
+
+        for updater in [
+            json!(null),
+            json!({"pubkey": "test key"}),
+            json!({"pubkey": " ", "endpoints": ["https://example.com/latest.json"]}),
+        ] {
+            config.plugins.0.insert("updater".into(), updater);
+            assert!(!configured(&config));
+        }
+
+        config.plugins.0.insert(
+            "updater".into(),
+            json!({"pubkey": "test key", "endpoints": ["https://example.com/latest.json"]}),
+        );
+        assert!(configured(&config));
+    }
 }

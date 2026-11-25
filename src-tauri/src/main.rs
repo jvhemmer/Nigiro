@@ -579,9 +579,14 @@ fn file_request(action: &str, path: PathBuf) -> Result<Value, String> {
 }
 
 fn main() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+    let context = tauri::generate_context!();
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    let builder = if updates::configured(context.config()) {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    };
+    builder
         .manage(Engine::default())
         .manage(updates::AvailableUpdate::default())
         .invoke_handler(tauri::generate_handler![
@@ -593,7 +598,7 @@ fn main() {
             updates::check_for_update,
             updates::install_update,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Could not start Nigiro.")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
