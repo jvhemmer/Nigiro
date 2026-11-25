@@ -130,7 +130,9 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
     const stored = readLayout(panels);
     if (stored) {
       try {
-        api.fromJSON(stored, { reuseExistingPanels: true });
+        // At startup the panels have no view state to preserve. Build the tabs
+        // directly in their saved groups instead of moving the default tabs.
+        api.fromJSON(stored);
         for (const { icon: _icon, content: _content, ...options } of panels) {
           if (api.getPanel(options.id)) continue;
           const position = options.position;
@@ -140,10 +142,10 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
           api.addPanel({ initialWidth: 190, ...options, position: placement, component: "dock", renderer: "always" });
         }
         if (api.panels.length !== panels.length || panels.some(({ id }) => !api.getPanel(id))) {
-          api.fromJSON(defaultLayout.current, { reuseExistingPanels: true });
+          api.fromJSON(defaultLayout.current);
         }
       } catch {
-        api.fromJSON(defaultLayout.current, { reuseExistingPanels: true });
+        api.fromJSON(defaultLayout.current);
       }
     }
     for (const group of api.groups) group.model.header.hidden = false;
@@ -194,7 +196,7 @@ export function DockWorkspace({ panels }: { panels: DockPanel[] }) {
 
   function resetLayout() {
     if (!api || !defaultLayout.current) return;
-    api.fromJSON(defaultLayout.current, { reuseExistingPanels: true });
+    api.fromJSON(defaultLayout.current);
     syncLayout(api);
   }
 

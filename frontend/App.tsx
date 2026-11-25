@@ -298,8 +298,9 @@ function SourcesPanel({ project, busy, run, onInspect }: { project: Project; bus
   );
 }
 
-function ProjectEditor({ project, busy, run, onConfigure, onEdit, onEditStep, capture }: {
+function ProjectEditor({ project, projectKey, busy, run, onConfigure, onEdit, onEditStep, capture }: {
   project: Project;
+  projectKey: number;
   capture: Ref<CaptureFigure>;
   busy: boolean;
   run: Run;
@@ -307,33 +308,35 @@ function ProjectEditor({ project, busy, run, onConfigure, onEdit, onEditStep, ca
   onEdit: (section: StyleSection) => void;
   onEditStep: (step: WorkflowStep) => void;
 }) {
-  const [inspection, setInspection] = useState<Inspection | null>(null);
+  const [selection, setSelection] = useState<{ projectKey: number; item: Inspection } | null>(null);
+  const inspection = selection?.projectKey === projectKey ? selection.item : null;
+  const setInspection = useCallback((item: Inspection) => setSelection({ projectKey, item }), [projectKey]);
   const inspectSource = (id: string | null) => setInspection({ kind: "source", id });
-  const inspectTrace = useCallback((id: number, trace: number) => setInspection({ kind: "figure", id, trace }), []);
+  const inspectTrace = useCallback((id: number, trace: number) => setInspection({ kind: "figure", id, trace }), [setInspection]);
   const inspectFigure = (id: number) => setInspection({ kind: "figure", id });
   return (
     <DockWorkspace panels={[
       {
         id: "figure", title: "Figure", icon: ChartNoAxesCombined, minimumWidth: 210,
-        content: <FigurePanel project={project} onSelect={inspectTrace} onInspect={inspectFigure} onEdit={onEdit} busy={busy} capture={capture} run={run} />,
+        content: <FigurePanel key={projectKey} project={project} onSelect={inspectTrace} onInspect={inspectFigure} onEdit={onEdit} busy={busy} capture={capture} run={run} />,
       },
       {
         id: "worksheet", title: "Worksheet", icon: Table2,
         position: { referencePanel: "figure", direction: "within" },
         minimumWidth: 170, minimumHeight: 150,
-        content: <WorksheetPanel project={project} busy={busy} run={run} onInspect={inspectSource} />,
+        content: <WorksheetPanel key={projectKey} project={project} busy={busy} run={run} onInspect={inspectSource} />,
       },
       {
         id: "sources", title: "Sources", icon: Database,
         position: { referencePanel: "figure", direction: "left" },
         initialWidth: 260, minimumWidth: 150, minimumHeight: 65,
-        content: <SourcesPanel project={project} busy={busy} run={run} onInspect={inspectSource} />,
+        content: <SourcesPanel key={projectKey} project={project} busy={busy} run={run} onInspect={inspectSource} />,
       },
       {
         id: "history", title: "Recorded steps", icon: History,
         position: { referencePanel: "sources", direction: "below" },
         initialHeight: 180, minimumWidth: 150, minimumHeight: 90,
-        content: <WorkflowPanel workflow={project.workflow} busy={busy} run={run}
+        content: <WorkflowPanel key={projectKey} workflow={project.workflow} busy={busy} run={run}
           selected={inspection?.kind === "step" ? inspection.id : undefined}
           onInspect={(id) => setInspection({ kind: "step", id })} />,
       },
@@ -342,7 +345,7 @@ function ProjectEditor({ project, busy, run, onConfigure, onEdit, onEditStep, ca
         position: { referencePanel: "figure", direction: "right" },
         initialWidth: 230, minimumWidth: 186,
         content: (
-          <InspectPanel {...{ project, busy, run, inspection, onConfigure, onEditStep }} />
+          <InspectPanel key={projectKey} {...{ project, busy, run, inspection, onConfigure, onEditStep }} />
         ),
       },
     ]} />
@@ -767,7 +770,7 @@ export function App() {
       )}
       {error && !scalarDialog && !stepDialog && !workflowDialog && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
-        <ProjectEditor key={projectKey} {...{ project, busy, run, capture }}
+        <ProjectEditor {...{ project, projectKey, busy, run, capture }}
           onEditStep={(step) => runMenu({ action: "choose_step", step })}
           onConfigure={figure && !figure.overlay_inputs && project.figure_id !== null
             ? () => { setError(""); setInputDialog({ plugin: figure.definition, figureId: project.figure_id ?? undefined }); }
