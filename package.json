@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "license": "GPL-3.0-or-later",
-  "engines": { "node": "^20.19.0 || >=22.12.0" },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
     "dev": "tauri dev",
     "web:dev": "vite",
@@ -22,7 +24,9 @@
     "plotly.js-basic-dist-min": "4.1.1",
     "plotly.js-gl2d-dist-min": "4.1.1",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

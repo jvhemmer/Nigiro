@@ -332,6 +332,7 @@ class Project:
     saved_sources: dict[str, SourceTable] = field(default_factory=dict)
     additional_sources: tuple[Source, ...] = ()
     last_import_path: str | None = None
+    notes: str = ""
 
     def apply(self, operation: Operation) -> Project:
         updated = replace(self, operations=(*self.operations, operation))
@@ -339,6 +340,8 @@ class Project:
         return updated
 
     def validate(self) -> None:
+        if not isinstance(self.notes, str):
+            raise ValueError("Project notes must be text.")
         if self.last_import_path is not None and not isinstance(self.last_import_path, str):
             raise ValueError("Invalid saved import path.")
         for source in self.raw_sources.values():

@@ -5,10 +5,12 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   Brackets, Calculator, ChartColumn, ChartLine, ChartNoAxesCombined, ChartScatter, Database, FileCode2, FileInput,
   FileOutput, FilePlus, FileSpreadsheet, Filter, FlaskConical, FolderOpen, History, ListFilter, PackagePlus, Play,
-  Save, SaveAll, ScanSearch, Settings2, SquareFunction, Table2, Variable, Workflow as WorkflowIcon,
+  NotebookPen, Save, SaveAll, ScanSearch, Settings2, SquareFunction, Table2, Variable, Workflow as WorkflowIcon,
 } from "lucide-react";
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
 import { CommandSearch } from "./CommandSearch";
+import { NotesPanel } from "./NotesPanel";
+import { dragTitleBar, WindowControls } from "./WindowControls";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { ExportDialog } from "./ExportDialog";
 import { applyAppearance, cacheAppearance } from "./appearance";
@@ -306,7 +308,7 @@ function SourcesPanel({ project, busy, run, onInspect }: { project: Project; bus
   );
 }
 
-function ProjectEditor({ project, projectKey, busy, run, onConfigure, onEdit, onEditStep, capture }: {
+function ProjectEditor({ project, projectKey, busy, run, onConfigure, onEdit, onEditStep, capture, notes, onNotesChange }: {
   project: Project;
   projectKey: number;
   capture: Ref<CaptureFigure>;
@@ -315,6 +317,8 @@ function ProjectEditor({ project, projectKey, busy, run, onConfigure, onEdit, on
   onConfigure?: () => void;
   onEdit: (section: StyleSection) => void;
   onEditStep: (step: WorkflowStep) => void;
+  notes: string;
+  onNotesChange: (text: string) => void;
 }) {
   const [selection, setSelection] = useState<{ projectKey: number; item: Inspection } | null>(null);
   const inspection = selection?.projectKey === projectKey ? selection.item : null;
@@ -333,6 +337,12 @@ function ProjectEditor({ project, projectKey, busy, run, onConfigure, onEdit, on
         position: { referencePanel: "figure", direction: "within" },
         minimumWidth: 170, minimumHeight: 150,
         content: <WorksheetPanel key={projectKey} project={project} busy={busy} run={run} onInspect={inspectSource} />,
+      },
+      {
+        id: "notes", title: "Notes", icon: NotebookPen,
+        position: { referencePanel: "worksheet", direction: "within" }, inactive: true,
+        minimumWidth: 170, minimumHeight: 150,
+        content: <NotesPanel key={projectKey} text={notes} onChange={onNotesChange} />,
       },
       {
         id: "sources", title: "Sources", icon: Database,
@@ -363,6 +373,12 @@ function ProjectEditor({ project, projectKey, busy, run, onConfigure, onEdit, on
 export function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [projectKey, setProjectKey] = useState(0);
+  const [notes, setNotes] = useState<string | null>(null);
+  const notesDraft = useRef<string | null>(null);
+  const updateNotes = useCallback((value: string | null) => {
+    notesDraft.current = value;
+    setNotes(value);
+  }, []);
   const [plugins, setPlugins] = useState<PluginDefinition[]>([]);
   const [inputDialog, setInputDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | "scale" | null>(null);
   const [scalarDialog, setScalarDialog] = useState(false);
@@ -389,18 +405,22 @@ export function App() {
     setError("");
     try {
       const replace = request.action === "new" || request.action === "open";
-      if (replace && projectRef.current?.dirty && !await confirmDiscard()) return false;
+      const draft = notesDraft.current;
+      const notesChanged = draft !== null && draft !== (projectRef.current?.notes ?? "");
+      if (replace && (projectRef.current?.dirty || notesChanged) && !await confirmDiscard()) return false;
       if (request.action === "delete_step" && !await confirm("Delete this recorded step? Later steps that use its outputs may fail when rerun.", {
         title: "Delete recorded step",
         kind: "warning",
         okLabel: "Delete",
         cancelLabel: "Cancel",
       })) return false;
-      const response = await workspace(request);
+      const saving = request.action === "save" || request.action === "save_as";
+      const response = await workspace(saving && draft !== null ? { ...request, notes: draft } : request);
       if (response) {
         setPlugins(response.plugins);
         projectRef.current = response.project;
         setProject(response.project);
+        if (replace || (saving && notesDraft.current === draft)) updateNotes(null);
         if (replace) setProjectKey((key) => key + 1);
       }
       return response !== null;
@@ -411,7 +431,7 @@ export function App() {
       inFlight.current = false;
       setBusy(false);
     }
-  }, []);
+  }, [updateNotes]);
 
   useEffect(() => {
     void run({ action: "state" });
@@ -421,7 +441,7 @@ export function App() {
     const unlisten = currentWindow.onCloseRequested(async (event) => {
       if (inFlight.current) {
         event.preventDefault();
-      } else if (projectRef.current?.dirty) {
+      } else if (projectRef.current?.dirty || (notesDraft.current !== null && notesDraft.current !== (projectRef.current?.notes ?? ""))) {
         event.preventDefault();
         if (confirmingClose) return;
         confirmingClose = true;
@@ -671,21 +691,23 @@ export function App() {
 
   return (
     <div className="app" onContextMenu={openContextMenu}>
-      <header className="app-bar">
+      <header className="app-bar" onMouseDown={(event) => dragTitleBar(event, setError)}>
         <div className="app-bar-start">
           <div className="brand"><img src={appLogo} alt="" /><span>Nigiro</span></div>
           <MenuBar busy={menuBusy} onRun={runMenu} menus={menus} />
         </div>
         <CommandSearch menus={menus} busy={menuBusy} onRun={runMenu} />
-        {project && (
-          <div className="project-name">
+        <div className="app-bar-end">
+          {project && <div className="project-name">
             <FileSpreadsheet size={17} />
             <span title={project.file_name ?? "Untitled"}>
               {project.file_name ?? "Untitled"}
             </span>
-            {project.dirty && <span className="dirty" title="Unsaved changes" aria-label="Unsaved changes" />}
-          </div>
-        )}
+            {(project.dirty || (notes !== null && notes !== (project.notes ?? "")))
+              && <span className="dirty" title="Unsaved changes" aria-label="Unsaved changes" />}
+          </div>}
+          <WindowControls onError={setError} />
+        </div>
       </header>
       {scalarDialog && <ScalarSourceDialog busy={busy} error={error}
         onClose={() => { setScalarDialog(false); setError(""); }}
@@ -779,7 +801,7 @@ export function App() {
       )}
       {error && !scalarDialog && !stepDialog && !workflowDialog && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
-        <ProjectEditor {...{ project, projectKey, busy, run, capture }}
+        <ProjectEditor {...{ project, projectKey, busy, run, capture }} notes={notes ?? project.notes ?? ""} onNotesChange={updateNotes}
           onEditStep={(step) => runMenu({ action: "choose_step", step })}
           onConfigure={figure && !figure.overlay_inputs && project.figure_id !== null
             ? () => { setError(""); setInputDialog({ plugin: figure.definition, figureId: project.figure_id ?? undefined }); }

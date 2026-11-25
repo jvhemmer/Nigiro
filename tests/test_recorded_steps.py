@@ -10,6 +10,19 @@ from nigiro.desktop import Workspace
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_project_notes_survive_save_and_workflow_replay(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "notes.nigiro"
+            worker = Workspace()
+            worker.settings.run_automatically = True
+            worker.dispatch({"action": "sample"})
+            notes = "# Procedure\n\n- [x] Import measurements"
+            worker.dispatch({"action": "save", "path": str(path), "notes": notes})
+            reopened = Workspace()
+            self.assertEqual(reopened.dispatch({"action": "open", "path": str(path)})["project"]["notes"], notes)
+            self.assertEqual(reopened.dispatch({"action": "run_all"})["project"]["notes"], notes)
+            self.assertEqual(reopened.dispatch({"action": "new"})["project"]["notes"], "")
+
     def test_source_comments_survive_open_and_rerun(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "comments.nigiro"

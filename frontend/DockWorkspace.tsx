@@ -9,7 +9,7 @@ import { PanelLeftClose, RotateCcw, type LucideIcon } from "lucide-react";
 import "dockview-react/dist/styles/dockview.css";
 
 export interface DockPanel extends Pick<
-  AddPanelOptions, "id" | "position" | "initialWidth" | "initialHeight" | "minimumWidth" | "minimumHeight"
+  AddPanelOptions, "id" | "position" | "initialWidth" | "initialHeight" | "minimumWidth" | "minimumHeight" | "inactive"
 > {
   title: string;
   icon: LucideIcon;

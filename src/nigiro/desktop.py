@@ -320,6 +320,7 @@ class Workspace:
         array_producers = self.array_producers()
         workflow_runs = self.workflow_source_runs()
         state["project"] = {
+            "notes": project.notes,
             "source_name": project.source.name if project.source else None,
             "file_name": self.path.name if self.path else None,
             "dirty": self.dirty,
@@ -609,7 +610,7 @@ class Workspace:
             limit = len(plan.steps)
         if restart or plan.needs_replay:
             self.render(plan.base, fallback=plan.base.saved_sources)
-            self.project = plan.base
+            self.project = replace(plan.base, notes=self.project.notes)
             self.figure_id = self.project.last_figure_id
             self.source_id = None
             self.row_offset = 0
@@ -1037,7 +1038,9 @@ class Workspace:
                 path = Path(request["path"]) if "path" in request else self.path
                 if path is None or path.suffix.lower() != ".nigiro":
                     raise ValueError("Choose a file name with the .nigiro extension.")
-                save_project(path, replace(project, saved_sources=self.sources), self.workflow)
+                updated = replace(project, notes=project.notes if request.get("notes") is None else request["notes"])
+                save_project(path, replace(updated, saved_sources=self.sources), self.workflow)
+                self.project = updated
                 self.path = path
                 self.dirty = False
             case "export":

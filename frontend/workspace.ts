@@ -154,6 +154,7 @@ export interface WorkflowOutput {
 }
 
 export interface Project {
+  notes: string;
   saved_workflows: SavedWorkflow[];
   appearance: Appearance;
   row_count: number;
@@ -187,7 +188,8 @@ export interface Project {
 }
 
 export type Request =
-  | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "save" | "install_plugin" }
+  | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "install_plugin" }
+  | { action: "save"; notes?: string }
   | { action: "move_step"; step_id: number; direction: number }
   | { action: "save_workflow"; name: string; steps: number[]; inputs: Record<string, string>; outputs: WorkflowOutput[] }
   | { action: "import_workflow" }
@@ -210,7 +212,7 @@ export type Request =
   | { action: "set_preferences"; style: FigureStyle; appearance: Appearance; run_automatically?: boolean }
   | { action: "set_global_style"; style: FigureStyle }
   | { action: "figure_style"; style: FigureStyle; figure_id: number }
-  | { action: "save_as"; name: string };
+  | { action: "save_as"; name: string; notes?: string };
 
 export const elementNames: Record<FigureElement, string> = {
   fit: "Linear fit",

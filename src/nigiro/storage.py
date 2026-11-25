@@ -93,6 +93,7 @@ def project_record(archive: ZipFile, project: Project, files: dict[bytes, str]) 
         "operations": [operation_record(op) for op in project.operations],
         "derived_sources": {key: asdict(table) for key, table in project.saved_sources.items()},
         "last_import_path": project.last_import_path,
+        "notes": project.notes,
     }
 
 
@@ -106,7 +107,7 @@ def read_project(archive: ZipFile, record: dict, files: dict[str, bytes]) -> Pro
     tables = {key: SourceTable.from_record(value) for key, value in record["derived_sources"].items()}
     project = Project(
         source=sources[0] if sources else None, operations=tuple(operations), saved_sources=tables,
-        additional_sources=tuple(sources[1:]), last_import_path=record["last_import_path"],
+        additional_sources=tuple(sources[1:]), last_import_path=record["last_import_path"], notes=record.get("notes", ""),
     )
     project.validate()
     return project

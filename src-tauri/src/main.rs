@@ -123,9 +123,12 @@ enum Action {
         style: Value,
         figure_id: usize,
     },
-    Save,
+    Save {
+        notes: Option<String>,
+    },
     SaveAs {
         name: String,
+        notes: Option<String>,
     },
 }
 
@@ -369,7 +372,7 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         Action::FigureStyle { style, figure_id } => {
             json!({ "action": "figure_style", "style": style, "figure_id": figure_id })
         }
-        Action::Save => json!({ "action": "save" }),
+        Action::Save { notes } => json!({ "action": "save", "notes": notes }),
         Action::ImportData => {
             let mut dialog = window
                 .dialog()
@@ -424,8 +427,12 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
                 .blocking_show();
             return Ok(approved.then_some(request));
         }
-        Action::SaveAs { name } => {
-            return save_file(window, "save", "Save project", "Nigiro", &name, "nigiro");
+        Action::SaveAs { name, notes } => {
+            return Ok(
+                save_file(window, "save", "Save project", "Nigiro", &name, "nigiro")?.map(
+                    |request| json!({ "action": "save", "path": request["path"], "notes": notes }),
+                ),
+            );
         }
     };
     Ok(Some(request))
