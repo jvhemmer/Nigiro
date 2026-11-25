@@ -106,10 +106,13 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
     : project.sources;
   const initialSource = sources.find((source) => source.id === project.source_id) ?? sources[0];
   const axisSources = sources.filter(({ columns }) => columns.length > 0);
-  const canPair = !configuring && supportsPairedSources(plugin) && axisSources.length > 1;
-  const [pair, setPair] = useState(canPair && (initialSource?.columns.length ?? 0) < 2);
+  const pair = !configuring && supportsPairedSources(plugin);
+  const sameSource = (initialSource?.columns.length ?? 0) > 1;
   const [xInput, setXInput] = useState({ id: initialSource?.id ?? null, column: 0 });
-  const [yInput, setYInput] = useState({ id: (axisSources.find(({ id }) => id !== initialSource?.id) ?? initialSource)?.id ?? null, column: 0 });
+  const [yInput, setYInput] = useState({
+    id: (sameSource ? initialSource : axisSources.find(({ id }) => id !== initialSource?.id) ?? initialSource)?.id ?? null,
+    column: sameSource ? 1 : 0,
+  });
   const xSource = axisSources.find(({ id }) => id === xInput.id);
   const ySource = axisSources.find(({ id }) => id === yInput.id);
   const definitionFields = plugin?.fields ?? scalarFields;
@@ -215,14 +218,6 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
           ))}
         </div>
         <section role="tabpanel" id={`${id}-panel-Inputs`} aria-labelledby={`${id}-tab-Inputs`} hidden={tab !== "Inputs"}>
-          {canPair && <div className="fit-settings">
-            <label><span>Input layout</span>
-              <select value={pair ? "axes" : "sources"} onChange={(event) => setPair(event.target.value === "axes")}>
-                <option value="sources">X and Y columns from each source</option>
-                <option value="axes">Choose a source for each axis</option>
-              </select>
-            </label>
-          </div>}
           {pair ? <div className="fit-settings plugin-fields">
             {([{ axis: "X", input: xInput, source: xSource, set: setXInput },
               { axis: "Y", input: yInput, source: ySource, set: setYInput }]).map(({ axis, input, source, set }) => (
