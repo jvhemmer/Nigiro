@@ -416,6 +416,23 @@ wheels = [
 ]
 
 [[package]]
+name = "impydance"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/82/71/0ada7965f59b32edb449443f67cf68df5c5c7068865c15e3e4afd89be915/impydance-0.1.0.tar.gz", hash = "sha256:fbbf65ccbccc142d4bc1ff63eb8235e046d26c0661a02e8474d184ada2a58a91", size = 65838, upload-time = "2026-11-25T19:09:13.429Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/03/3c6365aa60516d2f45deb4cb62a8795fd465cf9046e36e3909c4f30b1b33/impydance-0.1.0-py3-none-any.whl", hash = "sha256:e899922c483b9b696511a20a271be61eeb3a832c6890d99e1934fc29250c00d4", size = 26899, upload-time = "2026-11-25T19:09:12.403Z" },
+]
+
+[[package]]
 name = "kiwisolver"
 version = "1.5.1"
 source = { registry = "https://pypi.org/simple" }
@@ -733,6 +750,7 @@ name = "nigiro"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "impydance" },
     { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "matplotlib", version = "3.11.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -757,6 +775,7 @@ desktop = [
 
 [package.metadata]
 requires-dist = [
+    { name = "impydance", specifier = "==0.1.0" },
     { name = "matplotlib", specifier = ">=3.6" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "packaging" },

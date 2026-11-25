@@ -8,6 +8,7 @@ import model from "../src/nigiro/project.py?raw";
 import analysis from "../src/nigiro/analysis.py?raw";
 import analysisPlugins from "../src/nigiro/analysis_plugins.py?raw";
 import electrochemistry from "../src/nigiro/electrochemistry.py?raw";
+import eis from "../src/nigiro/eis.py?raw";
 import analysisCatalog from "../src/nigiro/analysis_catalog.py?raw";
 import builtinPlugins from "../src/nigiro/builtin_plugins.py?raw";
 import pluginSource from "../src/nigiro/plugin_source.py?raw";
@@ -40,7 +41,7 @@ interface EmbeddedFont {
   style: string;
 }
 
-type ScriptRecipe = Pick<Project, "versions" | "operations"> & { script_recipe: unknown };
+type ScriptRecipe = Pick<Project, "versions" | "operations"> & { script_recipe: { builtin_dependencies?: Record<string, string> } };
 
 async function script(project: ScriptRecipe, figure: FigureSnapshot, settings: ExportSettings, fonts: EmbeddedFont[]) {
   const record = {
@@ -69,6 +70,9 @@ async function script(project: ScriptRecipe, figure: FigureSnapshot, settings: E
   // These wheels supply the same Plotly.js version and font as the desktop app.
   const { python, numpy, scipy } = project.versions;
   const payload = { ...record, mathjax, plugin_python: python, plugin_runner: `${sourceBody(pluginSource)}\n${pluginReplay}` };
+  const extraPins = Object.entries(project.script_recipe.builtin_dependencies ?? {})
+    .filter(([name]) => !["numpy", "scipy", "plotly", "matplotlib", "playwright", "typst"].includes(name))
+    .map(([name, version]) => `#   ${JSON.stringify(`${name}==${version}`)},\n`).join("");
   const template = `# /// script
 # requires-python = "==${python}.*"
 # dependencies = [
@@ -78,7 +82,7 @@ async function script(project: ScriptRecipe, figure: FigureSnapshot, settings: E
 #   "matplotlib==3.10.8",
 #   "playwright==1.65.1",
 #   "typst==0.15.2",
-# ]
+${extraPins}# ]
 # ///
 """Replay a Nigiro analysis and write a PNG or PDF."""
 
@@ -98,7 +102,8 @@ ${sourceBody(model).replace(/^from \.(figure_style|source_tables) import .*\n/gm
 ${sourceBody(analysis).replace(/^from \.project import .*\n/m, "")}
 ${sourceBody(analysisPlugins)}
 ${sourceBody(electrochemistry).replace(/^from \.analysis_plugins import .*\n/m, "")}
-${sourceBody(analysisCatalog).replace(/^from \.(analysis_plugins|electrochemistry) import .*\n/gm, "")}
+${sourceBody(eis).replace(/^from \.analysis_plugins import .*\n/m, "")}
+${sourceBody(analysisCatalog).replace(/^from \.(analysis_plugins|eis|electrochemistry) import .*\n/gm, "")}
 ${sourceBody(builtinPlugins).replace(/^from \.(analysis|analysis_catalog|column_formula|project) import .*\n/gm, "")}
 ${sourceBody(pluginSource)}
 ${sourceBody(figureExport)}

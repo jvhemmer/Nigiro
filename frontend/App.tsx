@@ -1,3 +1,4 @@
+import { describeCircuit } from "./CircuitDesigner";
 import { Fragment, useCallback, useEffect, useId, useRef, useState, type MouseEvent, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -243,7 +244,8 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
         {step.options.flatMap((options, index) => Object.entries(options).map(([key, value]) => (
           <Fragment key={`${index}:${key}`}>
             <dt>{step.options.length > 1 && `Input ${index + 1} · `}{step.labels[key] ?? key}</dt>
-            <dd>{typeof value === "boolean" ? value ? "Yes" : "No" : value}</dd>
+            <dd>{step.editors?.[key] === "eis_circuit" ? describeCircuit(String(value))
+              : typeof value === "boolean" ? value ? "Yes" : "No" : value}</dd>
           </Fragment>
         )))}
         {step.status === "failed" && <><dt>Error</dt><dd>{project.workflow.error}</dd></>}

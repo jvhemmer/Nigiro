@@ -146,6 +146,18 @@ Set `"input_mode": "joint"` to receive named inputs together. Each column field 
 - **Linear Fit** has a **Force fit through zero** option. **Nonlinear Curve Fit** offers named functions and custom expressions. Enter a guess and limits for each parameter, or leave them blank to use the model defaults. Both tools create a fit figure, a residuals figure, and result tables.
 - Under **Electrochemistry**, **Detect CV Segments** adds segment and direction columns. Use **Filter Segments** to select sweeps. **Find CV Peaks**, **Integrate Peak**, **iR Correction**, **Estimate Onset Potential**, and **Tafel Analysis (Irreversible)** use selected data columns. For Tafel analysis, enter the potential limits of the linear region.
 
+### Fit an impedance spectrum
+
+1. Open **Analysis → Electrochemistry → EIS Fit**.
+2. Map frequency in Hz and the real and imaginary impedance columns in ohms.
+3. Under **Configuration**, choose whether the file stores Z″ or −Z″.
+4. Select **Edit Circuit**. Select an element to edit its parameters. Use **Add in series** or **Add in parallel** to connect a new element to the selection.
+5. Select **Apply circuit**, then **Run analysis**.
+
+Nigiro creates a Nyquist figure and Sources for the fit parameters, fitted spectrum, and residuals. The spectrum table also contains magnitude and phase for Bode plots. Enable **Include Lin-KK validation** to add its residual table and metrics.
+
+The circuit is saved with the recorded step. Open **Edit Step** to change it and rerun the workflow. Python export includes the circuit and pins the impydance version that ran the fit.
+
 ## Edit the figure
 
 Use **Figure settings** in the Figure panel. Double-click an axis label to open its settings. Choose **Figure**, **X axis**, or **Y axis**. Residual figures use the regular Y-axis settings.

@@ -44,6 +44,7 @@ def main() -> None:
             "--recursive-copy-metadata", "matplotlib",
             "--recursive-copy-metadata", "scipy",
             "--copy-metadata", "typst",
+            "--copy-metadata", "impydance",
             str(root / "src" / "nigiro" / "desktop.py"),
         ],
         cwd=root,

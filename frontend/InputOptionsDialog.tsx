@@ -1,3 +1,4 @@
+import { CircuitField } from "./CircuitDesigner";
 import { columnFormulaId, FormulaEditor } from "./FormulaEditor";
 import { SourceChecklist, type SourceChoice } from "./SourceChecklist";
 import { useEffect, useId, useRef, useState } from "react";
@@ -17,6 +18,9 @@ function PluginOptionField({ field, columns, value, onChange }: {
   value: PluginOptions[string];
   onChange: (value: PluginOptions[string]) => void;
 }) {
+  if (field.editor === "eis_circuit") {
+    return <div className="circuit-option"><span>{field.label}</span><CircuitField value={String(value)} onChange={onChange} /></div>;
+  }
   return (
     <label>
       <span>{field.label}{field.help && <small className="muted plugin-field-help">{field.help}</small>}</span>

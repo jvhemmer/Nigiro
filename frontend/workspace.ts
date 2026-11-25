@@ -25,6 +25,7 @@ export interface PluginField {
   max?: number;
   choices?: { value: string; label: string }[];
   help?: string;
+  editor?: "eis_circuit";
   required?: boolean;
   prefer_other_source?: boolean;
   visible_when?: Record<string, PluginOptions[string] | PluginOptions[string][]>;
@@ -135,6 +136,7 @@ export interface WorkflowStep {
   status: "done" | "pending" | "stale" | "failed";
   options: PluginOptions[];
   labels: Record<string, string>;
+  editors?: Record<string, NonNullable<PluginField["editor"]>>;
   files?: string[];
   scalar?: boolean;
   workflow_outputs?: string[];

@@ -1,3 +1,4 @@
+import { CircuitField } from "./CircuitDesigner";
 import { FormulaEditor } from "./FormulaEditor";
 import { useEffect, useRef, useState } from "react";
 import { useListDrag } from "./useListDrag";
@@ -86,7 +87,9 @@ export function WorkflowStepDialog({ step, sources, busy, error, onClose, onRun 
       <div className="fit-settings plugin-fields">
         {options.map((values, index) => <fieldset key={index}>
           {options.length > 1 && <legend>Input {index + 1}</legend>}
-          {Object.entries(values).map(([key, value]) => key === "expression"
+          {Object.entries(values).map(([key, value]) => step.editors?.[key] === "eis_circuit"
+            ? <CircuitField key={key} value={String(value)} onChange={(circuit) => update(index, key, circuit)} />
+            : key === "expression"
             ? <FormulaEditor key={key} array={step.array} filter={!step.formula} value={String(value)} sources={step.formula ? sources : []}
                 onChange={(text) => update(index, key, text)} />
             : (

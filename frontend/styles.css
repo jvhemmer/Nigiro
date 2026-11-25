@@ -871,3 +871,149 @@ td input {
 .cycle-colors input { vertical-align: middle; margin-inline-end: 6px; }
 
 .plugin-field-help { display: block; }
+
+.circuit-option {
+  display: grid;
+  gap: 5px;
+}
+
+.circuit-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.circuit-field span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.circuit-field button { flex: none; }
+
+.circuit-dialog {
+  width: min(900px, calc(100% - 48px));
+}
+
+.circuit-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.circuit-designer-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(205px, 285px);
+  min-height: 250px;
+  height: min(460px, 60vh);
+  margin-top: 9px;
+  border: 1px solid var(--line);
+}
+
+.circuit-canvas {
+  overflow: auto;
+  display: grid;
+  align-items: center;
+  background: var(--panel);
+}
+
+.circuit-schematic {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+  justify-content: center;
+  padding: 14px;
+}
+
+.circuit-schematic::before,
+.circuit-schematic::after {
+  content: "";
+  width: 18px;
+  height: 1px;
+  border-top: 1px solid var(--muted);
+}
+
+.circuit-inspector {
+  min-width: 0;
+  overflow: auto;
+  border-left: 1px solid var(--line);
+  padding: 9px;
+}
+
+.circuit-inspector h3 { margin: 0 0 8px; font-size: .9rem; }
+.circuit-inspector fieldset { margin: 0 0 9px; padding: 6px; border: 1px solid var(--line); }
+.circuit-inspector label { display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 5px; }
+.circuit-inspector .circuit-check { display: flex; flex-direction: row-reverse; justify-content: flex-end; }
+
+.circuit-group {
+  display: flex;
+  align-items: center;
+  position: relative;
+  border: 1px dashed var(--line);
+  padding: 23px 5px;
+}
+
+.circuit-group-label {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-height: 19px;
+  padding: 1px 5px;
+}
+.circuit-series, .circuit-parallel { display: flex; align-items: center; }
+.circuit-series { gap: 12px; }
+.circuit-parallel { flex-direction: column; align-items: stretch; }
+.circuit-branch { position: relative; display: flex; align-items: center; justify-content: center; }
+
+.circuit-series > .circuit-branch + .circuit-branch::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  width: 12px;
+  border-top: 1px solid var(--muted);
+}
+
+.circuit-parallel > .circuit-branch {
+  display: grid;
+  grid-template-columns: minmax(8px, 1fr) auto minmax(8px, 1fr);
+  padding: 3px 0;
+  border-inline: 1px solid var(--muted);
+}
+
+.circuit-parallel > .circuit-branch::before,
+.circuit-parallel > .circuit-branch::after {
+  content: "";
+  border-top: 1px solid var(--muted);
+}
+
+.circuit-element {
+  display: flex;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  min-width: 73px;
+  height: 44px;
+  padding: 2px 5px;
+  font-size: .8rem;
+}
+
+.circuit-element span {
+  position: absolute;
+  inset: auto 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.circuit-element[aria-pressed="true"], .circuit-group-label[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.circuit-symbol { width: 58px; height: 20px; }
+.circuit-symbol path { fill: none; stroke: currentColor; stroke-width: 1.4; }
+.circuit-symbol text { fill: currentColor; text-anchor: middle; font-size: 10px; }

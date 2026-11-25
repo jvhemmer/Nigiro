@@ -471,11 +471,14 @@ class Workspace:
             else:
                 status = "stale" if step.id in plan.executed else "pending"
             action = step.request["action"]
+            editors = {}
             if action in ("execute_plugin", "run_plugin"):
                 options = ([run["options"] for run in step.request["runs"]] if action == "execute_plugin"
                            else [step.request["options"]])
                 plugin = self.plugins.plugins.get((step.request["plugin_id"], step.request["version"], step.request["checksum"]))
                 labels = {field["key"]: field["label"] for field in plugin.manifest["fields"]} if plugin else {}
+                if plugin:
+                    editors = {field["key"]: field["editor"] for field in plugin.manifest["fields"] if field.get("editor")}
             elif action == "apply_formula":
                 options, labels = [{"expression": step.request["expression"]}], {"expression": "Formula"}
             elif action == "add_scalar":
@@ -494,6 +497,7 @@ class Workspace:
             steps.append({
                 "id": step.id, "label": self.step_label(step.request, step.label), "status": status,
                 "options": options, "labels": labels,
+                **({"editors": editors} if editors else {}),
                 **({"files": [source.original_path or source.name for source in step.sources]} if step.sources else {}),
                 **({"formula": True} if action in ("apply_formula", "add_array") and "expression" in step.request else {}),
                 **({"array": True} if action == "add_array" else {}),
@@ -898,6 +902,7 @@ class Workspace:
         self.require_exportable_workflow()
         project = self.project
         recipes = {}
+        builtin_dependencies = {}
         for key, record in project.figures.items():
             if record.overlay or record.fit_id is not None:
                 continue
@@ -910,7 +915,10 @@ class Workspace:
                             "analysis": plugin.manifest["menu"] == "analysis",
                             "input_mode": plugin.manifest.get("input_mode", "batch")}
             if result.dependencies:
-                recipes[key]["dependencies"] = result.dependencies
+                if plugin.source is None:
+                    builtin_dependencies.update(result.dependencies)
+                else:
+                    recipes[key]["dependencies"] = result.dependencies
         names = self.figure_names(project)
         outputs = {}
         for key, record in project.figures.items():
@@ -931,7 +939,10 @@ class Workspace:
                 "numpy": numpy.__version__,
                 "scipy": scipy.__version__,
             },
-            "script_recipe": {"figure_id": self.figure_id, "plugins": recipes, "overlays": outputs},
+            "script_recipe": {
+                "figure_id": self.figure_id, "plugins": recipes, "overlays": outputs,
+                **({"builtin_dependencies": builtin_dependencies} if builtin_dependencies else {}),
+            },
         }}
 
     def dialog_directory(self) -> str | None:

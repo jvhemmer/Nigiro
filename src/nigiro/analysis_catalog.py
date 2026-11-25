@@ -1,6 +1,7 @@
 """Manifests for the built-in signal, fitting, and electrochemistry plugins."""
 
 from .analysis_plugins import align_resample, fft_spectrum, nonlinear_fit, signal_filter
+from .eis import default_eis_circuit, eis_fit
 from .electrochemistry import detect_cv_segments, find_cv_peaks, integrate_peak, ir_correction, onset_potential, tafel_analysis
 
 
@@ -43,6 +44,18 @@ sample_fields = [
 ]
 
 ANALYSIS_PLUGINS = dict([
+    analysis_plugin("eis_fit", "EIS Fit", eis_fit, [
+        analysis_field("frequency", "Frequency column (Hz)", "column", 0),
+        analysis_field("real", "Real impedance column (Ω)", "column", 1),
+        analysis_field("imaginary", "Imaginary impedance column (Ω)", "column", 2),
+        analysis_field("circuit", "Equivalent circuit", "text", default_eis_circuit(), editor="eis_circuit"),
+        analysis_choice("sign", "Imaginary column contains", "imaginary", ("imaginary", "Z″"), ("negative_imaginary", "−Z″")),
+        analysis_choice("weight", "Weighting", "modulus", ("modulus", "Modulus"), ("none", "Unweighted")),
+        analysis_field("starts", "Solver starts", "number", 8, min=1, max=100),
+        analysis_field("lin_kk", "Include Lin-KK validation", "boolean", False),
+    ], ["Nyquist figure", "Fit parameters and fitted spectrum tables", "Optional Lin-KK residuals table"],
+        category="electrochemistry", distinct_columns=True, dependencies=["impydance"]),
+
     analysis_plugin("align_xy", "Align / Resample XY", align_resample, [
         analysis_field("reference_x", "Reference X", "column", 0),
         analysis_field("reference_y", "Reference Y", "column", 1),
