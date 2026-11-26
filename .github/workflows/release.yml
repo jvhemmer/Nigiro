@@ -105,7 +105,7 @@ jobs:
           from pathlib import Path
 
           engine = Path("src-tauri/target/release/bundle/macos/Nigiro.app/Contents/MacOS/nigiro-engine").resolve()
-          entitlements = plistlib.loads(subprocess.check_output(["codesign", "-d", "--entitlements", "-", str(engine)]))
+          entitlements = plistlib.loads(subprocess.check_output(["codesign", "-d", "--entitlements", "-", "--xml", str(engine)]))
           if not entitlements.get("com.apple.security.cs.disable-library-validation"):
               raise SystemExit("The signed engine needs permission to load its bundled Python libraries.")
           request = json.dumps({"action": "state", "_paged": True})
