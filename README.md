@@ -119,7 +119,7 @@ Linear Fit, Scatter, Line, and Bar ship with Nigiro. Use **Plugin settings** in 
 
 Use the [Scaled XY example](examples/plugins/scaled_xy.py) as a template. Define a literal `PLUGIN` dictionary at the top of a UTF-8 Python file. Give it an `id`, a `name`, a `version` string, `api: 1`, and a `menu` of `plot` or `analysis`.
 
-Define the plugin's `fields` as a list of controls. Each control has a `key`, `label`, `type`, and `default`. The available types are `column`, `number`, `text`, `boolean`, and `choice`. Number fields accept optional `min` and `max`. Choice fields take a `choices` list with a text `value` and `label` for each choice. Set `distinct_columns` to `True` to require different columns.
+Define the plugin's `fields` as a list of controls. Each control has a `key`, `label`, `type`, and `default`. The available types are `column`, `columns`, `number`, `text`, `boolean`, and `choice`. A `columns` control lets the user select multiple columns from one source. It passes a list of zero-based indices to the plugin. Use an empty list as the default to start with no selections. Number fields accept optional `min` and `max`. Choice fields take a `choices` list with a text `value` and `label` for each choice. Set `distinct_columns` to `True` to require different columns.
 
 Set the optional `outputs` field to a list of labels, such as `["Fit figure", "Coefficients table"]`. Nigiro shows these labels on the **Output** tab.
 

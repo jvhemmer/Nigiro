@@ -46,6 +46,10 @@ def valid_value(field: dict, value: object, columns: int | None) -> bool:
     match field["type"]:
         case "column":
             return type(value) is int and value >= 0 and (columns is None or value < columns)
+        case "columns":
+            return (isinstance(value, list) and (columns is None or bool(value))
+                    and all(valid_value({"type": "column"}, index, columns) for index in value)
+                    and len(value) == len(set(value)))
         case "number":
             return (
                 type(value) in (int, float) and -math.inf < value < math.inf
@@ -112,6 +116,8 @@ def read_plugin(content: bytes) -> Plugin:
         if key in keys or not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_]*", key):
             raise ValueError("Use a unique key for each plugin control.")
         keys.add(key)
+        if field["type"] == "columns" and manifest.get("input_mode") == "joint":
+            raise ValueError("Use individual column controls for joint inputs.")
         if field["type"] == "choice":
             choices = field.get("choices")
             if not isinstance(choices, list) or not choices or not all(
@@ -202,6 +208,8 @@ class PluginRegistry:
                 continue
             if field["type"] == "column" and isinstance(value, str):
                 value = options[field["key"]] = worksheet.column_index(value)
+            if field["type"] == "columns" and isinstance(value, list):
+                value = options[field["key"]] = [worksheet.column_index(selection) for selection in value]
             if not valid_value(field, value, len(worksheet.columns)):
                 raise ValueError(f"Invalid value for {field['label']}.")
             if field["type"] == "column":

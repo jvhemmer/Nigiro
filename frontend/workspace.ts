@@ -14,12 +14,13 @@ interface PlotRecipe {
   y: number;
 }
 
-export type PluginOptions = Record<string, number | string | boolean>;
+type ScalarOption = number | string | boolean;
+export type PluginOptions = Record<string, ScalarOption | (number | string)[]>;
 
 export interface PluginField {
   key: string;
   label: string;
-  type: "column" | "number" | "text" | "boolean" | "choice";
+  type: "column" | "columns" | "number" | "text" | "boolean" | "choice";
   default: PluginOptions[string];
   min?: number;
   max?: number;
@@ -28,7 +29,7 @@ export interface PluginField {
   editor?: "eis_circuit";
   required?: boolean;
   prefer_other_source?: boolean;
-  visible_when?: Record<string, PluginOptions[string] | PluginOptions[string][]>;
+  visible_when?: Record<string, ScalarOption | ScalarOption[]>;
 }
 
 export interface PluginDefinition {

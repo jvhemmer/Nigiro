@@ -26,7 +26,7 @@ from nigiro.plotting import draw_fit, draw_plot
 from nigiro.plugin_registry import PluginRegistry, plugin_step
 from nigiro.project import (
     AddFigureLayers, Correction, FigureAppearance, FigureColor, FigureRecord, ItemEdit, LinearFit, OverlayFigure, Plot, PluginStep, Project,
-    ResidualFigure, ScaleColumn, Source, TraceAppearance, Worksheet, normalize_comment,
+    ResidualFigure, ScaleColumn, Source, TraceAppearance, Worksheet, normalize_comment, valid_plugin_option,
 )
 from nigiro.source_tables import FIT_PLUGINS, SourceTable, output_tables, source_origin
 from nigiro.system_fonts import SystemFonts
@@ -575,7 +575,7 @@ class Workspace:
         if command["action"] not in ("execute_plugin", "run_plugin"):
             return command
         plugin = self.plugins.resolve(PluginStep(command["plugin_id"], command["version"], command["checksum"], {}))
-        fields = [field["key"] for field in plugin.manifest["fields"] if field["type"] == "column"]
+        fields = {field["key"]: field["type"] for field in plugin.manifest["fields"] if field["type"] in ("column", "columns")}
 
         def record(run):
             source_id = run["source_id"]
@@ -589,9 +589,11 @@ class Workspace:
                 return run
             table = self.input_worksheet(self.project, source_id, self.sources)
             options = run["options"].copy()
-            for key in fields:
+            for key, kind in fields.items():
                 if key in options and key not in references and key not in inherited:
-                    options[key] = table.column_selection(options[key])
+                    value = options[key]
+                    options[key] = ([table.column_selection(index) for index in value]
+                                    if kind == "columns" and isinstance(value, list) else table.column_selection(value))
             result = {**run, "options": options}
             if references:
                 result["references"] = {
@@ -965,7 +967,7 @@ class Workspace:
                     raise ValueError("Keep all recorded parameter names.")
             elif not previous or not isinstance(options, list) or len(options) != len(previous) or any(
                 not isinstance(values, dict) or values.keys() != original.keys()
-                or any(type(value) not in (bool, str, int, float) for value in values.values())
+                or not all(valid_plugin_option(value) for value in values.values())
                 for values, original in zip(options, previous)
             ):
                 raise ValueError("Enter valid step options.")
@@ -1214,8 +1216,8 @@ class Workspace:
             recipes[key] = {**asdict(step), "source": plugin.source,
                             "analysis": plugin.manifest["menu"] == "analysis",
                             "input_mode": plugin.manifest.get("input_mode", "batch")}
-            named = [field["key"] for field in plugin.manifest["fields"] if field["type"] == "column"
-                     and field["key"] not in step.references and isinstance(step.options.get(field["key"]), str)]
+            named = [field["key"] for field in plugin.manifest["fields"] if field["type"] in ("column", "columns")
+                     and field["key"] not in step.references and isinstance(step.options.get(field["key"]), (str, list))]
             if named:
                 recipes[key]["named_columns"] = named
             if result.dependencies:

@@ -190,6 +190,24 @@ expression such as `value > 0 and value <= 10`. Choose whether the result includ
 }, filter_rows)
 
 
+def filter_columns(columns, rows, options):
+    selected = sorted(options["columns"])
+    return {"sources": {"selected": {
+        "name": "Selected columns",
+        "columns": [columns[index] for index in selected],
+        "rows": [[row[index] for index in selected] for row in rows],
+    }}}
+
+
+BUILTINS["nigiro.filter_columns"] = ({
+    "api": 1, "id": "nigiro.filter_columns", "version": "1", "name": "Filter Columns", "menu": "analysis",
+    "table_only": True, "outputs": ["Worksheet with the selected columns"],
+    "description": """Select the columns to keep. The new worksheet includes every row and keeps the columns in their
+original order. The input worksheet stays intact.""",
+    "fields": [{"key": "columns", "label": "Columns to keep", "type": "columns", "default": []}],
+}, filter_columns)
+
+
 BUILTINS[COLUMN_FORMULA_PLUGIN] = ({
     "api": 1, "id": COLUMN_FORMULA_PLUGIN, "version": "1", "name": "Column Formula", "menu": "analysis",
     "outputs": ["Calculated worksheet"],

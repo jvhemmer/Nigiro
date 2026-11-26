@@ -244,12 +244,18 @@ class ColumnReference:
             raise ValueError("Invalid column reference.")
 
 
+def valid_plugin_option(value: object) -> bool:
+    if isinstance(value, list):
+        return all((type(item) is int and item >= 0) or (isinstance(item, str) and item.strip()) for item in value)
+    return type(value) in (str, int, float, bool) and (not isinstance(value, float) or math.isfinite(value))
+
+
 @dataclass(frozen=True)
 class PluginStep:
     plugin_id: str
     version: str
     checksum: str | None
-    options: dict[str, str | int | float | bool]
+    options: dict[str, str | int | float | bool | list[int | str]]
     keep_style: bool = False
     source_id: str | None = None
     figure_id: int | None = None
@@ -274,9 +280,7 @@ class PluginStep:
         if self.figure_id is not None and (type(self.figure_id) is not int or self.figure_id < 0):
             raise ValueError("Invalid figure reference.")
         if not isinstance(self.options, dict) or any(
-            not isinstance(key, str) or type(value) not in (str, int, float, bool)
-            or (isinstance(value, float) and not math.isfinite(value))
-            for key, value in self.options.items()
+            not isinstance(key, str) or not valid_plugin_option(value) for key, value in self.options.items()
         ):
             raise ValueError("Invalid saved plugin options.")
         if not isinstance(self.references, dict):
@@ -289,7 +293,8 @@ class PluginStep:
                for token, reference in references.items()):
             raise ValueError("Invalid plugin column reference.")
         object.__setattr__(self, "references", references)
-        object.__setattr__(self, "options", self.options.copy())
+        object.__setattr__(self, "options", {key: value.copy() if isinstance(value, list) else value
+                                             for key, value in self.options.items()})
         object.__setattr__(self, "comment", normalize_comment(self.comment))
 
     @property

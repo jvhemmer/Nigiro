@@ -15,6 +15,30 @@ from nigiro.source_tables import output_tables
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_filter_columns_keeps_all_rows_and_replays_headers_by_name(self):
+        worker = Workspace()
+        worker.settings.run_automatically = True
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "input.csv"
+            reordered = Path(directory) / "reordered.csv"
+            first.write_text("A,B,C\n1,skip,2\n3,,4\n")
+            reordered.write_text("C,B,A\n2,skip,1\n4,,3\n")
+            worker.dispatch({"action": "import_data", "paths": [str(first)]})
+            command = {"action": "execute_plugin", "plugin_id": "nigiro.filter_columns", "version": "1",
+                       "checksum": None, "output": "separate",
+                       "runs": [{"source_id": None, "options": {"columns": [2, 0]}}]}
+            result = worker.dispatch(command)["project"]
+            self.assertEqual(result["figures"], [])
+            self.assertEqual(tuple(result["source_table"]["columns"]), ("A", "C"))
+            self.assertEqual(result["source_table"]["rows"], (("1", "2"), ("3", "4")))
+            self.assertEqual(worker.project.worksheet.columns, ("A", "B", "C"))
+            step = worker.dispatch({"action": "plugin_step_inputs", "step_id": 2})
+            self.assertEqual(step["submission"]["runs"][0]["options"]["columns"], ["C", "A"])
+            worker.dispatch({"action": "replace_import", "step_id": 1, "slot": 0, "path": str(reordered)})
+            replayed = worker.dispatch({"action": "run_all"})["project"]
+            self.assertEqual(tuple(replayed["source_table"]["columns"]), ("C", "A"))
+            self.assertEqual(replayed["source_table"]["rows"], (("2", "1"), ("4", "3")))
+
     def test_plugin_edit_sees_only_earlier_sources_and_replays_named_columns(self):
         worker = Workspace()
         worker.settings.run_automatically = True

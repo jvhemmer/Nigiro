@@ -292,7 +292,8 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
           <Fragment key={`${index}:${key}`}>
             <dt>{step.options.length > 1 && `Input ${index + 1} · `}{step.labels[key] ?? key}</dt>
             <dd>{step.editors?.[key] === "eis_circuit" ? describeCircuit(String(value))
-              : typeof value === "boolean" ? value ? "Yes" : "No" : value}</dd>
+              : typeof value === "boolean" ? value ? "Yes" : "No"
+              : Array.isArray(value) ? value.join(", ") : value}</dd>
           </Fragment>
         )))}
         {step.status === "failed" && <><dt>Error</dt><dd>{project.workflow.error}</dd></>}
@@ -661,7 +662,7 @@ export function App() {
     ? figure.recipe.options : previous?.kind === "plugin" ? previous.options : undefined;
 
   function pluginCommands(menu: PluginDefinition["menu"], category?: PluginDefinition["category"]) {
-    return plugins.filter((plugin) => plugin.menu === menu && plugin.category === category && plugin.id !== "nigiro.filter" && plugin.id !== "nigiro.filter_segments" && plugin.id !== columnFormulaId
+    return plugins.filter((plugin) => plugin.menu === menu && plugin.category === category && plugin.id !== "nigiro.filter" && plugin.id !== "nigiro.filter_columns" && plugin.id !== "nigiro.filter_segments" && plugin.id !== columnFormulaId
       && plugin.id !== arrayFormulaId && plugin.id !== "example.scaled_xy").map((plugin) => {
       const columns = columnFields(plugin).length;
       const required = plugin.distinct_columns && plugin.input_mode !== "joint" ? columns : Math.min(columns, 1);
@@ -760,6 +761,10 @@ export function App() {
   const filterPlugin = plugins.find((plugin) => plugin.id === "nigiro.filter");
   const filterCommand: MenuCommand = { label: "Filter…", icon: Filter, request: filterPlugin && project?.sources.length
     ? { action: "choose_plugin", plugin: filterPlugin } : null };
+  const filterColumns = plugins.find((plugin) => plugin.id === "nigiro.filter_columns");
+  const filterColumnsCommand: MenuCommand = { label: "Filter Columns…", icon: Filter,
+    request: filterColumns && project?.sources.some(({ columns }) => columns.length > 0)
+      ? { action: "choose_plugin", plugin: filterColumns } : null };
   const filterSegments = plugins.find((plugin) => plugin.id === "nigiro.filter_segments");
   const filterSegmentsCommand: MenuCommand = { label: "Filter Segments…", icon: ListFilter, request: filterSegments && project?.sources.length
     ? { action: "choose_plugin", plugin: filterSegments } : null };
@@ -835,7 +840,7 @@ export function App() {
       groups = figure && activeFigure?.id === target.id ? [[figureSettings], commands, exportCommands] : [commands];
     } else if (event.target.closest(".source-pane") && (plotCommands.length || analysisCommands.length)) {
       label = "Worksheet actions";
-      groups = [[formulaCommand, filterCommand], plotCommands, analysisCommands].filter((group) => group.length);
+      groups = [[formulaCommand, filterCommand, filterColumnsCommand], plotCommands, analysisCommands].filter((group) => group.length);
     }
     const anchor = (historyStep ?? clicked ?? event.target).getBoundingClientRect();
     const useAnchor = event.clientX === 0 && event.clientY === 0;
@@ -896,7 +901,7 @@ export function App() {
     {
       label: "Analysis",
       groups: [analysisCommands, [
-        { label: "Operations", icon: Calculator, request: null, submenu: [formulaCommand, filterCommand] },
+        { label: "Operations", icon: Calculator, request: null, submenu: [formulaCommand, filterCommand, filterColumnsCommand] },
         { label: "Signal Processing", icon: ChartLine, request: null, submenu: pluginCommands("analysis", "signal") },
         { label: "Electrochemistry", icon: FlaskConical, request: null, submenu: [...pluginCommands("analysis", "electrochemistry"), filterSegmentsCommand] },
       ]],

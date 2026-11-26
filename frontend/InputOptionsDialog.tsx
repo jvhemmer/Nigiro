@@ -18,6 +18,21 @@ function PluginOptionField({ field, columns, value, onChange }: {
   value: PluginOptions[string];
   onChange: (value: PluginOptions[string]) => void;
 }) {
+  if (field.type === "columns") {
+    const selected = Array.isArray(value) ? value : [];
+    return <fieldset>
+      <legend>{field.label}</legend>
+      <div className="column-checklist">
+        {columns.map((name, index) => <label key={index}>
+          <input type="checkbox" checked={selected.includes(index)} onChange={(event) => {
+            const remaining = selected.filter((item): item is number => typeof item === "number" && item >= 0 && item !== index);
+            onChange(event.target.checked ? [...remaining, index].sort((a, b) => a - b) : remaining);
+          }} />
+          {columnName(name, index)}
+        </label>)}
+      </div>
+    </fieldset>;
+  }
   if (field.editor === "eis_circuit") {
     return <div className="circuit-option"><span>{field.label}</span><CircuitField value={String(value)} onChange={onChange} /></div>;
   }
@@ -167,6 +182,7 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
   const xSource = axisSources.find(({ id }) => id === xInput.id);
   const ySource = axisSources.find(({ id }) => id === yInput.id);
   const definitionFields = plugin.fields;
+  const columnLists = definitionFields.filter(({ type }) => type === "columns");
   const [jointInputs, setJointInputs] = useState(() => Object.fromEntries(
     definitionFields.filter(({ type }) => type === "column").map((field) => {
       const source = (field.prefer_other_source ? axisSources.find(({ id }) => id !== initialSource?.id) : undefined) ?? initialSource;
@@ -192,6 +208,9 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
     const defaultValue = filterSegments && field.key === "mode" ? defaultSegmentMode
       : filterSegments && field.key === "column" && preferredSegmentColumn >= 0 ? preferredSegmentColumn : field.default;
     const value = savedOptions?.[field.key] ?? defaultValue;
+    if (field.type === "columns" && Array.isArray(value)) {
+      return [field.key, value.map((selection) => storedColumn(initialSource?.columns ?? [], selection))];
+    }
     return [field.key, field.type === "column"
       ? initial || typeof value === "string" ? storedColumn(initialSource?.columns ?? [], value)
         : Math.min(Number(value), (initialSource?.columns.length ?? 0) - 1)
@@ -223,11 +242,13 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
   const filter = plugin.id === "nigiro.filter";
   const outputField = filter ? definitionFields.find(({ key }) => key === "output") : undefined;
   function isVisible(field: PluginField) {
-    return Object.entries(field.visible_when ?? {}).every(([key, value]) =>
-      Array.isArray(value) ? value.includes(options[key]) : options[key] === value);
+    return Object.entries(field.visible_when ?? {}).every(([key, value]) => {
+      const current = options[key];
+      return Array.isArray(value) ? !Array.isArray(current) && value.includes(current) : current === value;
+    });
   }
   const config = definitionFields.filter((field) =>
-    field.type !== "column" && field !== outputField && field !== segmentModeField && isVisible(field));
+    field.type !== "column" && field.type !== "columns" && field !== outputField && field !== segmentModeField && isVisible(field));
   const submittedOptions = Object.fromEntries(definitionFields.map((field) => [
     field.key, isVisible(field) ? options[field.key] : field.default,
   ]));
@@ -242,7 +263,7 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
     const saved = initial?.runs.find(({ source_id }) => source_id === source.id)?.options;
     if (saved) {
       for (const field of definitionFields) {
-        if (!changedOptions.has(field.key) && field.type !== "column" && isVisible(field) && field.key in saved) {
+        if (!changedOptions.has(field.key) && field.type !== "column" && field.type !== "columns" && isVisible(field) && field.key in saved) {
           mapped[field.key] = saved[field.key];
         }
       }
@@ -252,9 +273,14 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
       mapped[key] = override ?? matchColumn(source, reference, Number(options[key]));
     }
     const values = fields.map(({ key }) => Number(mapped[key]));
+    const validLists = columnLists.filter(isVisible).every(({ key }) => {
+      const selected = mapped[key];
+      return Array.isArray(selected) && selected.length > 0
+        && selected.every((index) => typeof index === "number" && index >= 0 && index < source.columns.length);
+    });
     return {
       source_id: source.id, options: mapped, target_id: output === "separate" ? destinations.get(source.id) ?? null : null,
-      valid: values.every((index) => index >= 0 && index < source.columns.length)
+      valid: validLists && values.every((index) => index >= 0 && index < source.columns.length)
         && (!plugin.distinct_columns || new Set(values).size === values.length),
     };
   }) : [];
@@ -269,7 +295,8 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
       const source = axisSources.find(({ id }) => id === input.source_id);
       return !source || input.column < 0 || input.column >= source.columns.length;
     }) ? "Choose a source and column for each input." : ""
-    : !runs.length ? "Select a source." : runs.some((run) => !run.valid) ? "Choose valid columns for each source." : "";
+    : !runs.length ? "Select a source." : runs.some((run) => !run.valid)
+      ? columnLists.length ? "Choose at least one available column." : "Choose valid columns for each source." : "";
   const configError = emptyRequired
     ? `Enter a value for ${emptyRequired.label} on the Configuration tab.`
     : formula && !String(options.expression ?? "").trim()
@@ -310,6 +337,10 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
     });
     setOptions((current) => {
       const next = { ...current };
+      for (const { key } of columnLists) {
+        const selected = current[key];
+        if (Array.isArray(selected)) next[key] = selected.map((index) => matchColumn(source, before, Number(index)));
+      }
       for (const { key } of fields) {
         const matched = matchColumn(source, before, Number(current[key]));
         const preferred = filterSegments ? cvInputColumn(source.columns, current.mode) : -1;
@@ -400,13 +431,15 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
             ))}
             <p className="muted">Rows are paired in order.</p>
           </div> : <>
-          <SourceChecklist sources={sources} picked={picked} single={formula || (configuring && !!initial)}
-            label={configuring && initial && !formula ? "Source" : undefined}
+          <SourceChecklist sources={sources} picked={picked} single={formula || columnLists.length > 0 || (configuring && !!initial)}
+            label={columnLists.length || (configuring && initial && !formula) ? "Source" : undefined}
             disabled={(configuring && !initial) || busy} onChange={(next) => {
             const first = sources.find(({ id }) => next.has(id));
             if (!next.has(referenceId) && first) selectReference(first);
             setPicked(next);
           }} />
+          {reference && columnLists.filter(isVisible).map((field) => <PluginOptionField key={field.key} field={field}
+            columns={reference.columns} value={options[field.key]} onChange={(value) => change(field.key, value)} />)}
           {reference && fields.length > 0 && <>
             <div className="batch-controls fit-settings plugin-fields">
               {segmentModeField && <PluginOptionField field={segmentModeField} columns={[]}
