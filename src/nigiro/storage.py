@@ -59,7 +59,8 @@ def source_file(checksum: str) -> str:
 def write_source(archive: ZipFile, source: Source, files: dict[bytes, str]) -> dict:
     comment = {"comment": source.comment} if source.comment else {}
     if source.scalar_value is not None:
-        return {"name": source.name, "scalar_value": source.scalar_value, **comment}
+        formula = {"scalar_formula": source.scalar_formula} if source.scalar_formula is not None else {}
+        return {"name": source.name, "scalar_value": source.scalar_value, **comment, **formula}
     if source.content not in files:
         checksum = hashlib.sha256(source.content).hexdigest()
         archive.writestr(source_file(checksum), source.content)
@@ -72,7 +73,8 @@ def write_source(archive: ZipFile, source: Source, files: dict[bytes, str]) -> d
 
 def read_source(archive: ZipFile, metadata: dict, files: dict[str, bytes]) -> Source:
     if "scalar_value" in metadata:
-        return Source.scalar(metadata["name"], metadata["scalar_value"], metadata.get("comment"))
+        return Source.scalar(metadata["name"], metadata["scalar_value"], metadata.get("comment"),
+                             formula=metadata.get("scalar_formula"))
     checksum = metadata["sha256"]
     if not isinstance(checksum, str) or len(checksum) != 64 or any(char not in "0123456789abcdef" for char in checksum):
         raise ValueError("Invalid source checksum.")

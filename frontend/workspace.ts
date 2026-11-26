@@ -120,6 +120,7 @@ export interface ProjectSource {
   original_path: string | null;
   kind: "raw" | "derived";
   scalar?: boolean;
+  scalar_formula?: string;
   detail?: string;
   workflow_run?: string;
   comment?: string;
@@ -244,6 +245,13 @@ export interface TraceLineStyle {
 
 export type TraceFillStyle = { color: string; opacity: number };
 export type TraceStyle = Partial<TraceLineStyle> & { fill?: TraceFillStyle; zorder?: number };
+export type InspectStyleChange =
+  | { action: "color"; element: FigureElement; color: string }
+  | ({ action: "trace_style"; trace: number } & (
+    { kind: "line"; style: TraceLineStyle | null }
+    | { kind: "fill"; style: TraceFillStyle | null }
+    | { kind: "order"; style: { zorder: number } | null }
+  ));
 
 export type Request =
   | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "install_plugin" | "new_workspace" | "open_workspace" }
@@ -264,7 +272,7 @@ export type Request =
   | { action: "move_source"; source_id: ProjectSource["id"]; destination: number; placement?: { group_id: string | null } }
   | { action: "source_group"; mode: "create" | "rename" | "toggle" | "delete"; group_id?: string; name?: string }
   | { action: "apply_formula"; source_id: ProjectSource["id"]; column: number; expression: string }
-  | { action: "add_scalar"; name: string; value: number; comment?: string }
+  | ({ action: "add_scalar"; name: string; comment?: string } & ({ value: number } | { expression: string }))
   | ({ action: "add_array"; name: string; comment?: string } & ({ values: string } | { expression: string }))
   | { action: "worksheet_page"; offset: number }
   | { action: "correct"; row: number; column: number; value: string }
@@ -274,12 +282,7 @@ export type Request =
   | { action: "select_figure"; figure_id: number }
   | { action: "overlay_figures"; figure_ids: number[] }
   | { action: "edit_item"; item: WorkspaceItem; name: string | null }
-  | { action: "color"; element: FigureElement; color: string; figure_id: number }
-  | ({ action: "trace_style"; figure_id: number; trace: number } & (
-    { kind?: "line"; style: TraceLineStyle | null }
-    | { kind: "fill"; style: TraceFillStyle | null }
-    | { kind: "order"; style: { zorder: number } | null }
-  ))
+  | { action: "inspect_style"; figure_id: number; trace: number; changes: InspectStyleChange[] }
   | { action: "set_preferences"; style: FigureStyle; appearance: Appearance; run_automatically?: boolean }
   | { action: "set_global_style"; style: FigureStyle }
   | { action: "figure_style"; style: FigureStyle; figure_id: number }

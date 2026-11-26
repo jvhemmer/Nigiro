@@ -89,7 +89,8 @@ enum Action {
     },
     AddScalar {
         name: String,
-        value: f64,
+        value: Option<f64>,
+        expression: Option<String>,
         comment: Option<String>,
     },
     AddArray {
@@ -177,6 +178,11 @@ enum Action {
         trace: usize,
         style: Option<Value>,
         kind: Option<String>,
+    },
+    InspectStyle {
+        figure_id: usize,
+        trace: usize,
+        changes: Vec<Value>,
     },
     Save {
         notes: Option<String>,
@@ -428,9 +434,10 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         Action::AddScalar {
             name,
             value,
+            expression,
             comment,
         } => {
-            json!({ "action": "add_scalar", "name": name, "value": value, "comment": comment })
+            json!({ "action": "add_scalar", "name": name, "value": value, "expression": expression, "comment": comment })
         }
         Action::AddArray {
             name,
@@ -498,6 +505,13 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             kind,
         } => {
             json!({ "action": "trace_style", "figure_id": figure_id, "trace": trace, "style": style, "kind": kind })
+        }
+        Action::InspectStyle {
+            figure_id,
+            trace,
+            changes,
+        } => {
+            json!({ "action": "inspect_style", "figure_id": figure_id, "trace": trace, "changes": changes })
         }
         Action::Save { notes } => json!({ "action": "save", "notes": notes }),
         Action::ImportData => {

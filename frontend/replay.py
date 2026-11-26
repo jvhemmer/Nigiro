@@ -2,7 +2,7 @@ def replay_inputs(payload):
     sources = []
     for record in payload["recipe"]["sources"]:
         if "scalar_value" in record:
-            sources.append(Source.scalar(record["name"], record["scalar_value"]))
+            sources.append(Source.scalar(record["name"], record["scalar_value"], formula=record.get("scalar_formula")))
             continue
         path = Path(__file__).resolve().parent / record["path"]
         try:
@@ -85,7 +85,15 @@ def replay_figure(project, figure, recipe):
     residuals = {}
     overlays = recipe["overlays"]
     project.working_worksheets
+    raw_sources = project.raw_sources.copy()
+    formulas = iter((key, source) for key, source in raw_sources.items() if source.scalar_formula is not None)
+    pending = next(formulas, None)
     for key, record in project.figures.items():
+        while pending is not None and pending[1].scalar_formula["position"] <= key:
+            source_id, source = pending
+            raw_sources[source_id] = project.scalar_from_formula(source.name, source.scalar_formula, tables)
+            project = replace(project, source=raw_sources[None], additional_sources=tuple(raw_sources.values())[1:])
+            pending = next(formulas, None)
         if record.overlay:
             continue
         if record.fit_id is not None:

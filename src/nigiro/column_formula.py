@@ -14,7 +14,10 @@ REFERENCE_FORMULA_PLUGINS = {COLUMN_FORMULA_PLUGIN, ARRAY_FORMULA_PLUGIN}
 
 # Quotes allow source and column names with spaces, punctuation, or units.
 REFERENCE_NAME = r'"(?:[^"\\]|\\.)*"|[^\W\d][\w.]*'
-REFERENCE = re.compile(rf'[$#](?P<source>{REFERENCE_NAME})(?::(?P<column>{REFERENCE_NAME}|[1-9][0-9]*)(?P<offset>\(\s*i\s*(?:[+-]\s*[0-9]+)?\s*\))?)?')
+REFERENCE = re.compile(
+    rf'[$#](?P<source>{REFERENCE_NAME})(?::(?P<column>{REFERENCE_NAME}|[1-9][0-9]*))?'
+    r'(?:(?P<offset>\(\s*i\s*(?:[+-]\s*[0-9]+)?\s*\))|\[\s*(?P<row>[+-]?[0-9]+)\s*\])?'
+)
 FORMULA_FUNCTIONS = {
     "abs": abs, "min": min, "max": max, "sqrt": math.sqrt, "exp": math.exp,
     "log": math.log, "log10": math.log10, "sin": math.sin, "cos": math.cos, "tan": math.tan,
@@ -33,13 +36,17 @@ def parse_formula(expression):
     def variable(match):
         token = match[0]
         if token not in references:
-            source, column, offset = match.groups()
+            source, column, offset, row = match.groups()
             source = json.loads(source) if source.startswith('"') else source
             if column is not None:
                 column = json.loads(column) if column.startswith('"') else int(column) if column.isdecimal() else column
             if offset is not None:
                 offset = int(re.sub(r"\s+", "", offset)[2:-1] or "0")
-            references[token] = (f"_input{len(references)}", source, column, offset)
+            if row is not None:
+                row = int(row)
+                if row < 1:
+                    raise ValueError("Use 1 for the first row of an array.")
+            references[token] = (f"_input{len(references)}", source, column, offset, row)
         return references[token][0]
 
     try:
@@ -50,7 +57,7 @@ def parse_formula(expression):
     except (SyntaxError, RecursionError) as error:
         raise ValueError("Enter a valid arithmetic formula.") from error
 
-    variables = {"value", *(variable for variable, _, _, _ in references.values())}
+    variables = {"value", *(reference[0] for reference in references.values())}
     nodes = list(ast.walk(tree))
     for node in nodes:
         if not isinstance(node, FORMULA_SYNTAX):
@@ -74,9 +81,9 @@ def parse_formula(expression):
     return compile(tree, "<column formula>", "eval"), references
 
 
-def formula_values(rows, column, label):
+def formula_values(rows, column, label, start=1):
     values = []
-    for index, row in enumerate(rows, start=1):
+    for index, row in enumerate(rows, start=start):
         cell = row[column]
         if not cell.strip():
             values.append(None)
@@ -108,25 +115,42 @@ def run_array_formula(_columns, _rows, options, inputs):
     expression, references = parse_formula(options["expression"])
     if not references or "value" in expression.co_names:
         raise ValueError("Use source references such as $Source:Column in the array formula.")
-    count = max(len(worksheet.rows) for worksheet, _ in inputs.values())
+    count = max((len(inputs[token][0].rows) for token, ref in references.items() if ref[4] is None), default=1)
     output = evaluate_formula(expression, references, inputs, count)
     return {"traces": [], "sources": {
         "calculated": {"name": options["name"], "columns": ["Value"], "rows": [(value,) for value in output]},
     }}
 
 
+def run_scalar_formula(expression, inputs):
+    compiled, references = parse_formula(expression)
+    if "value" in compiled.co_names or any(ref[3] is not None for ref in references.values()):
+        raise ValueError("Use a variable or a fixed array index such as $Array[1].")
+    result, = evaluate_formula(compiled, references, inputs, 1)
+    if result is None:
+        raise ValueError("The formula needs a numeric value in each referenced cell.")
+    return result
+
+
 def evaluate_formula(expression, references, inputs, count, values=None):
     vectors = {"value": (values, 0)} if values is not None else {}
     constants = {}
-    for token, (variable, _, column_name, offset) in references.items():
+    for token, (variable, _, column_name, offset, row) in references.items():
         if token not in inputs:
             raise ValueError(f"No input is bound to {token}.")
         worksheet, input_column = inputs[token]
         if input_column >= len(worksheet.columns):
             raise ValueError(f"{token} refers to a missing column.")
         size = len(worksheet.rows)
-        if column_name is None and (size != 1 or len(worksheet.columns) != 1):
-            raise ValueError(f"{token} must contain exactly one value when no column is named.")
+        if column_name is None and len(worksheet.columns) != 1:
+            raise ValueError(f"Choose a column for {token}.")
+        if row is not None:
+            if row > size:
+                raise ValueError(f"{token} refers to row {row}, but the source has {size} rows.")
+            constants[variable], = formula_values(worksheet.rows[row - 1:row], input_column, token, row)
+            continue
+        if column_name is None and size != 1:
+            raise ValueError(f"Use a row index such as {token}[1] to select one value.")
         if size not in (1, count):
             raise ValueError(f"{token} has {size} rows. Use one row or match the output worksheet's {count} rows.")
         cells = formula_values(worksheet.rows, input_column, token)

@@ -634,10 +634,6 @@ td input {
 .element-list button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
 .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .line-swatch { height: 3px; border-radius: 2px; }
-.color-field { display: flex; align-items: center; justify-content: space-between; gap: 5px; margin-top: 10px; }
-.color-field label { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: .82rem; }
-.color-field input { width: 28px; height: 27px; padding: 1px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; }
-.color-field button { min-height: 24px; padding-inline: 7px; font-size: .82rem; }
 
 @media (max-width: 930px) {
   .fit-summary div { padding-inline: 7px; }

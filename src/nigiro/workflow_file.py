@@ -13,7 +13,7 @@ from .workflow import map_references
 ACTIONS = {
     "import_data", "add_scalar", "add_array", "apply_formula", "execute_plugin",
     "run_plugin", "scale_column", "correct", "edit_item", "color", "figure_style",
-    "run_batch", "trace_style", "overlay_figures", "invoke_workflow",
+    "run_batch", "trace_style", "inspect_style", "overlay_figures", "invoke_workflow",
 }
 OUTPUT_KEY = re.compile(r"([1-9][0-9]*)/(source|figure)/([0-9]+)")
 TABLE_KEY = re.compile(r"[a-z][a-z0-9_-]*")
@@ -48,7 +48,7 @@ def validate_workflow(record: dict) -> dict:
         if action == "invoke_workflow":
             validate_workflow(step["request"]["definition"])
         map_references(step["request"], check_reference)
-        available[step["id"]] = action
+        available[step["id"]] = step["request"]
 
     ports = set()
     for port in record["inputs"]:
@@ -58,12 +58,13 @@ def validate_workflow(record: dict) -> dict:
         require(isinstance(output, str) and output not in ports)
         check_reference("source", {"output": output})
         step_id, _, index = OUTPUT_KEY.fullmatch(output).groups()
-        action = available[int(step_id)]
-        require((port.get("kind") == "csv" and action == "import_data")
-                or (port.get("kind") == "number" and action == "add_scalar" and index == "0"))
+        producer = available[int(step_id)]
+        require((port.get("kind") == "csv" and producer["action"] == "import_data")
+                or (port.get("kind") == "number" and producer["action"] == "add_scalar"
+                    and "value" in producer and index == "0"))
         ports.add(output)
-    for step_id, action in available.items():
-        if action == "import_data":
+    for step_id, command in available.items():
+        if command["action"] == "import_data":
             prefix = f"{step_id}/source/"
             indexes = sorted(int(port.rsplit("/", 1)[1]) for port in ports if port.startswith(prefix))
             require(indexes and indexes == list(range(len(indexes))), "Each CSV import must have a workflow input.")

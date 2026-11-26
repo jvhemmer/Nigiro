@@ -117,7 +117,8 @@ export function WorkflowStepDialog({ step, sources, busy, error, onClose, onRun 
           {Object.entries(values).map(([key, value]) => step.editors?.[key] === "eis_circuit"
             ? <CircuitField key={key} value={String(value)} onChange={(circuit) => update(index, key, circuit)} />
             : key === "expression"
-            ? <FormulaEditor key={key} array={step.array} filter={!step.formula} value={String(value)} sources={step.formula ? sources : []}
+            ? <FormulaEditor key={key} array={step.array} scalar={step.scalar}
+                filter={!step.formula} value={String(value)} sources={step.formula ? sources : []}
                 onChange={(text) => update(index, key, text)} />
             : (
             <label key={key}><span>{step.labels[key] ?? key}</span>

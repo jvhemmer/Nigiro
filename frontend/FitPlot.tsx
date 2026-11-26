@@ -2,7 +2,7 @@ import { decodePlotText, formatPlotTicks, plotText } from "./plotText.mjs";
 import { loadMathJax } from "./mathText";
 import { useRevealDockPanel } from "./DockWorkspace";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
-import type { Data, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
+import type { Data, Layout, LayoutAxis, Shape, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
 import { cycleColor, figureFont, figureLayout, tickRenderers, type FigureStyle, type StyleSection, type TextRenderer } from "./figureStyle";
 import type { FigureElement, PluginFigure, TraceFillStyle, TraceLineStyle, TraceStyle } from "./workspace";
 
@@ -161,6 +161,35 @@ function tracePresentation(trace: Data, index: number, data: PluginFigure, style
     ...(zorder !== undefined && (trace.type == null || ["scatter", "scattergl", "bar"].includes(trace.type))
       && { zorder, ...(trace.type === "scattergl" && { type: "scatter" }) }),
   };
+}
+
+function axisLinesForDrawOrder(layout: Partial<Layout>, traces: Data[]): Partial<Shape>[] {
+  const orders = new Set(traces.map((trace) => "zorder" in trace ? trace.zorder ?? 0 : 0));
+  if (orders.size < 2) return [];
+  // Plotly reuses the native axis paths for each draw order and clears the original paths.
+  // Draw the lines as layout shapes so the preview and exported figures keep the same axes.
+  return Object.entries(layout).flatMap(([key, value]) => {
+    const match = /^([xy])axis(\d*)$/.exec(key);
+    if (!match || !isRecord(value)) return [];
+    const [, direction, suffix] = match;
+    const axis = value as Partial<LayoutAxis>;
+    if (!axis.showline || axis.visible === false) return [];
+    const horizontal = direction === "x";
+    const counterpart = axis.anchor ?? (horizontal ? "y" : "x");
+    const domain = `${direction}${suffix} domain`;
+    const crossDomain = counterpart === "free" ? "paper" : `${counterpart} domain`;
+    const side = axis.side === "top" || axis.side === "right" ? 1 : 0;
+    const position = counterpart === "free" ? axis.position ?? 0 : side;
+    const positions = axis.mirror && counterpart !== "free" ? [position, 1 - position] : [position];
+    return positions.map((edge): Partial<Shape> => ({
+      type: "line", layer: "above",
+      line: { color: typeof axis.linecolor === "string" ? axis.linecolor : undefined, width: axis.linewidth },
+      xref: (horizontal ? domain : crossDomain) as Shape["xref"],
+      yref: (horizontal ? crossDomain : domain) as Shape["yref"],
+      x0: horizontal ? 0 : edge, x1: horizontal ? 1 : edge,
+      y0: horizontal ? edge : 0, y1: horizontal ? edge : 1,
+    }));
+  });
 }
 
 export function FigurePlot({ capture, data, colors, style, traceStyles, revision, onEdit, onSelect, onInspect }: FigurePlotProps) {
@@ -353,6 +382,8 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
         return { width: canvasWidth, height: canvasHeight };
       }
       const series = traces.map((trace, index) => merge(trace, tracePresentation(trace, index, data, style, colors, traceStyles)));
+      const axisLines = axisLinesForDrawOrder(layout, series);
+      if (axisLines.length) layout.shapes = [...(layout.shapes ?? []), ...axisLines];
       const options = { ...layout, ...setCanvas(), autosize: false };
       if (plotly.current && plotly.current !== renderer) {
         rendered.current = null;

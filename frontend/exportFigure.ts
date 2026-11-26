@@ -98,7 +98,7 @@ ${sourceBody(figureStyle)}
 ${sourceBody(columnFormula)}
 ${sourceBody(sourceTables).replace(/^from \.column_formula import .*\n/m, "")}
 ${sourceBody(batchFigure)}
-${sourceBody(model).replace(/^from \.(figure_style|source_tables) import .*\n/gm, "")}
+${sourceBody(model).replace(/^from \.(column_formula|figure_style|source_tables) import .*\n/gm, "")}
 ${sourceBody(analysis).replace(/^from \.project import .*\n/m, "")}
 ${sourceBody(analysisPlugins)}
 ${sourceBody(electrochemistry).replace(/^from \.analysis_plugins import .*\n/m, "")}

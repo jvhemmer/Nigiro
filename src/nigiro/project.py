@@ -10,6 +10,7 @@ from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import Literal
 
+from .column_formula import run_scalar_formula
 from .figure_style import AxisStyle, FigureStyle
 from .source_tables import FIT_PLUGINS, TABLE_ONLY_PLUGINS, SourceTable, raw_source_id, source_origin
 
@@ -33,17 +34,18 @@ class Source:
     original_path: str | None = None
     scalar_value: float | None = None
     comment: str | None = None
+    scalar_formula: dict | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "comment", normalize_comment(self.comment))
 
     @classmethod
-    def scalar(cls, name: str, value: float, comment: str | None = None) -> Source:
+    def scalar(cls, name: str, value: float, comment: str | None = None, *, formula: dict | None = None) -> Source:
         if not isinstance(name, str) or not name.strip() or any(c in name for c in ("\n", "\r", "\0")):
             raise ValueError("Enter a name for the scalar source.")
         if type(value) not in (int, float) or not math.isfinite(value):
             raise ValueError("Enter a finite scalar value.")
-        return cls(name.strip(), f"Value\n{value}\n".encode("utf-8"), scalar_value=value, comment=comment)
+        return cls(name.strip(), f"Value\n{value}\n".encode("utf-8"), scalar_value=value, comment=comment, scalar_formula=formula)
 
     @classmethod
     def array(cls, name: str, text: str, comment: str | None = None) -> Source:
@@ -640,6 +642,23 @@ class Project:
             for token, reference in step.references.items()
             for worksheet in (self.recipe_input(reference.source_id, step, tables),)
         }
+
+    def scalar_from_formula(self, name: str, formula: dict, tables: dict[str, SourceTable], comment: str | None = None) -> Source:
+        position = formula["position"]
+        project = self if position == len(self.operations) else replace(self, operations=self.operations[:position])
+        inputs = {}
+        for token, reference in formula["references"].items():
+            source_id = reference["source_id"]
+            if source_id in project.raw_sources:
+                worksheet = project.build_worksheet(source_id, position)
+            elif source_id in tables:
+                table = tables[source_id]
+                worksheet = Worksheet(table.columns, table.rows)
+            else:
+                raise ValueError(f"The input source for {token} is unavailable.")
+            inputs[token] = worksheet, worksheet.column_index(reference["column"])
+        value = run_scalar_formula(formula["expression"], inputs)
+        return Source.scalar(name, value, comment, formula=formula)
 
     @staticmethod
     def joint_inputs(references: dict) -> dict:

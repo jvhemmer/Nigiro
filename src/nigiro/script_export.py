@@ -55,7 +55,10 @@ def write_script(path: Path, template: str, payload: dict, sources: tuple[Source
         inputs = []
         for index, source in enumerate(sources, start=1):
             if source.scalar_value is not None:
-                inputs.append({"name": source.name, "scalar_value": source.scalar_value})
+                record = {"name": source.name, "scalar_value": source.scalar_value}
+                if source.scalar_formula is not None:
+                    record["scalar_formula"] = source.scalar_formula
+                inputs.append(record)
                 continue
             reference = source.original_path
             if copy_raw_data:

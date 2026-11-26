@@ -47,7 +47,7 @@ export function SaveWorkflowDialog({ project, busy, error, onClose, onRun }: Dia
       return [key, portNames[key] ?? (file.split(/[/\\]/).pop() || "CSV data")];
     });
     const key = `${step.id}/source/0`;
-    return step.scalar && key in portNames ? [...imports, [key, portNames[key]]] : imports;
+    return step.scalar && !step.formula && key in portNames ? [...imports, [key, portNames[key]]] : imports;
   }));
   const outputs = choices.filter((choice) => outputKey(choice) in published)
     .map((choice) => ({ ...choice, name: published[outputKey(choice)].trim() }));
@@ -96,7 +96,7 @@ export function SaveWorkflowDialog({ project, busy, error, onClose, onRun }: Dia
     <fieldset>
       <legend>Inputs</legend>
       <p className="muted">CSV imports are supplied when the workflow runs. Select any variables you want users to set.</p>
-      {steps.filter((step) => selected.has(step.id) && (step.files?.length || step.scalar)).map((step) => {
+      {steps.filter((step) => selected.has(step.id) && (step.files?.length || (step.scalar && !step.formula))).map((step) => {
         const key = `${step.id}/source/0`;
         return <div className="workflow-port" key={step.id}>
           <p>{step.label}</p>
@@ -106,7 +106,7 @@ export function SaveWorkflowDialog({ project, busy, error, onClose, onRun }: Dia
               <input title={file} value={inputs[importKey]} onChange={(event) => setPort(importKey, event.target.value)} />
             </label>;
           })}
-          {step.scalar && <>
+          {step.scalar && !step.formula && <>
             <label className="workflow-check"><input type="checkbox" checked={key in portNames}
               onChange={(event) => setPort(key, event.target.checked ? step.label.replace(/^Add variable /, "") : undefined)} />
               <span>Expose as a number input</span></label>

@@ -3,9 +3,14 @@
 import runpy
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
+from nigiro.builtin_plugins import BUILTINS
+from nigiro.column_formula import REFERENCE_FORMULA_PLUGINS
 from nigiro.desktop import Workspace
+from nigiro.project import PluginStep, Project, Source
+from nigiro.source_tables import output_tables
 
 
 class ColumnFormulaTest(unittest.TestCase):
@@ -95,3 +100,52 @@ class ColumnFormulaTest(unittest.TestCase):
         self.assertEqual(tuple(row[1] for row in second["source_table"]["rows"]), ("0.0", "0.0"))
         original = self.worker.dispatch({"action": "select_source", "source_id": first["source_id"]})["project"]
         self.assertEqual(tuple(row[1] for row in original["source_table"]["rows"]), ("1.0", "1.5"))
+
+    def test_variable_formula_uses_fixed_rows_and_recalculates_on_replay(self):
+        self.worker.dispatch({"action": "add_scalar", "name": "R", "value": 2})
+        self.worker.dispatch({"action": "add_array", "name": "Current", "expression": "$Data1:Current * 2"})
+        command = {"action": "add_scalar", "name": "Gain", "expression": "$R + $Current[2] + $Data2[1]"}
+        result = self.worker.dispatch(command)["project"]
+        gain = next(source for source in result["sources"] if source["name"] == "Gain")
+        self.assertEqual(gain["detail"], "= 9.0")
+        self.assertEqual(gain["scalar_formula"], command["expression"])
+        for expression, message in (("$Current[0]", "first row"), ("$Current[3]", "source has 2 rows")):
+            with self.assertRaisesRegex(ValueError, message):
+                self.worker.dispatch({**command, "expression": expression})
+
+        derived = self.formula(1, "value * $Gain")
+        self.worker.dispatch({
+            "action": "execute_plugin", "plugin_id": "nigiro.line", "version": "1", "checksum": None,
+            "output": "overlay", "runs": [{"source_id": derived["source_id"], "options": {"x": 2, "y": 1}}],
+        })
+        archive = self.root / "scalar-formula.nigiro"
+        self.worker.dispatch({"action": "save", "path": str(archive)})
+        reopened = Workspace()
+        result = reopened.dispatch({"action": "open", "path": str(archive)})["project"]
+        self.assertEqual(next(source for source in result["sources"] if source["name"] == "Gain"), gain)
+        reopened.dispatch({"action": "edit_step", "step_id": 3, "options": [{"value": 3}]})
+        result = reopened.dispatch({"action": "run_all"})["project"]
+        self.assertEqual(result["figure"]["traces"][0]["y"], [20.0, 30.0])
+
+        recipe = reopened.dispatch({"action": "export_recipe"})["project"]
+        path = self.root / "replay.py"
+        reopened.dispatch({
+            "action": "export_script", "path": str(path), "copy_raw_data": False,
+            "template": "import json\n# Nigiro replay payload\n",
+            "payload": {"recipe": recipe["script_recipe"], "operations": recipe["operations"]},
+        })
+        payload = runpy.run_path(str(path))["PAYLOAD"]
+        (self.root / "Data2.csv").write_text("Current\n4\n1.5\n")
+        replay = runpy.run_path(str(Path(__file__).resolve().parents[1] / "frontend/replay.py"), init_globals={
+            "BUILTINS": BUILTINS, "PluginStep": PluginStep, "REFERENCE_FORMULA_PLUGINS": REFERENCE_FORMULA_PLUGINS,
+            "output_tables": output_tables, "replace": replace,
+        })["replay_figure"]
+        raw_sources = []
+        for record in payload["recipe"]["sources"]:
+            if "scalar_value" in record:
+                raw_sources.append(Source.scalar(record["name"], record["scalar_value"], formula=record.get("scalar_formula")))
+            else:
+                raw_sources.append(Source(record["name"], Path(record["path"]).read_bytes()))
+        project = Project(raw_sources[0], reopened.project.operations, additional_sources=tuple(raw_sources[1:]))
+        figure = replay(project, {"traces": [{}], "layout": {}}, payload["recipe"])
+        self.assertEqual(figure["traces"][0]["y"], [26.0, 39.0])

@@ -100,10 +100,19 @@ class WorkflowTest(unittest.TestCase):
                          "placement": {"group_id": custom["id"]}})
         base = {"action": "trace_style", "figure_id": peak["figure_id"]}
         fill = {"color": "#fe22aa", "opacity": 0.35}
-        worker.dispatch({**base, "trace": 1, "kind": "fill", "style": fill})
         worker.dispatch({**base, "trace": 1, "style": {"color": "#224466", "width": 2, "dash": "dot"}})
         worker.dispatch({**base, "trace": 1, "style": None})
-        worker.dispatch({**base, "trace": 0, "kind": "order", "style": {"zorder": -1}})
+        batch = {"action": "inspect_style", "figure_id": peak["figure_id"], "trace": 1}
+        fill_change = {"action": "trace_style", "trace": 1, "kind": "fill", "style": fill}
+        order_change = {"action": "trace_style", "trace": 0, "kind": "order", "style": {"zorder": -1}}
+        with self.assertRaisesRegex(ValueError, "draw order"):
+            worker.dispatch({**batch, "changes": [fill_change, {**order_change, "style": {"zorder": 10001}}]})
+        self.assertEqual(worker.project.figures[peak["figure_id"]].trace_styles, {})
+        edited = worker.dispatch({**batch, "changes": [fill_change, order_change]})["project"]
+        repeated = worker.dispatch({**batch, "changes": []})["project"]
+        self.assertEqual(repeated["trace_styles"], edited["trace_styles"])
+        self.assertEqual(len(repeated["workflow"]["steps"]), len(edited["workflow"]["steps"]) + 1)
+        self.assertEqual(repeated["workflow"]["steps"][-1]["status"], "done")
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "peak.nigiro"

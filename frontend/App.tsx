@@ -36,7 +36,7 @@ import { EditWorkflowPortsDialog, EditWorkflowRunDialog, RunWorkflowDialog, Save
 import { Worksheet } from "./Worksheet";
 import {
   elementNames, formatNumber, lineDashes, replacesProject, workspace,
-  type FigureElement, type PluginDefinition, type PluginRun, type PluginStepInputs, type Project, type Request, type TraceFillStyle, type TraceLineStyle, type WorkflowPorts, type WorkflowStep, type WorkspaceItem,
+  type FigureElement, type InspectStyleChange, type PluginDefinition, type PluginRun, type PluginStepInputs, type Project, type Request, type TraceFillStyle, type TraceLineStyle, type TraceStyle, type WorkflowPorts, type WorkflowStep, type WorkspaceItem,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<boolean>;
@@ -68,101 +68,90 @@ function confirmDiscard(projectDirty: boolean, workspaceDirty: boolean) {
   });
 }
 
-function ColorField({
-  element, color, figureId, busy, run,
-}: { element: FigureElement; color: string; figureId: number; busy: boolean; run: Run }) {
-  const [draft, setDraft] = useState(color);
-  return (
-    <form
-      className="color-field"
-      onSubmit={(event) => { event.preventDefault(); void run({ action: "color", element, color: draft, figure_id: figureId }); }}
-    >
-      <label>
-        <input
-          type="color"
-          aria-label={`${elementNames[element]} color`}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          disabled={busy}
-        />
-        <span>{draft}</span>
+function TraceInspectForm({ figureId, index, initialLine, initialFill, orderIndex, initialOrder, override,
+  storedOrder, elementColor, busy, run }: {
+  figureId: number;
+  index: number;
+  initialLine?: TraceLineStyle;
+  initialFill?: TraceFillStyle;
+  orderIndex?: number;
+  initialOrder: number;
+  override?: TraceStyle;
+  storedOrder?: number;
+  elementColor?: { element: FigureElement; color: string };
+  busy: boolean;
+  run: Run;
+}) {
+  const [line, setLine] = useState<TraceLineStyle | null | undefined>(initialLine);
+  const [fill, setFill] = useState<TraceFillStyle | null | undefined>(initialFill);
+  const [order, setOrder] = useState<string | null>(String(initialOrder));
+  const [color, setColor] = useState(elementColor?.color);
+  const lineChanged = line !== initialLine && (line === null || line?.color !== initialLine?.color
+    || line?.width !== initialLine?.width || line?.dash !== initialLine?.dash);
+  const fillChanged = fill !== initialFill && (fill === null || fill?.color !== initialFill?.color
+    || fill?.opacity !== initialFill?.opacity);
+  const orderChanged = orderIndex !== undefined && (order === null || order === "" || Number(order) !== initialOrder);
+  const edits: InspectStyleChange[] = [];
+  if (lineChanged && line !== undefined) edits.push({ action: "trace_style", trace: index, kind: "line", style: line });
+  if (fillChanged && fill !== undefined) edits.push({ action: "trace_style", trace: index, kind: "fill", style: fill });
+  if (orderChanged) edits.push({ action: "trace_style", trace: orderIndex, kind: "order",
+    style: order === null ? null : { zorder: Number(order) } });
+  if (elementColor && color && color !== elementColor.color) edits.push({ action: "color", element: elementColor.element, color });
+  const valid = (!lineChanged || !line || (line.width >= 0.1 && line.width <= 12))
+    && (!fillChanged || !fill || (fill.opacity >= 0 && fill.opacity <= 1))
+    && (!orderChanged || order === null || (order !== "" && Number.isInteger(Number(order)) && Math.abs(Number(order)) <= 10000));
+
+  return <form className="fit-settings trace-line-editor" noValidate onSubmit={(event) => {
+    event.preventDefault();
+    if (valid && !busy) void run({ action: "inspect_style", figure_id: figureId, trace: index, changes: edits });
+  }} onKeyDown={(event) => {
+    const target = event.target;
+    if (event.key === "Enter" && !event.nativeEvent.isComposing &&
+      (target instanceof HTMLSelectElement ||
+        (target instanceof HTMLInputElement && (target.type === "number" || edits.length > 0)))) {
+      event.preventDefault();
+      event.currentTarget.requestSubmit();
+    }
+  }}>
+    {initialLine && <>
+      <label><span>Line color</span><input type="color" value={(line ?? initialLine).color} disabled={!line || busy}
+        onChange={(event) => setLine({ ...(line ?? initialLine), color: event.target.value })} /></label>
+      <label><span>Line width (px)</span><input type="number" min={0.1} max={12} step="any" disabled={!line || busy}
+        value={line && Number.isFinite(line.width) ? line.width : line ? "" : initialLine.width}
+        onChange={(event) => setLine({ ...(line ?? initialLine), width: event.target.valueAsNumber })} /></label>
+      <label><span>Line style</span><select value={(line ?? initialLine).dash} disabled={!line || busy}
+        onChange={(event) => setLine({ ...(line ?? initialLine), dash: event.target.value as TraceLineStyle["dash"] })}>
+        {Object.entries(lineDashes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </select></label>
+      {override?.color && <button type="button" disabled={busy} onClick={() => setLine(line ? null : initialLine)}>
+        {line ? "Reset line" : "Keep line style"}
+      </button>}
+    </>}
+    {initialFill && <>
+      <label><span>Fill color</span><input type="color" value={(fill ?? initialFill).color} disabled={!fill || busy}
+        onChange={(event) => setFill({ ...(fill ?? initialFill), color: event.target.value })} /></label>
+      <label><span>Fill opacity (%)</span><input type="number" min={0} max={100} step="any" disabled={!fill || busy}
+        value={Number.isFinite((fill ?? initialFill).opacity) ? Math.round((fill ?? initialFill).opacity * 1e8) / 1e6 : ""}
+        onChange={(event) => setFill({ ...(fill ?? initialFill), opacity: event.target.valueAsNumber / 100 })} /></label>
+      {override?.fill && <button type="button" disabled={busy} onClick={() => setFill(fill ? null : initialFill)}>
+        {fill ? "Reset fill" : "Keep fill style"}
+      </button>}
+    </>}
+    {orderIndex !== undefined && <>
+      <label title="Higher values draw in front. A shaded area and its baseline share an order.">
+        <span>Draw order (Z)</span>
+        <input type="number" min={-10000} max={10000} step={1} value={order ?? String(initialOrder)} disabled={order === null || busy}
+          onChange={(event) => setOrder(event.target.value)} />
       </label>
-      <button disabled={busy || color === draft}>Apply</button>
-    </form>
-  );
-}
-
-function TraceLineEditor({ initial, overridden, busy, onApply }: {
-  initial: TraceLineStyle;
-  overridden: boolean;
-  busy: boolean;
-  onApply: (style: TraceLineStyle | null) => void;
-}) {
-  const [draft, setDraft] = useState(initial);
-  const valid = draft.width >= 0.1 && draft.width <= 12;
-  const changed = draft.color !== initial.color || draft.width !== initial.width || draft.dash !== initial.dash;
-  return <form className="fit-settings trace-line-editor" onSubmit={(event) => {
-    event.preventDefault();
-    if (valid && changed && !busy) onApply(draft);
-  }}>
-    <label><span>Line color</span><input type="color" value={draft.color}
-      onChange={(event) => setDraft({ ...draft, color: event.target.value })} /></label>
-    <label><span>Line width (px)</span><input type="number" min={0.1} max={12} step="any" required
-      value={Number.isFinite(draft.width) ? draft.width : ""} onChange={(event) => setDraft({ ...draft, width: event.target.valueAsNumber })} /></label>
-    <label><span>Line style</span><select value={draft.dash}
-      onChange={(event) => setDraft({ ...draft, dash: event.target.value as TraceLineStyle["dash"] })}>
-      {Object.entries(lineDashes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-    </select></label>
+      {storedOrder !== undefined && <button type="button" disabled={busy} onClick={() => setOrder(order === null ? String(initialOrder) : null)}>
+        {order === null ? "Keep draw order" : "Reset order"}
+      </button>}
+    </>}
+    {elementColor && <label><span>{elementNames[elementColor.element]} color</span>
+      <input type="color" value={color} onChange={(event) => setColor(event.target.value)} disabled={busy} />
+    </label>}
     <div className="trace-line-actions">
-      {overridden && <button type="button" disabled={busy} onClick={() => onApply(null)}>Reset</button>}
-      <button type="submit" disabled={busy || !changed || !valid}>Apply</button>
-    </div>
-  </form>;
-}
-
-function TraceFillEditor({ initial, overridden, busy, onApply }: {
-  initial: TraceFillStyle;
-  overridden: boolean;
-  busy: boolean;
-  onApply: (style: TraceFillStyle | null) => void;
-}) {
-  const [color, setColor] = useState(initial.color);
-  const [opacity, setOpacity] = useState(String(Math.round(initial.opacity * 1000) / 10));
-  const valid = opacity !== "" && Number(opacity) >= 0 && Number(opacity) <= 100;
-  return <form className="fit-settings trace-line-editor" onSubmit={(event) => {
-    event.preventDefault();
-    if (valid && !busy) onApply({ color, opacity: Number(opacity) / 100 });
-  }}>
-    <label><span>Fill color</span><input type="color" value={color} disabled={busy}
-      onChange={(event) => setColor(event.target.value)} /></label>
-    <label><span>Fill opacity (%)</span><input type="number" required min={0} max={100} step="any" value={opacity} disabled={busy}
-      onChange={(event) => setOpacity(event.target.value)} /></label>
-    <div className="trace-line-actions">
-      {overridden && <button type="button" disabled={busy} onClick={() => onApply(null)}>Reset fill</button>}
-      <button type="submit" disabled={busy || !valid}>Apply fill</button>
-    </div>
-  </form>;
-}
-
-function TraceOrderEditor({ initial, overridden, busy, onApply }: {
-  initial: number;
-  overridden: boolean;
-  busy: boolean;
-  onApply: (style: { zorder: number } | null) => void;
-}) {
-  const [value, setValue] = useState(String(initial));
-  return <form className="fit-settings trace-line-editor" onSubmit={(event) => {
-    event.preventDefault();
-    if (!busy && value !== "") onApply({ zorder: Number(value) });
-  }}>
-    <label title="Higher values draw in front. A shaded area and its baseline share an order.">
-      <span>Draw order (Z)</span>
-      <input type="number" required min={-10000} max={10000} step={1} value={value} disabled={busy}
-        onChange={(event) => setValue(event.target.value)} />
-    </label>
-    <div className="trace-line-actions">
-      {overridden && <button type="button" disabled={busy} onClick={() => onApply(null)}>Reset order</button>}
-      <button type="submit" disabled={busy || value === ""}>Apply order</button>
+      <button className="primary" type="submit" disabled={busy || !valid}>Apply</button>
     </div>
   </form>;
 }
@@ -271,6 +260,7 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
         {source.workflow_run && <><dt>Workflow run</dt><dd>{source.workflow_run}</dd></>}
         {source.detail && <><dt>{source.workflow_run && source.kind === "derived" ? "Original formula" : "Definition"}</dt>
           <dd>{source.detail}</dd></>}
+        {source.scalar_formula && <><dt>Formula</dt><dd>= {source.scalar_formula}</dd></>}
         {source.comment && <><dt>Comment</dt><dd className="inspect-comment">{source.comment}</dd></>}
         <dt>Rows</dt><dd>{source.row_count.toLocaleString()}</dd>
         <dt>Columns</dt><dd>{source.columns.join(", ")}</dd>
@@ -339,6 +329,8 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
   const storedOrder = orderIndex === undefined ? undefined : project.trace_styles[orderIndex]?.zorder;
   const orderTrace = orderIndex === undefined ? undefined : figure.traces[orderIndex];
   const nativeOrder = orderTrace && "zorder" in orderTrace && typeof orderTrace.zorder === "number" ? orderTrace.zorder : 0;
+  const editableOrder = trace && (trace.type == null || ["scatter", "scattergl", "bar"].includes(trace.type)) ? orderIndex : undefined;
+  const elementColor = !initialLine && trace && role && color && !figure.overlay_inputs ? { element: role, color } : undefined;
   return <div className="inspector inspect-details">
     {trace && <button type="button" className="trace-list-back" onClick={() => onInspectFigure(inspection.id)}>All traces</button>}
     <h2>{trace ? trace.name || `Trace ${(index ?? 0) + 1}` : figureName}</h2>
@@ -362,22 +354,11 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
         </button>
       </li>)}
     </ul>}
-    {index !== undefined && initialLine && <TraceLineEditor
-      key={`${inspection.id}:${index}:${initialLine.color}:${initialLine.width}:${initialLine.dash}`}
-      initial={initialLine} overridden={!!override?.color} busy={busy}
-      onApply={(style) => { void run({ action: "trace_style", figure_id: inspection.id, trace: index, style }); }} />}
-    {index !== undefined && initialFill && <TraceFillEditor
-      key={`${inspection.id}:${index}:${initialFill.color}:${initialFill.opacity}`}
-      initial={initialFill} overridden={!!override?.fill} busy={busy}
-      onApply={(style) => { void run({ action: "trace_style", kind: "fill", figure_id: inspection.id, trace: index, style }); }} />}
-    {trace && orderIndex !== undefined && (trace.type == null || ["scatter", "scattergl", "bar"].includes(trace.type)) && <TraceOrderEditor
-      key={`${inspection.id}:${orderIndex}:${storedOrder ?? nativeOrder}`}
-      initial={storedOrder ?? nativeOrder} overridden={storedOrder !== undefined} busy={busy}
-      onApply={(style) => { void run({ action: "trace_style", kind: "order", figure_id: inspection.id, trace: orderIndex, style }); }} />}
-    {!initialLine && trace && role && color && !figure.overlay_inputs && <ColorField
-      key={`${inspection.id}:${role}:${color}`} figureId={inspection.id}
-      element={role} color={color} busy={busy} run={run} />}
     {onConfigure && <button type="button" disabled={busy} onClick={onConfigure}>Plugin settings…</button>}
+    {index !== undefined && (initialLine || initialFill || editableOrder !== undefined || elementColor) && <TraceInspectForm
+      key={JSON.stringify([inspection.id, index, initialLine, initialFill, storedOrder, nativeOrder, override, elementColor])}
+      figureId={inspection.id} {...{ index, initialLine, initialFill, override, storedOrder, elementColor, busy, run }}
+      orderIndex={editableOrder} initialOrder={storedOrder ?? nativeOrder} />}
   </div>;
 }
 
@@ -936,9 +917,9 @@ export function App() {
           <WindowControls onError={setError} />
         </div>
       </header>
-      {scalarDialog && <ScalarSourceDialog busy={busy} error={error}
+      {scalarDialog && <ScalarSourceDialog busy={busy} error={error} sources={project?.sources ?? []}
         onClose={() => { setScalarDialog(false); setError(""); }}
-        onAdd={async (name, value, comment) => { if (await run({ action: "add_scalar", name, value, comment })) setScalarDialog(false); }} />}
+        onAdd={async (request) => { if (await run(request)) setScalarDialog(false); }} />}
       {arrayDialog && <ArraySourceDialog busy={busy} error={error} sources={project?.sources ?? []}
         onClose={() => { setArrayDialog(false); setError(""); }}
         onAdd={async (request) => { if (await run(request)) setArrayDialog(false); }} />}

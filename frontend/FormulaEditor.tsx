@@ -9,9 +9,9 @@ function referenceName(name: string) {
 }
 
 const trailingReference = /[$#]("(?:[^"\\]|\\.)*"?|[\p{L}\p{N}_.]*)(?::("(?:[^"\\]|\\.)*"?|[\p{L}\p{N}_.]*))?$/u;
-const highlightToken = /([$#](?:"(?:[^"\\]|\\.)*"|[\p{L}\p{N}_.]*)(?::(?:"(?:[^"\\]|\\.)*"|[\p{L}\p{N}_.]*))?|\b(?:value|i|abs|min|max|sqrt|exp|log10?|sin|cos|tan)\b|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[=+*/^%<>!()-])/gu;
+const highlightToken = /([$#](?:"(?:[^"\\]|\\.)*"|[\p{L}\p{N}_.]*)(?::(?:"(?:[^"\\]|\\.)*"|[\p{L}\p{N}_.]*))?|\b(?:value|i|abs|min|max|sqrt|exp|log10?|sin|cos|tan)\b|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[=+*/^%<>!()[\]-])/gu;
 
-function completions(value: string, caret: number, sources: ProjectSource[]) {
+function completions(value: string, caret: number, sources: ProjectSource[], scalar: boolean) {
   const match = trailingReference.exec(value.slice(0, caret));
   if (!match) return [];
   const [, sourceName, columnName] = match;
@@ -28,26 +28,29 @@ function completions(value: string, caret: number, sources: ProjectSource[]) {
     return source.columns.flatMap((name, index, columns) => {
       const label = name || `Column ${index + 1}`;
       const unique = name && columns.indexOf(name) === columns.lastIndexOf(name);
-      const replacement = unique ? referenceName(name) : String(index + 1);
+      const replacement = (unique ? referenceName(name) : String(index + 1))
+        + (scalar && source.row_count > 1 && value[end] !== "[" ? "[1]" : "");
       return matches(label, fragment) || matches(String(index + 1), fragment)
         ? [{ label, replacement, start: caret - fragment.length, end }] : [];
     }).slice(0, 8);
   }
   return sources.filter(({ name }) => matches(name, fragment)).slice(0, 8).map((source) => ({
     label: source.name,
-    replacement: referenceName(source.name) + (value[end] !== ":" && (source.row_count !== 1 || source.columns.length !== 1) ? ":" : ""),
+    replacement: referenceName(source.name) + (value[end] === ":" || value[end] === "[" ? ""
+      : source.columns.length !== 1 ? ":" : source.row_count === 1 ? "" : scalar ? "[1]" : ":"),
     start: caret - fragment.length,
     end,
   }));
 }
 
-export function FormulaEditor({ value, sources, onChange, array = false, mixed = false, filter = false }: {
+export function FormulaEditor({ value, sources, onChange, array = false, mixed = false, filter = false, scalar = false }: {
   value: string;
   sources: ProjectSource[];
   onChange: (value: string) => void;
   array?: boolean;
   mixed?: boolean;
   filter?: boolean;
+  scalar?: boolean;
 }) {
   const id = useId();
   const input = useRef<HTMLTextAreaElement>(null);
@@ -57,7 +60,7 @@ export function FormulaEditor({ value, sources, onChange, array = false, mixed =
   const [dismissed, setDismissed] = useState(false);
   const [active, setActive] = useState(0);
   const formula = !mixed || value.trimStart().startsWith("=");
-  const suggestions = focused && !dismissed && formula ? completions(value, caret, sources) : [];
+  const suggestions = focused && !dismissed && formula ? completions(value, caret, sources, scalar) : [];
   const selected = Math.min(active, suggestions.length - 1);
 
   function syncScroll() {
@@ -75,18 +78,19 @@ export function FormulaEditor({ value, sources, onChange, array = false, mixed =
     setDismissed(!replacement.endsWith(":"));
     requestAnimationFrame(() => {
       input.current?.focus();
-      input.current?.setSelectionRange(position, position);
+      if (replacement.endsWith("[1]")) input.current?.setSelectionRange(position - 2, position - 1);
+      else input.current?.setSelectionRange(position, position);
       syncScroll();
     });
   }
 
   return <div className="formula-editor">
-    <label htmlFor={id}>{mixed ? "Values or formula" : filter ? "Expression" : "Formula"}</label>
+    <label htmlFor={id}>{mixed ? scalar ? "Value or formula" : "Values or formula" : filter ? "Expression" : "Formula"}</label>
     <div className="formula-surface">
       <pre ref={mirror} aria-hidden="true">{formula ? value.split(highlightToken).map((part, index) => index % 2
         ? <span key={index} className={/^[$#]/.test(part) ? "formula-reference" : /^[\d.]/.test(part) ? "formula-number" : "formula-operator"}>{part}</span>
         : part) : value}{"\n"}</pre>
-      <textarea id={id} ref={input} rows={mixed ? 5 : 2} wrap="off" spellCheck={false} value={value}
+      <textarea id={id} ref={input} rows={mixed && !scalar ? 5 : 2} wrap="off" spellCheck={false} value={value}
         aria-describedby={`${id}-help`} aria-autocomplete="list" aria-controls={suggestions.length ? `${id}-suggestions` : undefined}
         aria-activedescendant={selected >= 0 ? `${id}-suggestion-${selected}` : undefined}
         onFocus={(event) => { setFocused(true); setCaret(event.target.selectionStart); }}
@@ -120,7 +124,9 @@ export function FormulaEditor({ value, sources, onChange, array = false, mixed =
       </ul>}
     </div>
     <p id={`${id}-help`} className="muted">
-      {mixed ? <>Separate values with spaces, commas, or new lines. Start with <code>=</code> for a formula.</>
+      {scalar ? <>{mixed && <>Enter a number or start with <code>=</code> for a formula. </>}
+        Use <code>$Variable</code> or <code>$Array[1]</code>. The first element is 1.</>
+        : mixed ? <>Separate values with spaces, commas, or new lines. Start with <code>=</code> for a formula.</>
         : filter ? <>Use <code>value</code> for the selected column.</>
         : <>Use <code>value</code> for the output column or <code>$Source</code> for a single value.</>}
       {!filter && <> Type <code>$</code> for source names and <code>:</code> for columns.</>}

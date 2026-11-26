@@ -419,6 +419,8 @@ class Workspace:
                  **({"group_name": project.item_names.get(("source", key), table.name)}
                     if memberships[key] is not None and isinstance(table, SourceTable) else {}),
                  **({"scalar": True} if isinstance(table, Source) and table.scalar_value is not None else {}),
+                 **({"scalar_formula": table.scalar_formula["expression"]}
+                    if isinstance(table, Source) and table.scalar_formula is not None else {}),
                  **({"detail": details[key]} if key in details else {}),
                  **({"array_step": array_producers[key]} if key in array_producers else {}),
                  **({"workflow_run": workflow_runs[key]} if key in workflow_runs else {}),
@@ -551,6 +553,8 @@ class Workspace:
                 return f"Plot: {request['plot_type'].title()}"
             case "overlay_figures":
                 return "Plot: Overlay"
+            case "inspect_style":
+                return "Apply trace appearance"
             case "trace_style":
                 return {"fill": "Change area fill", "order": "Change draw order"}.get(
                     request.get("kind"), "Change trace line style",
@@ -731,11 +735,10 @@ class Workspace:
                     editors = {field["key"]: field["editor"] for field in plugin.manifest["fields"] if field.get("editor")}
             elif action == "apply_formula":
                 options, labels = [{"expression": step.request["expression"]}], {"expression": "Formula"}
-            elif action == "add_scalar":
-                options, labels = [{"value": step.request["value"]}], {"value": "Value"}
-            elif action == "add_array":
-                key = "expression" if "expression" in step.request else "values"
-                options, labels = [{key: step.request[key]}], {key: "Formula" if key == "expression" else "Values"}
+            elif action in ("add_array", "add_scalar"):
+                literal = "value" if action == "add_scalar" else "values"
+                key = "expression" if "expression" in step.request else literal
+                options, labels = [{key: step.request[key]}], {key: {"expression": "Formula", "value": "Value", "values": "Values"}[key]}
             elif action == "invoke_workflow":
                 options, labels = [], {}
             elif action == "edit_item" and step.request["name"] is not None:
@@ -757,7 +760,7 @@ class Workspace:
                 **({"files": [source.original_path or source.name for source in step.sources]} if step.sources else {}),
                 **({"parameters": self.editable_step_parameters(step.request)} if action != "import_data" else {}),
                 **({"plugin_step": True} if action in self.plugin_dialog_actions else {}),
-                **({"formula": True} if action in ("apply_formula", "add_array") and "expression" in step.request else {}),
+                **({"formula": True} if action in ("apply_formula", "add_array", "add_scalar") and "expression" in step.request else {}),
                 **({"array": True} if action == "add_array" else {}),
                 **({"scalar": True} if action == "add_scalar" else {}),
                 **({"workflow_outputs": [port["name"] for port in step.request["definition"]["outputs"]]}
@@ -824,7 +827,7 @@ class Workspace:
                 key = f"{step.id}/source/{index}"
                 inputs.append({"output": key, "kind": "csv", "name": ports.get(key, "").strip()})
             key = f"{step.id}/source/0"
-            if action == "add_scalar" and key in ports:
+            if action == "add_scalar" and "value" in step.request and key in ports:
                 inputs.append({"output": key, "kind": "number", "name": ports[key].strip(), "default": step.request["value"]})
         outputs = []
         for output in request["outputs"]:
@@ -856,7 +859,7 @@ class Workspace:
     def workflow_input_ports(definition):
         ports = {port["output"]: {**port, "exposed": port.get("exposed", True)} for port in definition["inputs"]}
         for step in definition["steps"]:
-            if step["request"]["action"] == "add_scalar":
+            if step["request"]["action"] == "add_scalar" and "value" in step["request"]:
                 key = f"{step['id']}/source/0"
                 ports.setdefault(key, {"output": key, "kind": "number", "name": step["request"]["name"],
                                        "default": step["request"]["value"], "exposed": False})
@@ -1124,13 +1127,14 @@ class Workspace:
                 command.update(options[0])
             if action == "scale_column":
                 ScaleColumn(0, command["factor"])
-            if action in ("apply_formula", "add_array") and "expression" in command:
-                command["references"] = self.formula_references(
+            if action in ("apply_formula", "add_array", "add_scalar") and "expression" in command:
+                workspace = self.recorded_step_prefix(step.id, ("add_scalar",))[1] if action == "add_scalar" else self
+                command["references"] = workspace.formula_references(
                     command["expression"], command["references"], stable=True,
                 )
             if action == "add_array" and "values" in command:
                 Source.array(command["name"], command["values"])
-            if action == "add_scalar":
+            if action == "add_scalar" and "value" in command:
                 Source.scalar(command["name"], command["value"])
             if action == "trace_style":
                 TraceAppearance(0, 0, command.get("style"), command.get("kind") or "line")
@@ -1295,8 +1299,14 @@ class Workspace:
                 self.enqueue({**request, "column": worksheet.column_selection(request["column"]),
                               "references": references}, "Column Formula")
             case "add_scalar":
-                scalar = Source.scalar(request["name"], request["value"], request.get("comment"))
-                self.enqueue({**request, "name": scalar.name, "comment": scalar.comment}, f"Add variable {scalar.name}")
+                name = Source.scalar(request["name"], 0).name
+                command = {"action": "add_scalar", "name": name, "comment": normalize_comment(request.get("comment"))}
+                if request.get("expression") is not None:
+                    expression = request["expression"]
+                    command.update(expression=expression, references=self.formula_references(expression))
+                else:
+                    command["value"] = Source.scalar(name, request["value"]).scalar_value
+                self.enqueue(command, f"Add variable {name}")
             case "add_array":
                 name = request["name"].strip()
                 if not name or any(c in name for c in "\n\r\0"):
@@ -1326,10 +1336,10 @@ class Workspace:
                 else:
                     label = f"Multiply columns in {len(operations)} sources"
                 self.enqueue(request, label)
-            case "correct" | "fit" | "plot" | "color" | "figure_style" | "trace_style" | "edit_item" | "run_batch":
+            case "correct" | "fit" | "plot" | "color" | "figure_style" | "trace_style" | "inspect_style" | "edit_item" | "run_batch":
                 labels = {"correct": "Correct worksheet cell", "fit": "Analysis: Linear Fit", "plot": "Plot",
                           "color": "Change trace color", "figure_style": "Change figure settings", "trace_style": "Change trace style",
-                          "edit_item": "Edit item", "run_batch": "Run analysis batch"}
+                          "inspect_style": "Apply trace appearance", "edit_item": "Edit item", "run_batch": "Run analysis batch"}
                 self.enqueue(request, labels[request["action"]])
             case _:
                 self.apply(request)
@@ -1455,7 +1465,15 @@ class Workspace:
                     self.source_id = None
                 self.dirty = True
             case "add_scalar":
-                self.import_sources((Source.scalar(request["name"], request["value"], request.get("comment")),), remember=False)
+                if "expression" in request:
+                    references = request["references"]
+                    if any(project.item_deleted("source", reference["source_id"]) for reference in references.values()):
+                        raise ValueError("Select available sources for the formula.")
+                    formula = {"expression": request["expression"], "references": references, "position": len(project.operations)}
+                    scalar = project.scalar_from_formula(request["name"], formula, self.sources, request.get("comment"))
+                else:
+                    scalar = Source.scalar(request["name"], request["value"], request.get("comment"))
+                self.import_sources((scalar,), remember=False)
             case "add_array" if "values" in request:
                 self.import_sources((Source.array(request["name"], request["values"], request.get("comment")),), remember=False)
                 self.source_id = next(reversed(self.project.raw_sources))
@@ -1550,6 +1568,21 @@ class Workspace:
                 self.project = updated
                 self.select_plugin_output(selection, isinstance(recipe, PluginStep) and recipe.table_only)
                 self.dirty = True
+            case "inspect_style":
+                changes = request["changes"]
+                if not isinstance(changes, list) or any(
+                    not isinstance(change, dict) or change.get("action") not in ("color", "trace_style") for change in changes
+                ):
+                    raise ValueError("Choose appearance changes for the trace.")
+                figure_id, trace = request["figure_id"], request["trace"]
+                result = self.combined.get(figure_id) or self.results.get(figure_id)
+                if (figure_id not in project.visible_figures or result is None or not result.figure
+                    or type(trace) is not int or not 0 <= trace < len(result.figure["traces"])):
+                    raise ValueError("Choose an available trace.")
+                local = copy(self)
+                for change in changes:
+                    local.apply({**change, "figure_id": figure_id})
+                self.project, self.dirty = local.project, local.dirty
             case "color" | "figure_style" | "trace_style":
                 figure_id = request.get("figure_id", self.figure_id)
                 if type(figure_id) is not int or figure_id not in project.visible_figures:
@@ -1608,7 +1641,7 @@ class Workspace:
         names = self.figure_names(project)
         sources = [(key, self.source_name(project, key, self.sources, names)) for key in self.ordered_sources()]
         references = {}
-        for token, (_, source, column, _) in tokens.items():
+        for token, (_, source, column, _, row) in tokens.items():
             if existing is not None and token in existing:
                 references[token] = existing[token]
                 continue
@@ -1622,8 +1655,10 @@ class Workspace:
             key = matches[0]
             worksheet = self.input_worksheet(project, key, self.sources)
             if column is None:
-                if len(worksheet.rows) != 1 or len(worksheet.columns) != 1:
-                    raise ValueError(f"{token} needs a column name. Use a source alone for a single value.")
+                if len(worksheet.columns) != 1:
+                    raise ValueError(f"{token} needs a column name.")
+                if row is None and len(worksheet.rows) != 1:
+                    raise ValueError(f"{token} needs a column name or a row index such as {token}[1].")
                 selected = 0
             elif isinstance(column, int):
                 if not 1 <= column <= len(worksheet.columns):
