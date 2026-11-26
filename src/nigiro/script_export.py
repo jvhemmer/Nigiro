@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 from base64 import b64decode
+from dataclasses import asdict
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -22,7 +24,7 @@ def write_script(path: Path, template: str, payload: dict, sources: tuple[Source
         missing = [source.name for source in sources if not source.original_path and source.scalar_value is None]
         if missing:
             raise ValueError(
-                f"No original CSV path is recorded for {', '.join(missing)}. Enable Copy raw CSV files beside the script."
+                f"No original data path is recorded for {', '.join(missing)}. Enable Copy raw data files beside the script."
             )
 
     copies = []
@@ -62,9 +64,12 @@ def write_script(path: Path, template: str, payload: dict, sources: tuple[Source
                 continue
             reference = source.original_path
             if copy_raw_data:
-                reference = save_asset("imports", f"source-{index:03d}.csv", source.content)
+                suffix = Path(source.original_path or source.name).suffix
+                suffix = suffix if re.fullmatch(r"\.[a-zA-Z0-9]{1,16}", suffix) else ".txt"
+                reference = save_asset("imports", f"source-{index:03d}{suffix}", source.content)
             inputs.append({
                 "name": source.name, "path": reference, "encoding": source.encoding, "delimiter": source.delimiter,
+                **({"text_import": asdict(source.text_import)} if source.text_import is not None else {}),
             })
 
         record = {**payload, "recipe": {**payload["recipe"], "sources": inputs}}

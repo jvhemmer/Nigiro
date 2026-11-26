@@ -21,6 +21,7 @@ import { applyAppearance, cacheAppearance } from "./appearance";
 import { arrayFormulaId, columnFormulaId } from "./FormulaEditor";
 import { ArraySourceDialog } from "./ArraySourceDialog";
 import { ScalarSourceDialog } from "./ScalarSourceDialog";
+import { ImportDataDialog } from "./ImportDataDialog";
 import { FigureSettings } from "./FigureSettings";
 import type { DesktopInfo, DesktopPreferences, Release } from "./DesktopSettings";
 import { axisSettings, cycleColor, type StyleSection } from "./figureStyle";
@@ -36,7 +37,7 @@ import { EditWorkflowPortsDialog, EditWorkflowRunDialog, RunWorkflowDialog, Save
 import { Worksheet } from "./Worksheet";
 import {
   elementNames, formatNumber, lineDashes, replacesProject, workspace,
-  type FigureElement, type InspectStyleChange, type PluginDefinition, type PluginRun, type PluginStepInputs, type Project, type Request, type TraceFillStyle, type TraceLineStyle, type TraceStyle, type WorkflowPorts, type WorkflowStep, type WorkspaceItem,
+  type FigureElement, type ImportReview, type InspectStyleChange, type PluginDefinition, type PluginRun, type PluginStepInputs, type Project, type Request, type TraceFillStyle, type TraceLineStyle, type TraceStyle, type WorkflowPorts, type WorkflowStep, type WorkspaceItem,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<boolean>;
@@ -47,7 +48,7 @@ function matchesPlugin(run: PluginRun, plugin: PluginDefinition) {
 
 function projectStem(project: Project) {
   const fileName = (project.file_name ?? project.source_name ?? "Untitled").split(/[\\/]/).at(-1);
-  return fileName?.replace(/\.(csv|nigiro)$/i, "") || "Analysis";
+  return fileName?.replace(/\.[^.]+$/, "") || "Analysis";
 }
 
 function saveRequest(project: Project): Request {
@@ -364,7 +365,7 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
 
 function WorksheetPanel({ project, busy, run, onInspect }: { project: Project; busy: boolean; run: Run; onInspect: (id: string | null) => void }) {
   const panelId = useId();
-  if (!project.sources.length) return <p className="dock-empty">Use File → Import Data… to add a worksheet.</p>;
+  if (!project.sources.length) return <p className="dock-empty">Use Data → Import Raw Data… to add a worksheet.</p>;
   return (
     <div className="source-pane">
       <div className="view-picker">
@@ -465,6 +466,7 @@ export function App() {
   const [scalarDialog, setScalarDialog] = useState(false);
   const [arrayDialog, setArrayDialog] = useState(false);
   const [stepDialog, setStepDialog] = useState<WorkflowStep | null>(null);
+  const [importReview, setImportReview] = useState<ImportReview | null>(null);
   const [workflowDialog, setWorkflowDialog] = useState<"save" | "run" | null>(null);
   const [workflowRunEditor, setWorkflowRunEditor] = useState<{ context: WorkflowPorts; stepId: number; ports: boolean } | null>(null);
   const [settingsDialog, setSettingsDialog] = useState<"appearance" | "updates" | null>(null);
@@ -507,6 +509,10 @@ export function App() {
       })) return false;
       const saving = request.action === "save" || request.action === "save_as";
       const response = await workspace(saving && draft !== null ? { ...request, notes: draft } : request);
+      if (response && "import_review" in response) {
+        setImportReview(response.import_review);
+        return false;
+      }
       if (response) {
         setPlugins(response.plugins);
         projectRef.current = response.project;
@@ -728,14 +734,14 @@ export function App() {
 
   const menuBusy = busy || scalarDialog || arrayDialog || overlayDialog || stepDialog !== null || workflowDialog !== null
     || settingsDialog !== null || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null
-    || workflowRunEditor !== null;
+    || workflowRunEditor !== null || importReview !== null;
   const WorkflowRunEditor = workflowRunEditor?.ports ? EditWorkflowPortsDialog : EditWorkflowRunDialog;
   const newProject: MenuCommand = { label: "New…", keywords: "create project", icon: FilePlus, request: { action: "new" }, shortcut: "N" };
   const openProject: MenuCommand = { label: "Open Project…", icon: FolderOpen, request: { action: "open" }, shortcut: "O" };
   const newWorkspace: MenuCommand = { label: "New Workspace", icon: FolderPlus, keywords: "create", request: { action: "new_workspace" } };
   const openWorkspace: MenuCommand = { label: "Open Workspace…", icon: FolderOpen, request: { action: "open_workspace" } };
   const dataGroups: MenuCommand[][] = [
-    [{ label: "Import Raw Data…", keywords: "csv open load", icon: FileInput, request: { action: "import_data" } }],
+    [{ label: "Import Raw Data…", keywords: "csv txt tsv text open load", icon: FileInput, request: { action: "import_data" } }],
     [
       { label: "Add Variable/Constant…", keywords: "create variables constants scalar", icon: Variable, request: { action: "choose_scalar" } },
       { label: "Add Array…", keywords: "create arrays formula", icon: Brackets, request: { action: "choose_array" } },
@@ -932,6 +938,15 @@ export function App() {
         onCreate={async (figure_ids) => { if (await run({ action: "overlay_figures", figure_ids })) setOverlayDialog(false); }} />}
       {stepDialog && <WorkflowStepDialog step={stepDialog} sources={project?.sources ?? []} busy={busy} error={error} onRun={run}
         onClose={() => { setStepDialog(null); setError(""); }} />}
+      {importReview && <ImportDataDialog key={`${importReview.index}:${JSON.stringify(importReview.suggested)}`}
+        review={importReview} busy={busy} error={error}
+        onClose={() => { setImportReview(null); setError(""); }}
+        onImport={async (request) => {
+          if (await run(request)) {
+            setImportReview(null);
+            if (request.replacement) setStepDialog(null);
+          }
+        }} />}
       {project && workflowDialog === "save" && <SaveWorkflowDialog {...{ project, busy, error }} onRun={run}
         onClose={() => { setWorkflowDialog(null); setError(""); }} />}
       {project && workflowDialog === "run" && <RunWorkflowDialog {...{ project, busy, error }} onRun={run}
@@ -1025,7 +1040,7 @@ export function App() {
           }}
         />
       )}
-      {error && !scalarDialog && !overlayDialog && !stepDialog && !workflowDialog && !workflowRunEditor && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
+      {error && !scalarDialog && !overlayDialog && !stepDialog && !workflowDialog && !workflowRunEditor && !importReview && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
         <ProjectEditor {...{ project, projectKey, busy, run, capture }} notes={notes ?? project.notes ?? ""} onNotesChange={updateNotes}
           onEditStep={(step) => runMenu({ action: "choose_step", step })}
@@ -1037,7 +1052,7 @@ export function App() {
           <div className="welcome-card">
             <div className="welcome-mark"><ChartNoAxesCombined size={35} strokeWidth={1.7} /></div>
             <h1>Start an analysis</h1>
-            <p>Open <strong>File</strong> to import a CSV or try sample data.</p>
+            <p>Open <strong>Data</strong> to import a data file or try sample data.</p>
           </div>
         </main>
       )}

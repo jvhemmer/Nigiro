@@ -5,6 +5,7 @@ import figureStyle from "../src/nigiro/figure_style.py?raw";
 import sourceTables from "../src/nigiro/source_tables.py?raw";
 import batchFigure from "../src/nigiro/batch_figure.py?raw";
 import model from "../src/nigiro/project.py?raw";
+import textImport from "../src/nigiro/text_import.py?raw";
 import analysis from "../src/nigiro/analysis.py?raw";
 import analysisPlugins from "../src/nigiro/analysis_plugins.py?raw";
 import electrochemistry from "../src/nigiro/electrochemistry.py?raw";
@@ -98,7 +99,8 @@ ${sourceBody(figureStyle)}
 ${sourceBody(columnFormula)}
 ${sourceBody(sourceTables).replace(/^from \.column_formula import .*\n/m, "")}
 ${sourceBody(batchFigure)}
-${sourceBody(model).replace(/^from \.(column_formula|figure_style|source_tables) import .*\n/gm, "")}
+${sourceBody(textImport)}
+${sourceBody(model).replace(/^from \.(column_formula|figure_style|source_tables|text_import) import .*\n/gm, "")}
 ${sourceBody(analysis).replace(/^from \.project import .*\n/m, "")}
 ${sourceBody(analysisPlugins)}
 ${sourceBody(electrochemistry).replace(/^from \.analysis_plugins import .*\n/m, "")}

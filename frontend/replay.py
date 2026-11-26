@@ -8,8 +8,9 @@ def replay_inputs(payload):
         try:
             content = path.read_bytes()
         except OSError as error:
-            raise ValueError(f"Could not read CSV input {path}. Check the source path in PAYLOAD.") from error
-        sources.append(Source(record["name"], content, record["encoding"], record["delimiter"]))
+            raise ValueError(f"Could not read data file {path}. Check the source path in PAYLOAD.") from error
+        options = TextImport(**record["text_import"]) if "text_import" in record else None
+        sources.append(Source(record["name"], content, record["encoding"], record["delimiter"], text_import=options))
     operation_types = {
         "correct_cell": Correction,
         "scale_column": ScaleColumn,

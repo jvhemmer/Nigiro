@@ -67,7 +67,7 @@ def validate_workflow(record: dict) -> dict:
         if command["action"] == "import_data":
             prefix = f"{step_id}/source/"
             indexes = sorted(int(port.rsplit("/", 1)[1]) for port in ports if port.startswith(prefix))
-            require(indexes and indexes == list(range(len(indexes))), "Each CSV import must have a workflow input.")
+            require(indexes and indexes == list(range(len(indexes))), "Each data import must have a workflow input.")
 
     references = set()
     for port in record["outputs"]:

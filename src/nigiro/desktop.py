@@ -30,6 +30,7 @@ from nigiro.project import (
 )
 from nigiro.source_tables import FIT_PLUGINS, SourceTable, output_tables, source_origin
 from nigiro.system_fonts import SystemFonts
+from nigiro.text_import import PREVIEW_BYTES, TextImport, guess_import, import_preview
 from nigiro.settings import Appearance, Settings
 from nigiro.storage import load_project_session, operation_record, save_project
 from nigiro.workflow import Step, Workflow, map_references
@@ -1082,12 +1083,10 @@ class Workspace:
             slot = request["slot"]
             if step.request["action"] != "import_data" or type(slot) is not int or not 0 <= slot < len(step.sources):
                 raise ValueError("Choose a file in the import step.")
-            path = Path(request["path"]).resolve()
-            source = Source(path.name, path.read_bytes(), original_path=str(path))
-            source.worksheet
+            source, = request["prepared_sources"]
             sources = list(step.sources)
             sources[slot] = source
-            command = {**step.request, "import_path": sources[-1].original_path or str(path)}
+            command = {**step.request, "import_path": sources[-1].original_path or source.original_path}
             plan.steps[index] = replace(step, request=command, sources=tuple(sources),
                                         label="Import " + ", ".join(item.name for item in sources))
             plan.invalidate(index)
@@ -1155,6 +1154,20 @@ class Workspace:
         if request["action"] in ("new", "open", "select_source"):
             self.row_offset = 0
         match request["action"]:
+            case "import_preview":
+                path = Path(request["path"])
+                try:
+                    settings = TextImport(**request["settings"])
+                    with path.open("rb") as stream:
+                        sample = stream.read(PREVIEW_BYTES + 1)
+                        preview = import_preview(sample, settings)
+                        if len(sample) > PREVIEW_BYTES and preview["error"] in (
+                            "The selected header row is missing.", "The file needs at least one data row.",
+                        ):
+                            return import_preview(sample + stream.read(), settings, sample=False)
+                        return preview
+                except (OSError, ValueError, TypeError) as error:
+                    return {"columns": (), "rows": (), "raw": (), "error": str(error)}
             case "export_recipe":
                 return self.export_recipe()
             case "plugin_step_inputs":
@@ -1210,7 +1223,7 @@ class Workspace:
                 self.move_source(request["source_id"], request["destination"], placement=request.get("placement"))
             case "source_group":
                 self.change_source_group(request)
-            case "edit_step" | "move_step" | "delete_step" | "replace_import":
+            case "edit_step" | "move_step" | "delete_step":
                 self.edit_workflow(request)
             case "edit_plugin_step":
                 self.edit_plugin_step(request)
@@ -1241,16 +1254,19 @@ class Workspace:
                 self.collection = self.collection.select(path)
             case "sample":
                 self.enqueue({"action": "import_data"}, "Import sample data", (Source("Sample data.csv", SAMPLE),))
-            case "import_data":
-                paths = [Path(value).resolve() for value in request["paths"]]
-                if not paths:
-                    raise ValueError("Choose at least one CSV file.")
-                sources = tuple(Source(path.name, path.read_bytes(), original_path=str(path)) for path in paths)
-                for source in sources:
-                    source.worksheet
-                self.enqueue({"action": "import_data", "import_path": str(paths[-1])},
-                             "Import " + ", ".join(path.name for path in paths), sources)
-                self.remember_paths(import_path=str(paths[-1]))
+            case "import_data" | "replace_import":
+                replacement = ({"step_id": request["step_id"], "slot": request["slot"]}
+                               if request["action"] == "replace_import" else None)
+                paths = [Path(value).resolve() for value in ([request["path"]] if replacement else request["paths"])]
+                result = self.prepare_import(paths, request.get("settings"), request.get("interactive", False), replacement)
+                if isinstance(result, dict):
+                    return result
+                if replacement:
+                    self.edit_workflow({**request, "prepared_sources": result})
+                else:
+                    self.enqueue({"action": "import_data", "import_path": str(paths[-1])},
+                                 "Import " + ", ".join(path.name for path in paths), result)
+                    self.remember_paths(import_path=str(paths[-1]))
             case "open":
                 path = Path(request["path"]).resolve()
                 self.open_project(path)
@@ -1414,9 +1430,42 @@ class Workspace:
         except OSError as exc:
             print(f"Could not save the last file folder. {exc}", file=sys.stderr)
 
+    @staticmethod
+    def prepare_import(paths, chosen, interactive, replacement):
+        if not paths:
+            raise ValueError("Choose at least one data file.")
+        settings_by_file = [None] * len(paths) if chosen is None else chosen.copy()
+        if len(settings_by_file) != len(paths):
+            raise ValueError("Choose import settings for each selected file.")
+        sources = []
+        for index, path in enumerate(paths):
+            content = path.read_bytes()
+            provided = settings_by_file[index]
+            settings, confident = guess_import(content) if provided is None else (TextImport(**provided), True)
+            source = Source(path.name, content, encoding=settings.encoding, delimiter=settings.delimiter,
+                            original_path=str(path), text_import=settings)
+            try:
+                source.worksheet
+                if not confident:
+                    raise ValueError("Nigiro could not identify the table layout. Check the import options.")
+            except ValueError as error:
+                if not interactive:
+                    raise
+                try:
+                    preview = import_preview(content, settings)
+                except ValueError:
+                    preview = {"columns": (), "rows": (), "raw": (), "error": str(error)}
+                return {"import_review": {
+                    "paths": [str(path) for path in paths], "settings": settings_by_file, "index": index,
+                    "suggested": asdict(settings), "preview": preview, "error": str(error), "replacement": replacement,
+                }}
+            sources.append(source)
+            settings_by_file[index] = asdict(settings)
+        return tuple(sources)
+
     def import_sources(self, additions: tuple[Source, ...], *, import_path: str | None = None, remember: bool = True) -> None:
         if not additions:
-            raise ValueError("Choose at least one CSV file.")
+            raise ValueError("Choose at least one data file.")
         project = self.project
         updated = replace(project, additional_sources=(*project.additional_sources, *additions)) if project.source else replace(
             project, source=additions[0], additional_sources=additions[1:]
@@ -1647,7 +1696,9 @@ class Workspace:
                 continue
             matches = [key for key, name in sources if source == name]
             if not matches:
-                matches = [key for key, name in sources if name.lower().endswith(".csv") and source == name[:-4]]
+                matches = [key for key, name in sources if source == Path(name).stem
+                           and key in project.raw_sources
+                           and (project.raw_sources[key].original_path or name.lower().endswith(".csv"))]
             if not matches:
                 raise ValueError(f"Source {source!r} was not found. Use Insert reference to select it.")
             if len(matches) > 1:

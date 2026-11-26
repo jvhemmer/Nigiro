@@ -20,11 +20,11 @@ export function ExportDialog({ target, initial, onClose, onExport }: {
         <div className="fit-settings">
           {target === "script" && <>
             <label>
-              <span>Copy raw CSV files beside the script</span>
+              <span>Copy raw data files beside the script</span>
               <input type="checkbox" checked={settings.copyRawData ?? false}
                 onChange={(event) => setSettings({ ...settings, copyRawData: event.target.checked })} />
             </label>
-            <p className="muted">By default, the script reads the original CSV paths.</p>
+            <p className="muted">By default, the script reads the original data paths.</p>
             <label>
               <span>Copy used fonts beside the script</span>
               <input type="checkbox" checked={settings.embedFonts ?? false}

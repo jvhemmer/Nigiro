@@ -253,6 +253,32 @@ export type InspectStyleChange =
     | { kind: "order"; style: { zorder: number } | null }
   ));
 
+export interface TextImportSettings {
+  delimiter: string;
+  encoding: string;
+  comment: string;
+  skip_rows: number;
+  header_row: number;
+  ignore_rows: string;
+}
+
+export interface ImportPreview {
+  columns: string[];
+  rows: string[][];
+  raw: string[];
+  error: string | null;
+}
+
+export interface ImportReview {
+  paths: string[];
+  settings: (TextImportSettings | null)[];
+  index: number;
+  suggested: TextImportSettings;
+  preview: ImportPreview;
+  error: string;
+  replacement: { step_id: number; slot: number } | null;
+}
+
 export type Request =
   | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "install_plugin" | "new_workspace" | "open_workspace" }
   | { action: "open_recent_workspace" | "switch_workspace_project"; path: string }
@@ -268,6 +294,7 @@ export type Request =
   | { action: "edit_step"; step_id: number; options: PluginOptions[]; parameters?: Record<string, unknown> }
   | { action: "edit_plugin_step"; step_id: number; submission: PluginSubmission }
   | { action: "replace_import"; step_id: number; slot: number }
+  | { action: "import_configured"; paths: string[]; settings: ImportReview["settings"]; replacement: ImportReview["replacement"] }
   | { action: "delete_step"; step_id: number }
   | { action: "move_source"; source_id: ProjectSource["id"]; destination: number; placement?: { group_id: string | null } }
   | { action: "source_group"; mode: "create" | "rename" | "toggle" | "delete"; group_id?: string; name?: string }
@@ -303,10 +330,10 @@ let appearance: { style: string; colors: string; lines: string; project: Project
 export async function workspace(request: Request) {
   const replacing = replacesProject(request);
   const knownFigures = replacing ? {} : Object.fromEntries([...figureCache].map(([id, entry]) => [id, entry.token]));
-  const response = await invoke<{ project: Project; plugins: PluginDefinition[] } | null>("workspace", {
+  const response = await invoke<{ project: Project; plugins: PluginDefinition[] } | { import_review: ImportReview } | null>("workspace", {
     request, paged: true, knownFigures,
   });
-  if (!response) return response;
+  if (!response || "import_review" in response) return response;
   const project = response.project;
   project.trace_styles ??= {};
   if (replacing) figureCache.clear();

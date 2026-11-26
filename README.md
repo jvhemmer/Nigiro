@@ -59,7 +59,7 @@ Nigiro tests a new runtime before it saves your selection. If the selected runti
 
 ## Try the editor
 
-1. Select **File → Try Sample Data** or use **File → Import Data** to add one or more CSVs to the current project. Use comma-separated UTF-8 files with a header row. **File → New** starts an empty project.
+1. Select **Data → Try Sample Data** or **Data → Import Raw Data**. **File → New** starts an empty project.
 2. Select **Analysis → Linear Fit**. Choose a source and its X and Y columns on **Inputs**, then select **Run analysis**.
 3. Select a point or the fit line, then apply a color in **Figure element**.
 4. Double-click a value in **Working data** and press Enter to apply the edit.
@@ -68,6 +68,8 @@ Nigiro tests a new runtime before it saves your selection. If the selected runti
 The fit excludes rows with a blank X or Y value and reports how many it excluded. Other invalid values produce an error with the row number.
 
 Import and Open dialogs start in the current project's last import folder. If it is unavailable, Nigiro uses the last remembered import folder, including from a previous session. The project archive saves its import path.
+
+**Import Raw Data** can detect text tables in CSV, TSV, TXT, and files with other extensions. It supports comma, tab, semicolon, pipe, and whitespace separators. If the layout is unclear, **Import Options** shows a preview of up to 20 rows. Choose a delimiter, text encoding, comment prefix, and header row. Use zero for a file with no header. To exclude particular lines, enter their original line numbers, for example `2,5-8`. A project keeps the original file bytes and the import settings.
 
 ## Plot columns
 

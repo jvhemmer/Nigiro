@@ -1045,3 +1045,13 @@ td input {
 .circuit-symbol { width: 58px; height: 20px; }
 .circuit-symbol path { fill: none; stroke: currentColor; stroke-width: 1.4; }
 .circuit-symbol text { fill: currentColor; text-anchor: middle; font-size: 10px; }
+
+.import-data-dialog { width: min(740px, calc(100vw - 32px)); }
+.import-data-content { display: grid; gap: 8px; padding: 10px; min-height: 0; overflow: auto; }
+.import-file-name { font-weight: 600; overflow-wrap: anywhere; }
+.import-data-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 0; min-width: 0; }
+.import-data-fields input, .import-data-fields select { min-width: 0; width: 100%; }
+.import-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.import-preview { min-height: 72px; max-height: 250px; overflow: auto; border: 1px solid var(--line); }
+.import-preview td { white-space: nowrap; padding: 3px 5px; }
+.import-preview ol { margin: 0; padding: 4px 4px 4px 35px; white-space: pre; }

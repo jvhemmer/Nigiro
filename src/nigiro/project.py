@@ -13,6 +13,7 @@ from typing import Literal
 from .column_formula import run_scalar_formula
 from .figure_style import AxisStyle, FigureStyle
 from .source_tables import FIT_PLUGINS, TABLE_ONLY_PLUGINS, SourceTable, raw_source_id, source_origin
+from .text_import import TextImport, decode_table, text_table
 
 PAIRED_PLOT_PLUGINS = {"nigiro.scatter", "nigiro.line", "nigiro.bar"}
 
@@ -35,6 +36,7 @@ class Source:
     scalar_value: float | None = None
     comment: str | None = None
     scalar_formula: dict | None = None
+    text_import: TextImport | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "comment", normalize_comment(self.comment))
@@ -63,6 +65,9 @@ class Source:
 
     @cached_property
     def worksheet(self) -> Worksheet:
+        if self.text_import is not None:
+            text = decode_table(self.content, self.text_import.encoding)
+            return Worksheet(*text_table(text, self.text_import))
         stream = io.StringIO(self.content.decode(self.encoding), newline="")
         reader = csv.reader(stream, delimiter=self.delimiter, strict=True)
         header = next(reader, None)

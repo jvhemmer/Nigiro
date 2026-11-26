@@ -559,7 +559,7 @@ class WorkflowTest(unittest.TestCase):
             worker = Workspace()
             worker.dispatch({"action": "sample"})
             script = Path(directory) / "sample.py"
-            with self.assertRaisesRegex(ValueError, "Enable Copy raw CSV files"):
+            with self.assertRaisesRegex(ValueError, "Enable Copy raw data files"):
                 worker.dispatch({
                     "action": "export_script", "path": str(script), "template": "import json\n# Nigiro replay payload\n",
                     "payload": {"recipe": {}}, "copy_raw_data": False,

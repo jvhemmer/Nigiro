@@ -36,13 +36,13 @@ export function Worksheet({ columns, rows, originalRows, busy, rowCount, offset,
         {originalRows && <>
           <button aria-pressed={!original} onClick={() => setOriginal(false)}>Working data</button>
           <button aria-pressed={original} onClick={() => setOriginal(true)}>
-            <LockKeyhole size={13} /> Original CSV
+            <LockKeyhole size={13} /> Original data
           </button>
         </>}
         <span className="worksheet-count muted">{rowCount.toLocaleString()} rows</span>
       </div>
       <div className="table-scroll">
-        <table aria-label={!originalRows ? "Analysis output" : original ? "Original CSV" : "Working worksheet"}>
+        <table aria-label={!originalRows ? "Analysis output" : original ? "Original data" : "Working worksheet"}>
           <thead>
             <tr>
               <th className="row-number" scope="col">#</th>

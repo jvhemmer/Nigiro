@@ -75,6 +75,15 @@ enum Action {
         step_id: usize,
         slot: usize,
     },
+    ImportConfigured {
+        paths: Vec<PathBuf>,
+        settings: Value,
+        replacement: Option<ImportReplacement>,
+    },
+    ImportPreview {
+        path: PathBuf,
+        settings: Value,
+    },
     DeleteStep {
         step_id: usize,
     },
@@ -191,6 +200,12 @@ enum Action {
         name: String,
         notes: Option<String>,
     },
+}
+
+#[derive(Deserialize)]
+struct ImportReplacement {
+    step_id: usize,
+    slot: usize,
 }
 
 fn request_engine(window: &WebviewWindow, request: &Value) -> Result<Value, String> {
@@ -407,18 +422,35 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             json!({ "action": "edit_plugin_step", "step_id": step_id, "submission": submission })
         }
         Action::ReplaceImport { step_id, slot } => {
-            return Ok(pick_file(
-                window,
-                "replace_import",
-                "Replace imported data",
-                "CSV",
-                "csv",
-            )?
-            .map(|mut request| {
-                request["step_id"] = json!(step_id);
-                request["slot"] = json!(slot);
-                request
-            }));
+            let mut dialog = window
+                .dialog()
+                .file()
+                .set_parent(window)
+                .set_title("Replace imported data");
+            if let Some(directory) = dialog_directory(window)? {
+                dialog = dialog.set_directory(directory);
+            }
+            return dialog.blocking_pick_file().map(|file| {
+                let path = file.into_path().map_err(|err| err.to_string())?;
+                Ok(json!({ "action": "replace_import", "path": path, "step_id": step_id, "slot": slot,
+                           "interactive": true }))
+            }).transpose();
+        }
+        Action::ImportConfigured {
+            paths,
+            settings,
+            replacement,
+        } => match replacement {
+            Some(target) => {
+                json!({ "action": "replace_import", "path": paths.first(), "step_id": target.step_id,
+                                        "slot": target.slot, "settings": settings, "interactive": true })
+            }
+            None => {
+                json!({ "action": "import_data", "paths": paths, "settings": settings, "interactive": true })
+            }
+        },
+        Action::ImportPreview { path, settings } => {
+            json!({ "action": "import_preview", "path": path, "settings": settings })
         }
         Action::DeleteStep { step_id } => json!({ "action": "delete_step", "step_id": step_id }),
         Action::ScaleColumn { runs, factor } => {
@@ -519,12 +551,16 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
                 .dialog()
                 .file()
                 .set_parent(window)
-                .set_title("Import data")
-                .add_filter("CSV", &["csv"]);
+                .set_title("Import data");
             if let Some(directory) = dialog_directory(window)? {
                 dialog = dialog.set_directory(directory);
             }
-            return picked_files("import_data", dialog.blocking_pick_files());
+            return Ok(
+                picked_files("import_data", dialog.blocking_pick_files())?.map(|mut request| {
+                    request["interactive"] = json!(true);
+                    request
+                }),
+            );
         }
         Action::Open => return pick_file(window, "open", "Open project", "Nigiro", "nigiro"),
         Action::NewWorkspace => json!({ "action": "new_workspace" }),
@@ -612,7 +648,7 @@ fn pick_file(
         .set_parent(window)
         .set_title(title)
         .add_filter(filter, &[extension]);
-    if matches!(action, "open" | "replace_import") {
+    if action == "open" {
         if let Some(directory) = dialog_directory(window)? {
             dialog = dialog.set_directory(directory);
         }

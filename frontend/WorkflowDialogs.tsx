@@ -44,7 +44,7 @@ export function SaveWorkflowDialog({ project, busy, error, onClose, onRun }: Dia
   const inputs = Object.fromEntries(steps.filter(({ id }) => selected.has(id)).flatMap((step): [string, string][] => {
     const imports = (step.files ?? []).map((file, index): [string, string] => {
       const key = `${step.id}/source/${index}`;
-      return [key, portNames[key] ?? (file.split(/[/\\]/).pop() || "CSV data")];
+      return [key, portNames[key] ?? (file.split(/[/\\]/).pop() || "Imported data")];
     });
     const key = `${step.id}/source/0`;
     return step.scalar && !step.formula && key in portNames ? [...imports, [key, portNames[key]]] : imports;
@@ -95,14 +95,14 @@ export function SaveWorkflowDialog({ project, busy, error, onClose, onRun }: Dia
     </details>
     <fieldset>
       <legend>Inputs</legend>
-      <p className="muted">CSV imports are supplied when the workflow runs. Select any variables you want users to set.</p>
+      <p className="muted">Data files are supplied when the workflow runs. Select any variables you want users to set.</p>
       {steps.filter((step) => selected.has(step.id) && (step.files?.length || (step.scalar && !step.formula))).map((step) => {
         const key = `${step.id}/source/0`;
         return <div className="workflow-port" key={step.id}>
           <p>{step.label}</p>
           {step.files?.map((file, index) => {
             const importKey = `${step.id}/source/${index}`;
-            return <label key={importKey}><span>CSV input name</span>
+            return <label key={importKey}><span>Data input name</span>
               <input title={file} value={inputs[importKey]} onChange={(event) => setPort(importKey, event.target.value)} />
             </label>;
           })}
@@ -170,7 +170,7 @@ export function EditWorkflowPortsDialog({ context, stepId, busy, error, onClose,
       <legend>Inputs</legend>
       <p className="muted">Hidden inputs keep their current values or source assignments.</p>
       {inputs.map((port, index) => <WorkflowPortEditor key={port.output} port={port}
-        label={`${context.inputs[index].name} · ${port.kind === "csv" ? "CSV" : "number"}`}
+        label={`${context.inputs[index].name} · ${port.kind === "csv" ? "data" : "number"}`}
         onChange={(value) => setInputs((current) => current.map((item, i) => i === index ? { ...item, ...value } : item))} />)}
     </fieldset>
     <fieldset>
@@ -248,7 +248,7 @@ function WorkflowRunForm({ availableSources, selectedSource, workflow, choose, e
               });
             }}>
               {numeric ? <option value="">Enter a value</option>
-                : <option value="">{available.length ? "Choose a CSV source" : "Import a CSV first"}</option>}
+                : <option value="">{available.length ? "Choose an imported source" : "Import a data file first"}</option>}
               {(numeric ? variables : available).map(({ id, name }) => (
                 <option key={JSON.stringify(id)} value={JSON.stringify(id)}>{name}</option>
               ))}

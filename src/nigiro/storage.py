@@ -1,4 +1,4 @@
-"""Portable project archives with original CSV bytes and a versioned recipe."""
+"""Portable project archives with original data bytes and a versioned recipe."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from .project import (
     Project, ResidualFigure, ScaleColumn, Source, TraceAppearance,
 )
 from .source_tables import SourceTable
+from .text_import import TextImport
 from .workflow import Step, Workflow
 
 
@@ -68,6 +69,7 @@ def write_source(archive: ZipFile, source: Source, files: dict[bytes, str]) -> d
     return {
         "name": source.name, "encoding": source.encoding, "delimiter": source.delimiter,
         "sha256": files[source.content], "original_path": source.original_path, **comment,
+        **({"text_import": asdict(source.text_import)} if source.text_import is not None else {}),
     }
 
 
@@ -86,7 +88,8 @@ def read_source(archive: ZipFile, metadata: dict, files: dict[str, bytes]) -> So
     if not isinstance(metadata["name"], str):
         raise ValueError("Invalid source name.")
     return Source(metadata["name"], files[checksum], metadata["encoding"], metadata["delimiter"],
-                  metadata["original_path"], comment=metadata.get("comment"))
+                  metadata["original_path"], comment=metadata.get("comment"),
+                  text_import=TextImport(**metadata["text_import"]) if "text_import" in metadata else None)
 
 
 def project_record(archive: ZipFile, project: Project, files: dict[bytes, str]) -> dict:
