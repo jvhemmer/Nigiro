@@ -3,6 +3,12 @@ name: Desktop release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build
+        type: string
+        required: true
 
 jobs:
   bundle:
@@ -23,10 +29,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       UV_PYTHON: "3.12"
+      NIGIRO_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          ref: refs/tags/${{ env.NIGIRO_RELEASE_TAG }}
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -51,7 +59,7 @@ jobs:
 
           directory = Path("src-tauri")
           version = json.loads((directory / "tauri.conf.json").read_text(encoding="utf-8"))["version"]
-          if os.environ["GITHUB_REF_NAME"] != f"v{version}":
+          if os.environ["NIGIRO_RELEASE_TAG"] != f"v{version}":
               raise SystemExit(f"Tag does not match the app version v{version}.")
           public_key = os.environ["NIGIRO_UPDATER_PUBLIC_KEY"].strip()
           if not public_key:
@@ -75,10 +83,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Nigiro ${{ github.ref_name }}
+          tagName: ${{ env.NIGIRO_RELEASE_TAG }}
+          releaseName: Nigiro ${{ env.NIGIRO_RELEASE_TAG }}
           releaseDraft: true
           generateReleaseNotes: true
           uploadUpdaterJson: true
-          tauriScript: npm run tauri --
+          tauriScript: npx --no-install tauri
           args: --config src-tauri/tauri.release.generated.json --bundles ${{ matrix.bundles }} -- --locked
