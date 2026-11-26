@@ -172,6 +172,8 @@ enum Action {
         output: String,
         target_id: Option<usize>,
         runs: Vec<Value>,
+        input_group: Option<Value>,
+        output_group: Option<Value>,
     },
     Color {
         element: String,
@@ -516,9 +518,12 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             output,
             target_id,
             runs,
+            input_group,
+            output_group,
         } => json!({
             "action": "execute_plugin", "plugin_id": plugin_id, "version": version, "checksum": checksum,
-            "output": output, "target_id": target_id, "runs": runs
+            "output": output, "target_id": target_id, "runs": runs,
+            "input_group": input_group, "output_group": output_group
         }),
         Action::Color {
             element,

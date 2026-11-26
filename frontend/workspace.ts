@@ -61,11 +61,13 @@ export interface PluginSubmission {
   output: "overlay" | "separate";
   target_id: number | null;
   runs: { source_id: string | null; options: PluginOptions; target_id: number | null; references?: PluginRun["references"] }[];
+  input_group?: { id: string; options: PluginOptions };
+  output_group?: { mode: "ungrouped" } | { mode: "new"; name: string } | { mode: "existing"; id: string };
 }
 
 export interface PluginStepInputs {
   plugin: PluginDefinition;
-  inputs: Pick<Project, "sources" | "figures" | "source_id">;
+  inputs: Pick<Project, "sources" | "figures" | "source_id" | "source_groups">;
   submission: PluginSubmission;
   updates_figure: boolean;
   warning: string | null;

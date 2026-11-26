@@ -77,6 +77,8 @@ Select **Plot → Scatter**, **Line**, or **Bar**. Plots, analyses, and operatio
 
 The **Configuration** tab contains the plugin's settings. The **Output** tab lists what the plugin produces and lets you create new figures or add traces to existing figures with compatible axes. For multiple sources, you can overlay the traces or use a separate figure for each source.
 
+For an analysis that runs independently on each source, choose a **Source group** on **Inputs** to use its current members every time the step runs. On **Output**, set **Group destination** to keep the result tables outside groups, add them to an existing group, or create a group for a later step. A group created by a step stays available even if that step produces zero tables on a rerun.
+
 ## Switch sources and figures
 
 Open **Edit → Settings → Global Figure Settings** to set defaults for new figures. Settings persist across app restarts. Each value in an individual figure's settings has a save icon to make it the global default and a restore icon to copy the current global default into that figure. Select **Apply** to save changes to the figure.

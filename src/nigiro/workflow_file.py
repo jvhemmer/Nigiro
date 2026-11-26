@@ -19,6 +19,13 @@ OUTPUT_KEY = re.compile(r"([1-9][0-9]*)/(source|figure)/([0-9]+)")
 TABLE_KEY = re.compile(r"[a-z][a-z0-9_-]*")
 
 
+def command_group_ids(command):
+    if group := command.get("input_group"):
+        yield group["id"]
+    if (group := command.get("output_group")) and group["mode"] == "existing":
+        yield group["id"]
+
+
 def validate_workflow(record: dict) -> dict:
     def require(condition, message="Invalid workflow definition."):
         if not condition:
@@ -39,6 +46,12 @@ def validate_workflow(record: dict) -> dict:
     require(isinstance(record.get("name"), str) and bool(record["name"].strip()))
     require(all(isinstance(record.get(key), list) for key in ("steps", "inputs", "outputs")))
     require(bool(record["steps"]) and bool(record["outputs"]), "Choose steps and at least one output.")
+    groups = record.get("source_groups", {})
+    memberships = record.get("source_memberships", {})
+    require(isinstance(groups, dict) and isinstance(memberships, dict))
+    for group_id, settings in groups.items():
+        require(isinstance(group_id, str) and group_id.startswith("manual:") and isinstance(settings, dict)
+                and isinstance(settings.get("name"), str) and bool(settings["name"].strip()))
     available = {}
     for step in record["steps"]:
         require(isinstance(step, dict) and type(step.get("id")) is int and step["id"] > 0 and step["id"] not in available)
@@ -47,8 +60,16 @@ def validate_workflow(record: dict) -> dict:
         require(isinstance(action, str) and action in ACTIONS, "This step cannot be saved in a reusable workflow.")
         if action == "invoke_workflow":
             validate_workflow(step["request"]["definition"])
+        for group_id in command_group_ids(step["request"]):
+            earlier = re.fullmatch(r"step:([1-9][0-9]*)", group_id)
+            require(group_id in groups or (earlier and int(earlier[1]) in available),
+                    "Include the earlier step that creates the source group.")
         map_references(step["request"], check_reference)
         available[step["id"]] = step["request"]
+
+    for reference, group_id in memberships.items():
+        check_reference("source", json.loads(reference))
+        require(group_id is None or isinstance(group_id, str))
 
     ports = set()
     for port in record["inputs"]:

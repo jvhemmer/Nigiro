@@ -22,6 +22,7 @@ function PluginOptionField({ field, columns, value, onChange }: {
     const selected = Array.isArray(value) ? value : [];
     return <fieldset>
       <legend>{field.label}</legend>
+      {field.help && <p className="muted plugin-field-help">{field.help}</p>}
       <div className="column-checklist">
         {columns.map((name, index) => <label key={index}>
           <input type="checkbox" checked={selected.includes(index)} onChange={(event) => {
@@ -34,11 +35,14 @@ function PluginOptionField({ field, columns, value, onChange }: {
     </fieldset>;
   }
   if (field.editor === "eis_circuit") {
-    return <div className="circuit-option"><span>{field.label}</span><CircuitField value={String(value)} onChange={onChange} /></div>;
+    return <div className="circuit-option"><span className="plugin-field-title">{field.label}</span>
+      {field.help && <small className="muted plugin-field-help">{field.help}</small>}
+      <CircuitField value={String(value)} onChange={onChange} /></div>;
   }
   return (
     <label>
-      <span>{field.label}{field.help && <small className="muted plugin-field-help">{field.help}</small>}</span>
+      <span><span className="plugin-field-title">{field.label}</span>
+        {field.help && <small className="muted plugin-field-help">{field.help}</small>}</span>
       {field.type === "column" && (
         <select aria-label={field.label} value={Number(value)}
           onChange={(event) => onChange(Number(event.target.value))}>
@@ -145,7 +149,7 @@ function Destination({ label, figures, value, onChange }: {
 
 export function InputOptionsDialog({ target, project, previous, initial, warning, editingSource, configuring, busy, error, onClose, onRun }: {
   target: PluginDefinition;
-  project: Pick<Project, "sources" | "figures" | "source_id">;
+  project: Pick<Project, "sources" | "figures" | "source_id" | "source_groups">;
   previous?: PluginOptions;
   initial?: PluginSubmission;
   warning?: string | null;
@@ -160,10 +164,20 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
   const dialog = useRef<HTMLDialogElement>(null);
   const plugin = target;
   const sources = editingSource ? [editingSource] : project.sources;
+  const sourceGroups = project.source_groups ?? [];
+  const formula = plugin.id === columnFormulaId;
+  const groupOutputs = plugin.menu === "analysis" && !formula && !configuring;
+  const canUseGroup = groupOutputs && plugin.input_mode !== "joint";
+  const [groupId, setGroupId] = useState(initial?.input_group?.id ?? "");
+  const initialOutputGroup = initial?.output_group;
+  const [outputGroup, setOutputGroup] = useState(initialOutputGroup?.mode === "existing"
+    ? `existing:${initialOutputGroup.id}` : initialOutputGroup?.mode ?? "");
+  const [groupName, setGroupName] = useState(initialOutputGroup?.mode === "new" ? initialOutputGroup.name : plugin.name);
+  const members = project.sources.filter(({ group_id }) => group_id === groupId);
   const initialRun = initial?.runs.find((run) => sources.some(({ id }) => id === run.source_id));
-  const initialSource = (initialRun && sources.find(({ id }) => id === initialRun.source_id))
+  const initialSource = (initial?.input_group && members[0]) ?? (initialRun && sources.find(({ id }) => id === initialRun.source_id))
     ?? sources.find((source) => source.id === project.source_id) ?? sources[0];
-  const savedOptions = initialRun?.options ?? initial?.runs[0]?.options ?? previous;
+  const savedOptions = initial?.input_group?.options ?? initialRun?.options ?? initial?.runs[0]?.options ?? previous;
   const axisSources = sources.filter(({ columns }) => columns.length > 0);
   const pair = (!configuring || !!initial) && supportsPairedSources(plugin);
   const joint = plugin.input_mode === "joint";
@@ -233,12 +247,11 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
   const [destinations, setDestinations] = useState(() => new Map<SourceId, number | null>(
     initial?.runs.map((run) => [run.source_id, availableDestination(run.target_id)]),
   ));
-  const inputs = initial ? [...picked].flatMap((id) => sources.filter((source) => source.id === id))
+  const inputs = groupId ? members : initial ? [...picked].flatMap((id) => sources.filter((source) => source.id === id))
     : sources.filter(({ id }) => picked.has(id));
   const reference = inputs.find(({ id }) => id === referenceId) ?? inputs[0];
   const fields = definitionFields.filter((field) => field.type === "column").map((field) =>
     filterSegments && options.mode === "column" ? { ...field, label: "Segment column" } : field);
-  const formula = plugin.id === columnFormulaId;
   const filter = plugin.id === "nigiro.filter";
   const outputField = filter ? definitionFields.find(({ key }) => key === "output") : undefined;
   function isVisible(field: PluginField) {
@@ -257,9 +270,25 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
     : null;
   const emptyRequired = config.find((field) => field.type === "text" && field.required && !String(options[field.key]).trim());
   const output = tableOnly || formula ? "separate"
-    : !pair && !joint && (inputs.length > 1 || initial) ? mode : "overlay";
+    : !pair && !joint && (inputs.length > 1 || groupId || initial) ? mode : "overlay";
+  const groupOptions = { ...submittedOptions };
+  for (const field of [...fields, ...columnLists]) {
+    const current = submittedOptions[field.key];
+    const named = (index: number) => {
+      const name = reference?.columns[index];
+      return name?.trim() && reference?.columns.filter((label) => label.trim().toLowerCase() === name.trim().toLowerCase()).length === 1
+        ? name : index;
+    };
+    groupOptions[field.key] = !reference && initial?.input_group ? initial.input_group.options[field.key]
+      : Array.isArray(current) ? current.map((index) => named(Number(index))) : named(Number(current));
+  }
   const runs = reference ? inputs.map((source) => {
     const mapped = { ...submittedOptions };
+    const mapGroupColumn = (index: number) => {
+      const name = reference.columns[index]?.trim().toLowerCase();
+      const unique = name && reference.columns.filter((label) => label.trim().toLowerCase() === name).length === 1;
+      return unique ? matchColumn(source, reference, index) : index < source.columns.length ? index : -1;
+    };
     const saved = initial?.runs.find(({ source_id }) => source_id === source.id)?.options;
     if (saved) {
       for (const field of definitionFields) {
@@ -269,8 +298,12 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
       }
     }
     for (const { key } of fields) {
-      const override = inputs.length > 1 ? overrides.get(source.id)?.[key] : undefined;
-      mapped[key] = override ?? matchColumn(source, reference, Number(options[key]));
+      const override = !groupId && inputs.length > 1 ? overrides.get(source.id)?.[key] : undefined;
+      mapped[key] = override ?? (groupId ? mapGroupColumn(Number(options[key])) : matchColumn(source, reference, Number(options[key])));
+    }
+    if (groupId) for (const field of columnLists) {
+      const columns = submittedOptions[field.key];
+      if (Array.isArray(columns)) mapped[field.key] = columns.map((index) => mapGroupColumn(Number(index)));
     }
     const values = fields.map(({ key }) => Number(mapped[key]));
     const validLists = columnLists.filter(isVisible).every(({ key }) => {
@@ -279,7 +312,7 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
         && selected.every((index) => typeof index === "number" && index >= 0 && index < source.columns.length);
     });
     return {
-      source_id: source.id, options: mapped, target_id: output === "separate" ? destinations.get(source.id) ?? null : null,
+      source_id: source.id, options: mapped, target_id: output === "separate" && !groupId ? destinations.get(source.id) ?? null : null,
       valid: validLists && values.every((index) => index >= 0 && index < source.columns.length)
         && (!plugin.distinct_columns || new Set(values).size === values.length),
     };
@@ -295,7 +328,10 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
       const source = axisSources.find(({ id }) => id === input.source_id);
       return !source || input.column < 0 || input.column >= source.columns.length;
     }) ? "Choose a source and column for each input." : ""
-    : !runs.length ? "Select a source." : runs.some((run) => !run.valid)
+    : groupId && !sourceGroups.some(({ id }) => id === groupId) ? "Choose an available source group."
+    : !runs.length && !(groupId && (initial?.input_group || !fields.length && !columnLists.length))
+      ? groupId ? "Choose a group with sources to set the columns." : "Select a source."
+    : runs.some((run) => !run.valid)
       ? columnLists.length ? "Choose at least one available column." : "Choose valid columns for each source." : "";
   const configError = emptyRequired
     ? `Enter a value for ${emptyRequired.label} on the Configuration tab.`
@@ -307,7 +343,9 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
     type === "number" && (!Number.isFinite(options[key]) || Number(options[key]) < (min ?? -Infinity)
       || Number(options[key]) > (max ?? Infinity))) ? "Check the values on the Configuration tab." : "";
   const targets = runs.flatMap(({ target_id }) => target_id === null ? [] : [target_id]);
-  const outputError = !joint && new Set(targets).size !== targets.length ? "Choose a different figure for each source." : "";
+  const outputError = outputGroup === "new" && !groupName.trim() ? "Enter a name for the new group."
+    : outputGroup.startsWith("existing:") && !sourceGroups.some(({ id }) => `existing:${id}` === outputGroup) ? "Choose an available output group."
+    : !joint && new Set(targets).size !== targets.length ? "Choose a different figure for each source." : "";
   const problem = inputError || configError || outputError;
 
   useEffect(() => { dialog.current?.showModal(); }, []);
@@ -358,7 +396,10 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
         event.preventDefault();
         if (!problem && !busy) onRun({
           output, target_id: output === "overlay" ? destination : null,
-          runs: pair ? [{
+          ...(groupId && { input_group: { id: groupId, options: groupOptions } }),
+          ...(groupOutputs && outputGroup && { output_group: outputGroup === "new" ? { mode: "new", name: groupName.trim() }
+            : outputGroup === "ungrouped" ? { mode: "ungrouped" } : { mode: "existing", id: outputGroup.slice(9) } }),
+          runs: groupId ? [] : pair ? [{
             source_id: xInput.id, options: { ...submittedOptions, x: 0, y: 1 }, target_id: null,
             references: { x: { source_id: xInput.id, column: xInput.column }, y: { source_id: yInput.id, column: yInput.column } },
           }] : joint ? [{
@@ -431,13 +472,29 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
             ))}
             <p className="muted">Rows are paired in order.</p>
           </div> : <>
-          <SourceChecklist sources={sources} picked={picked} single={formula || columnLists.length > 0 || (configuring && !!initial)}
+          {canUseGroup && (sourceGroups.length > 0 || groupId) && <label className="plugin-group-choice">
+            <span className="plugin-field-title">Source group</span>
+            <select aria-label="Source group" value={groupId} disabled={busy} onChange={(event) => {
+              const id = event.target.value;
+              const source = id ? project.sources.find(({ group_id }) => group_id === id)
+                : sources.find(({ id }) => picked.has(id));
+              if (source) selectReference(source);
+              setGroupId(id);
+            }}>
+              <option value="">Choose sources individually</option>
+              {groupId && !sourceGroups.some(({ id }) => id === groupId) && <option value={groupId} disabled>Unavailable group</option>}
+              {sourceGroups.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
+            </select>
+          </label>}
+          {groupId ? <p className="muted plugin-group-summary">
+            {members.length === 1 ? "1 source" : `${members.length} sources`}. This step uses the group’s current members each time it runs.
+          </p> : <SourceChecklist sources={sources} picked={picked} single={formula || columnLists.length > 0 || (configuring && !!initial)}
             label={columnLists.length || (configuring && initial && !formula) ? "Source" : undefined}
             disabled={(configuring && !initial) || busy} onChange={(next) => {
             const first = sources.find(({ id }) => next.has(id));
             if (!next.has(referenceId) && first) selectReference(first);
             setPicked(next);
-          }} />
+          }} />}
           {reference && columnLists.filter(isVisible).map((field) => <PluginOptionField key={field.key} field={field}
             columns={reference.columns} value={options[field.key]} onChange={(value) => change(field.key, value)} />)}
           {reference && fields.length > 0 && <>
@@ -455,7 +512,7 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
               {fields.map((field) => <PluginOptionField key={field.key} field={field} columns={reference.columns}
                 value={options[field.key]} onChange={(value) => change(field.key, value)} />)}
             </div>
-            {inputs.length > 1 && <div className="batch-mappings">
+            {inputs.length > 1 && !groupId && <div className="batch-mappings">
               <table aria-label="Column mappings">
                 <thead><tr><th scope="col">Source</th>
                   {fields.map(({ key, label }) => <th key={key} scope="col">{label}</th>)}</tr></thead>
@@ -489,7 +546,7 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
           </>}
         </section>
         <section role="tabpanel" id={`${id}-panel-Configuration`} aria-labelledby={`${id}-tab-Configuration`} hidden={tab !== "Configuration"}>
-          {config.length ? <div className="fit-settings plugin-fields">
+          {config.length ? <div className="fit-settings plugin-fields plugin-configuration">
             {filterSegments && <p className="muted">Enter segment numbers separated by commas, for example 1,2,3,5.</p>}
             {config.filter((field) => !parameterNames || !parameterFields.some(({ key }) => key === field.key)).map((field) => (formula || filter) && field.key === "expression"
               ? <FormulaEditor key={field.key} filter={filter} value={String(options[field.key])} sources={filter ? [] : project.sources}
@@ -511,19 +568,35 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
               onChange={(value) => change(outputField.key, value)} />
             <p className="muted">Each input produces a new source in the Sources panel.</p>
           </div> : tableOnly ? <p className="muted">Results appear in Sources.</p> : configuring ? <p className="muted">Update the current figure.</p> : <div className="fit-settings">
-            {!pair && !joint && inputs.length > 1 && <label><span>Combine inputs</span>
+            {!pair && !joint && (inputs.length > 1 || groupId) && <label><span>Combine inputs</span>
               <select aria-label="Combine inputs" value={mode} onChange={(event) => setMode(event.target.value === "separate" ? "separate" : "overlay")}>
                 <option value="overlay">Overlay in one figure</option>
                 <option value="separate">One figure per source</option>
               </select>
             </label>}
             {output === "overlay" ? <Destination label="Destination" figures={project.figures} value={destination} onChange={setDestination} />
+              : groupId ? <p className="muted">Each source creates its own figure.</p>
               : inputs.map(({ id, name }) => <Destination key={sourceKey(id)} label={`Destination for ${name}`}
                 figures={project.figures} value={destinations.get(id) ?? null}
                 onChange={(value) => setDestinations((current) => new Map(current).set(id, value))} />)}
             {["nigiro.linear_fit", "nigiro.nonlinear_fit"].includes(plugin.id) && <p className="muted">Residuals go to a separate figure. Result tables appear in Sources.</p>}
           </div>}
           </>}
+          {groupOutputs && <fieldset className="fit-settings plugin-output-group">
+            <legend>Result sources</legend>
+            <label><span>Group destination</span>
+              <select aria-label="Group destination" value={outputGroup} onChange={(event) => setOutputGroup(event.target.value)}>
+                <option value="">Automatic</option>
+                <option value="ungrouped">Outside groups</option>
+                <option value="new">New group</option>
+                {outputGroup.startsWith("existing:") && !sourceGroups.some(({ id }) => `existing:${id}` === outputGroup) &&
+                  <option value={outputGroup} disabled>Unavailable group</option>}
+                {sourceGroups.map(({ id, name }) => <option key={id} value={`existing:${id}`}>{name}</option>)}
+              </select>
+            </label>
+            {outputGroup === "new" && <label><span>Group name</span><input value={groupName}
+              onChange={(event) => setGroupName(event.target.value)} /></label>}
+          </fieldset>}
         </section>
         <section role="tabpanel" id={`${id}-panel-Help`} aria-labelledby={`${id}-tab-Help`} hidden={tab !== "Help"}>
           {tab === "Help" && (plugin.description?.trim()

@@ -232,8 +232,8 @@ class PluginRegistry:
             if not isinstance(result, dict):
                 raise ValueError("The plugin must return a dictionary.")
             if plugin.table_only:
-                if result.get("traces") or not result.get("sources"):
-                    raise ValueError("A table-only plugin must return source tables without traces.")
+                if result.get("traces") or not isinstance(result.get("sources"), dict):
+                    raise ValueError("A table-only plugin must return a sources dictionary without traces.")
                 result = {**result, "traces": []}
             elif not isinstance(result.get("traces"), list) or not result["traces"]:
                 raise ValueError("The plugin must return a figure with at least one trace.")

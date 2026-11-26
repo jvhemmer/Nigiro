@@ -6,6 +6,7 @@ import csv
 import json
 import os
 import sys
+from collections import Counter
 from copy import copy
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -34,7 +35,7 @@ from nigiro.text_import import PREVIEW_BYTES, TextImport, guess_import, import_p
 from nigiro.settings import Appearance, Settings
 from nigiro.storage import load_project_session, operation_record, save_project
 from nigiro.workflow import Step, Workflow, map_references
-from nigiro.workflow_file import read_workflow, register_workflow, validate_workflow, workflow_catalog, write_workflow
+from nigiro.workflow_file import command_group_ids, read_workflow, register_workflow, validate_workflow, workflow_catalog, write_workflow
 from nigiro.workspace_file import ProjectCollection
 
 
@@ -380,6 +381,7 @@ class Workspace:
         details = self.source_details(project)
         ordered_sources = self.ordered_sources()
         groups, memberships = self.source_layout(ordered_sources, names)
+        short_names = Counter((memberships[key], available[key].name) for key in ordered_sources if memberships[key])
         array_producers = self.array_producers()
         workflow_runs = self.workflow_source_runs()
         state["project"] = {
@@ -412,12 +414,13 @@ class Workspace:
             "figure_input": {"name": figure_input.name, "columns": figure_input.columns, "rows": () if paged else figure_input.rows} if figure_input else None,
             "source_groups": groups,
             "sources": [
-                {"id": key, "name": self.source_name(project, key, self.sources, names), "columns": table.worksheet.columns
+                {"id": key, "name": name, "columns": table.worksheet.columns
                  if isinstance(table, Source) else table.columns,
                  "original_path": table.original_path if isinstance(table, Source) else None,
                  "kind": "raw" if isinstance(table, Source) else "derived",
                  "group_id": memberships[key],
-                 **({"group_name": project.item_names.get(("source", key), table.name)}
+                 **({"group_name": name if short_names[memberships[key], table.name] > 1
+                     else project.item_names.get(("source", key), table.name)}
                     if memberships[key] is not None and isinstance(table, SourceTable) else {}),
                  **({"scalar": True} if isinstance(table, Source) and table.scalar_value is not None else {}),
                  **({"scalar_formula": table.scalar_formula["expression"]}
@@ -428,6 +431,7 @@ class Workspace:
                  **({"comment": comment} if (comment := self.source_comment(project, key, table)) else {}),
                  "row_count": len(table.worksheet.rows if isinstance(table, Source) else table.rows)}
                 for key in ordered_sources for table in (available[key],)
+                for name in (self.source_name(project, key, self.sources, names),)
             ],
             "source_id": self.source_id,
             "source_table": {"name": selected_table.name, "columns": selected_table.columns, "rows": selected_table.rows[offset:end] if paged else selected_table.rows} if selected_table else None,
@@ -473,6 +477,7 @@ class Workspace:
 
     def source_layout(self, sources, figure_names):
         plan = self.workflow
+        commands = {f"step:{step.id}": step.request for step in plan.steps[:plan.completed]}
         producers = {}
         for key in sources:
             origin = source_origin(key) if key is not None else None
@@ -480,9 +485,20 @@ class Workspace:
                 reference = plan.reference("source", key)
                 group_id = f"step:{reference['output'].split('/')[0]}" if isinstance(reference, dict) else f"figure:{origin}"
                 producers.setdefault(group_id, []).append((key, origin))
-        groups = {key: {"name": figure_names[origins[0][1]], "collapsed": False}
-                  for key, origins in producers.items() if len(origins) > 1}
-        memberships = {source: key for key in groups for source, _ in producers[key]}
+        groups = {}
+        memberships = {}
+        for key, origins in producers.items():
+            destination = commands.get(key, {}).get("output_group")
+            if destination is None and len(origins) > 1:
+                groups[key] = {"name": figure_names[origins[0][1]], "collapsed": False}
+                memberships.update((source, key) for source, _ in origins)
+            elif destination and destination["mode"] != "ungrouped":
+                target = key if destination["mode"] == "new" else destination["id"]
+                memberships.update((source, target) for source, _ in origins)
+        for key, command in commands.items():
+            destination = command.get("output_group")
+            if destination and destination["mode"] == "new":
+                groups[key] = {"name": destination["name"], "collapsed": False}
         for key, settings in plan.source_groups.items():
             if settings.get("deleted"):
                 groups.pop(key, None)
@@ -493,6 +509,13 @@ class Workspace:
             group = plan.source_memberships.get(key, memberships.get(source))
             memberships[source] = group if group in groups else None
         return [{"id": key, **value} for key, value in groups.items()], memberships
+
+    def group_sources(self, group_id):
+        sources = self.ordered_sources()
+        groups, memberships = self.source_layout(sources, self.figure_names(self.project))
+        if not any(group["id"] == group_id for group in groups):
+            raise ValueError("Choose a source group available before this step.")
+        return [source for source in sources if memberships[source] == group_id]
 
     def source_membership_key(self, source_id):
         return json.dumps(self.workflow.reference("source", source_id), sort_keys=True)
@@ -622,7 +645,10 @@ class Workspace:
         local = copy(self)
         local.plugin_edit_prefix = None
         local.project = self.workflow.base
-        local.workflow = Workflow(self.workflow.base, steps=self.workflow.steps[:index])
+        local.workflow = Workflow(self.workflow.base, steps=self.workflow.steps[:index],
+                                  source_order=self.workflow.source_order,
+                                  source_groups=self.workflow.source_groups,
+                                  source_memberships=self.workflow.source_memberships)
         local.run_workflow(restart=True)
         self.plugin_edit_prefix = step_id, local
         return index, local
@@ -664,8 +690,11 @@ class Workspace:
         initial = {"output": command.get("output", "overlay"), "target_id": command.get("target_id"),
                    "runs": [{key: run[key] for key in ("source_id", "options", "target_id", "references") if key in run}
                             for run in runs]}
+        for key in ("input_group", "output_group"):
+            if command.get(key) is not None:
+                initial[key] = command[key]
         state = local.snapshot(paged=True, known_figures={str(key): token for key, token in local.figure_tokens.items()})["project"]
-        return {"plugin": plugin.definition, "inputs": {key: state[key] for key in ("sources", "figures", "source_id")},
+        return {"plugin": plugin.definition, "inputs": {key: state[key] for key in ("sources", "figures", "source_id", "source_groups")},
                 "submission": initial, "updates_figure": target is not None,
                 "warning": local.workflow.error or ("Some recorded inputs are unavailable before this step." if missing else None)}
 
@@ -676,7 +705,8 @@ class Workspace:
         command = step.request
         submission = request["submission"]
         runs = submission["runs"]
-        if not isinstance(runs, list) or not runs or submission["output"] not in ("overlay", "separate"):
+        input_group, output_group = submission.get("input_group"), submission.get("output_group")
+        if not isinstance(runs, list) or not (runs or input_group) or submission["output"] not in ("overlay", "separate"):
             raise ValueError("Choose plugin inputs and an output.")
         if command["action"] == "apply_formula":
             if len(runs) != 1:
@@ -707,8 +737,10 @@ class Workspace:
             new["figure_id"] = target
         else:
             new = local.record_plugin_columns({**command, "action": "execute_plugin", "runs": runs,
-                                               "output": submission["output"], "target_id": submission.get("target_id")},
+                                               "output": submission["output"], "target_id": submission.get("target_id"),
+                                               "input_group": input_group, "output_group": output_group},
                                               required=True)
+            local.plugin_groups(new)
             new = map_references(new, local.workflow.reference)
         plan.steps[index] = replace(step, request=new)
         plan.invalidate(index)
@@ -730,6 +762,8 @@ class Workspace:
             if action in ("execute_plugin", "run_plugin"):
                 options = ([run["options"] for run in step.request["runs"]] if action == "execute_plugin"
                            else [step.request["options"]])
+                if group := step.request.get("input_group"):
+                    options = [group["options"]]
                 plugin = self.plugins.plugins.get((step.request["plugin_id"], step.request["version"], step.request["checksum"]))
                 labels = {field["key"]: field["label"] for field in plugin.manifest["fields"]} if plugin else {}
                 if plugin:
@@ -838,8 +872,22 @@ class Workspace:
             ):
                 raise ValueError("Choose an available source or figure for each output.")
             outputs.append({"kind": kind, "name": output["name"].strip(), "reference": plan.reference(kind, value)})
-        definition = validate_workflow({"version": 1, "name": request["name"].strip(), "steps": commands,
-                                        "inputs": inputs, "outputs": outputs})
+        group_ids = {group_id for step in steps for group_id in command_group_ids(step.request)}
+        groups = {key: settings for key, settings in plan.source_groups.items()
+                  if key in group_ids and key.startswith("manual:") and not settings.get("deleted")}
+        memberships = {}
+        if group_ids:
+            for key, group_id in plan.source_memberships.items():
+                reference = json.loads(key)
+                if isinstance(reference, dict) and int(reference["output"].split("/")[0]) in selected:
+                    memberships[key] = group_id
+                elif group_id in groups:
+                    raise ValueError("Include the steps that produce all members of the workflow's source groups.")
+        definition = validate_workflow({
+            "version": 1, "name": request["name"].strip(), "steps": commands, "inputs": inputs, "outputs": outputs,
+            **({"source_groups": groups} if groups else {}),
+            **({"source_memberships": memberships} if memberships else {}),
+        })
         write_workflow(Path(request["path"]), definition)
         self.add_saved_workflow(definition)
 
@@ -974,7 +1022,8 @@ class Workspace:
         base = self.project
         local = copy(self)
         steps = [Step(record["id"], record["label"], record["request"]) for record in definition["steps"]]
-        local.workflow = Workflow(base, steps=steps)
+        local.workflow = Workflow(base, steps=steps, source_groups=definition.get("source_groups", {}),
+                                  source_memberships=definition.get("source_memberships", {}))
         inputs = {port["output"]: port for port in definition["inputs"]}
         for step in steps:
             prefix = f"{step.id}/source/"
@@ -1567,7 +1616,9 @@ class Workspace:
             case "run_batch":
                 self.run_batch(project, request)
             case "execute_plugin":
-                self.run_batch(project, {**request, "steps": [request]})
+                runs = self.plugin_groups(request)
+                if runs:
+                    self.run_batch(project, {**request, "steps": [{**request, "runs": runs}]})
             case "overlay_figures":
                 operation = OverlayFigure(request["figure_ids"], keep_inputs=True)
                 for member in operation.figure_ids:
@@ -1741,6 +1792,50 @@ class Workspace:
             operations.append(operation)
         return operations
 
+    def plugin_groups(self, request):
+        destination = request.get("output_group")
+        if destination is not None:
+            mode = destination.get("mode")
+            if mode == "existing":
+                self.group_sources(destination["id"])
+            elif mode == "new":
+                if not isinstance(destination.get("name"), str) or not destination["name"].strip():
+                    raise ValueError("Enter a name for the new source group.")
+            elif mode != "ungrouped":
+                raise ValueError("Choose a destination for the output sources.")
+        group = request.get("input_group")
+        if group is None:
+            if not request["runs"]:
+                raise ValueError("Select at least one source.")
+            return request["runs"]
+        plugin = self.plugins.resolve(PluginStep(request["plugin_id"], request["version"], request["checksum"], {}))
+        if request["runs"] or plugin.manifest["menu"] != "analysis" or plugin.manifest.get("input_mode") == "joint":
+            raise ValueError("Choose a group only for an analysis that runs on each source independently.")
+        runs = []
+        for source_id in self.group_sources(group["id"]):
+            worksheet = self.input_worksheet(self.project, source_id, self.sources)
+            options = group["options"].copy()
+
+            def match(selection):
+                if isinstance(selection, str):
+                    matches = [i for i, name in enumerate(worksheet.columns)
+                               if name.strip().casefold() == selection.strip().casefold()]
+                    if len(matches) != 1:
+                        names = self.figure_names(self.project)
+                        source = self.source_name(self.project, source_id, self.sources, names)
+                        raise ValueError(f"{source} needs a unique column named {selection!r}.")
+                    return matches[0]
+                return worksheet.column_index(selection)
+
+            for field in plugin.manifest["fields"]:
+                key = field["key"]
+                if field["type"] == "column":
+                    options[key] = match(options[key])
+                elif field["type"] == "columns":
+                    options[key] = [match(column) for column in options[key]]
+            runs.append({"source_id": source_id, "options": options})
+        return runs
+
     def run_batch(self, project: Project, request: dict) -> None:
         output, steps = request["output"], request["steps"]
         if output not in ("overlay", "separate") or not isinstance(steps, list) or not steps:
@@ -1809,9 +1904,10 @@ class Workspace:
 
     def select_plugin_output(self, selection: int, table_only: bool) -> None:
         if table_only:
-            key = next(iter(self.results[selection].tables))
-            self.source_id = f"{selection}:{key}"
-            self.row_offset = 0
+            key = next(iter(self.results[selection].tables), None)
+            if key is not None:
+                self.source_id = f"{selection}:{key}"
+                self.row_offset = 0
         else:
             self.figure_id = selection
 

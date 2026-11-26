@@ -15,6 +15,112 @@ from nigiro.source_tables import output_tables
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_group_batch_replays_current_members_even_when_the_group_is_empty(self):
+        from unittest.mock import patch
+
+        def split_peaks(_columns, rows, _options):
+            count = int(rows[0][0])
+            return {"sources": {
+                f"peak-{index + 1}": {
+                    "name": f"Peak {index + 1}",
+                    "columns": ["Y", "X"] if index % 2 else ["X", "Y"],
+                    "rows": [[2 * index + 2, index]] if index % 2 else [[index, 2 * index + 2]],
+                } for index in range(count)
+            }}
+
+        producer = {"id": "test.split_peaks", "name": "Split Peaks", "menu": "analysis", "version": "1",
+                    "table_only": True, "fields": []}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(BUILTINS, {producer["id"]: (producer, split_peaks)}):
+            root = Path(directory)
+            initial = root / "initial.csv"
+            initial.write_text("Count\n1\n")
+            worker = Workspace()
+            worker.settings.run_automatically = True
+            worker.dispatch({"action": "import_data", "paths": [str(initial)]})
+            base = {"action": "execute_plugin", "checksum": None, "version": "1", "output": "separate"}
+            worker.dispatch({**base, "plugin_id": "test.split_peaks", "runs": [{"source_id": None, "options": {}}],
+                             "output_group": {"mode": "new", "name": "Peaks"}})
+            worker.dispatch({**base, "plugin_id": "nigiro.filter_columns", "runs": [],
+                             "input_group": {"id": "step:2", "options": {"columns": ["Y"]}},
+                             "output_group": {"mode": "new", "name": "Processed peaks"}})
+
+            for count in (3, 0, 2):
+                replacement = root / f"peaks-{count}.csv"
+                replacement.write_text(f"Count\n{count}\n")
+                worker.dispatch({"action": "replace_import", "step_id": 1, "slot": 0, "path": str(replacement)})
+                state = worker.dispatch({"action": "run_all"})["project"]
+                self.assertIsNone(state["workflow"]["error"])
+                self.assertEqual({group["name"] for group in state["source_groups"]}, {"Peaks", "Processed peaks"})
+                results = [source for source in state["sources"] if source["group_id"] == "step:3"]
+                self.assertEqual(len(results), count)
+                self.assertTrue(all(source["columns"] == ("Y",) for source in results))
+                self.assertEqual([worker.sources[source["id"]].rows for source in results],
+                                 [((str(2 * index + 2),),) for index in range(count)])
+
+            path = root / "peaks.nigiro"
+            worker.dispatch({"action": "save", "path": str(path)})
+            reopened = Workspace()
+            reopened.dispatch({"action": "open", "path": str(path)})
+            edit = reopened.dispatch({"action": "plugin_step_inputs", "step_id": 3})
+            self.assertEqual(edit["submission"]["input_group"], {"id": "step:2", "options": {"columns": ["Y"]}})
+            self.assertEqual([group["id"] for group in edit["inputs"]["source_groups"]], ["step:2"])
+            reopened.dispatch({"action": "edit_plugin_step", "step_id": 3, "submission": edit["submission"]})
+            state = reopened.dispatch({"action": "run_all"})["project"]
+            self.assertIsNone(state["workflow"]["error"])
+            self.assertEqual(sum(source["group_id"] == "step:3" for source in state["sources"]), 2)
+
+    def test_analysis_sources_can_join_an_existing_group_or_stay_ungrouped(self):
+        worker = Workspace()
+        worker.settings.run_automatically = True
+        worker.dispatch({"action": "sample"})
+        grouped = worker.dispatch({"action": "source_group", "mode": "create", "name": "Results"})["project"]
+        group, = grouped["source_groups"]
+        command = {
+            "action": "execute_plugin", "plugin_id": "nigiro.integrate_peak", "version": "1", "checksum": None,
+            "output": "separate", "runs": [{"source_id": None,
+                "options": {"x": 0, "y": 1, "range": "1,5", "baseline": "endpoints"}}],
+        }
+        first = worker.dispatch({**command, "output_group": {"mode": "existing", "id": group["id"]}})["project"]
+        self.assertEqual([source["group_id"] for source in first["sources"][1:]], [group["id"]] * 2)
+        worker.dispatch({**command, "output_group": {"mode": "ungrouped"}})
+        replay = worker.dispatch({"action": "run_all"})["project"]
+        self.assertEqual([source["group_id"] for source in replay["sources"][1:]], [group["id"]] * 2 + [None] * 2)
+
+    def test_reusable_workflow_restores_manual_input_group_members(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {
+            "NIGIRO_SETTINGS_PATH": str(Path(directory) / "settings.json"),
+        }):
+            root = Path(directory)
+            a, b = root / "a.csv", root / "b.csv"
+            a.write_text("X,Y\n1,2\n")
+            b.write_text("Y,X\n3,4\n")
+            worker = Workspace()
+            worker.settings.run_automatically = True
+            worker.dispatch({"action": "import_data", "paths": [str(a), str(b)]})
+            state = worker.dispatch({"action": "source_group", "mode": "create", "name": "Inputs"})["project"]
+            group, = state["source_groups"]
+            for index, item in enumerate(state["sources"]):
+                worker.dispatch({"action": "move_source", "source_id": item["id"], "destination": index,
+                                 "placement": {"group_id": group["id"]}})
+            state = worker.dispatch({"action": "execute_plugin", "plugin_id": "nigiro.filter_columns", "version": "1",
+                                     "checksum": None, "output": "separate", "runs": [],
+                                     "input_group": {"id": group["id"], "options": {"columns": ["Y"]}}})["project"]
+            path = root / "group.nigiro-workflow"
+            state = worker.dispatch({
+                "action": "save_workflow", "path": str(path), "name": "Group",
+                "inputs": {"1/source/0": "First", "1/source/1": "Second"},
+                "outputs": [{"kind": "source", "id": source["id"], "name": f"Result {index}"}
+                            for index, source in enumerate(state["sources"][2:])],
+            })["project"]
+            run = worker.dispatch({
+                "action": "run_saved_workflow", "id": state["saved_workflows"][0]["id"], "name": "Grouped",
+                "sources": {"1/source/0": None, "1/source/1": "raw:0"}, "numbers": {},
+            })["project"]
+            published = [source for source in run["sources"] if source["name"].startswith("Grouped · Result")]
+            self.assertEqual([worker.sources[source["id"]].rows for source in published], [(("2",),), (("3",),)])
+
     def test_filter_rows_uses_one_based_inclusive_ranges_and_replays(self):
         worker = Workspace()
         worker.settings.run_automatically = True
