@@ -477,7 +477,7 @@ export function App() {
   const [plugins, setPlugins] = useState<PluginDefinition[]>([]);
   const [inputDialog, setInputDialog] = useState<{
     plugin: PluginDefinition; figureId?: number; edit?: PluginStepInputs & { stepId: number };
-  } | "scale" | null>(null);
+  } | null>(null);
   const [overlayDialog, setOverlayDialog] = useState(false);
   const [scalarDialog, setScalarDialog] = useState(false);
   const [arrayDialog, setArrayDialog] = useState(false);
@@ -643,7 +643,7 @@ export function App() {
   const exportName = project && figure
     ? projectStem(project) + (project.figures.length > 1 ? `-figure-${figureNumber}` : "") : null;
   const editableTraces = figure?.traces.filter((_, index) => figure.elements?.[index]) ?? [];
-  const pluginDialog = inputDialog === "scale" ? null : inputDialog;
+  const pluginDialog = inputDialog;
   const pluginEdit = pluginDialog?.edit;
   const previous = project?.operations.slice().reverse().find((step) =>
     step.kind === "plugin" && pluginDialog && matchesPlugin(step, pluginDialog.plugin));
@@ -722,7 +722,6 @@ export function App() {
       setInputDialog({ plugin: request.plugin });
     }
     else if (request.action === "settings") { setError(""); setSettingsDialog("appearance"); }
-    else if (request.action === "choose_scale") { setError(""); setInputDialog("scale"); }
     else if (request.action === "choose_overlay") { setError(""); setOverlayDialog(true); }
     else if (request.action === "choose_scalar") { setError(""); setScalarDialog(true); }
     else if (request.action === "choose_array") { setError(""); setArrayDialog(true); }
@@ -755,11 +754,6 @@ export function App() {
   ];
   const figureSettings: MenuCommand = {
     label: "Figure Settings…", request: exportName ? { action: "figure_settings" } : null,
-  };
-  const scaleCommand: MenuCommand = {
-    label: "Scalar multiplication…", icon: Calculator,
-    request: project?.sources.some((source) => source.kind === "raw" && source.columns.length)
-      ? { action: "choose_scale" } : null,
   };
   const plotCommands = pluginCommands("plot");
   const overlayFigures = project?.figures.filter((figure) => figure.overlayable) ?? [];
@@ -841,7 +835,7 @@ export function App() {
       groups = figure && activeFigure?.id === target.id ? [[figureSettings], commands, exportCommands] : [commands];
     } else if (event.target.closest(".source-pane") && (plotCommands.length || analysisCommands.length)) {
       label = "Worksheet actions";
-      groups = [[formulaCommand, scaleCommand, filterCommand], plotCommands, analysisCommands].filter((group) => group.length);
+      groups = [[formulaCommand, filterCommand], plotCommands, analysisCommands].filter((group) => group.length);
     }
     const anchor = (historyStep ?? clicked ?? event.target).getBoundingClientRect();
     const useAnchor = event.clientX === 0 && event.clientY === 0;
@@ -902,7 +896,7 @@ export function App() {
     {
       label: "Analysis",
       groups: [analysisCommands, [
-        { label: "Operations", icon: Calculator, request: null, submenu: [formulaCommand, scaleCommand, filterCommand] },
+        { label: "Operations", icon: Calculator, request: null, submenu: [formulaCommand, filterCommand] },
         { label: "Signal Processing", icon: ChartLine, request: null, submenu: pluginCommands("analysis", "signal") },
         { label: "Electrochemistry", icon: FlaskConical, request: null, submenu: [...pluginCommands("analysis", "electrochemistry"), filterSegmentsCommand] },
       ]],
@@ -951,7 +945,7 @@ export function App() {
         }} />
       )}
       {project && inputDialog && (
-        <InputOptionsDialog target={inputDialog === "scale" ? inputDialog : inputDialog.plugin}
+        <InputOptionsDialog target={inputDialog.plugin}
           project={pluginEdit?.inputs ?? project} previous={initialOptions}
           initial={pluginEdit?.submission} warning={pluginEdit?.warning}
           configuring={configuring} editingSource={editingSource} busy={busy} error={error}
@@ -960,9 +954,6 @@ export function App() {
             let success: boolean;
             if (pluginEdit) {
               success = await run({ action: "edit_plugin_step", step_id: pluginEdit.stepId, submission });
-            } else if (inputDialog === "scale") {
-              const runs = submission.runs.map(({ source_id, options }) => ({ source_id, column: Number(options.column) }));
-              success = await run({ action: "scale_column", runs, factor: Number(submission.runs[0].options.factor) });
             } else if (inputDialog.plugin.id === columnFormulaId) {
               const { source_id, options } = submission.runs[0];
               success = await run({ action: "apply_formula", source_id, column: Number(options.column), expression: String(options.expression) });

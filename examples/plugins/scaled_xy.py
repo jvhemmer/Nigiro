@@ -10,6 +10,9 @@ PLUGIN = {
     "version": "1",
     "name": "Scaled XY",
     "menu": "plot",
+    "description": r"""Multiply each Y value by a constant before plotting it. For a multiplier $k$, the plot shows $k y$ against $x$.
+
+Choose a Y-axis label and whether to show markers. The input worksheet stays intact.""",
     "distinct_columns": True,
     "fields": [
         {"key": "x", "label": "X column", "type": "column", "default": 0},

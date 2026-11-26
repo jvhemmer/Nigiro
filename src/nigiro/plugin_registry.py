@@ -84,6 +84,8 @@ def read_plugin(content: bytes) -> Plugin:
         raise ValueError("The plugin needs a name and version.")
     if manifest.get("menu") not in ("plot", "analysis"):
         raise ValueError("Set the plugin menu to plot or analysis.")
+    if not isinstance(manifest.get("description", ""), str):
+        raise ValueError("Write the plugin description as Markdown text.")
     if type(manifest.get("distinct_columns", False)) is not bool or not isinstance(manifest.get("fields"), list):
         raise ValueError("Invalid plugin controls.")
     outputs = manifest.get("outputs", [])

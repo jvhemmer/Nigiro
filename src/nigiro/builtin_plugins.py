@@ -105,9 +105,20 @@ def linear_fit_view(result, part):
     return {**view, "traces": [residual], "elements": ["observations"], "y_label": "Residual", "summary": {}}
 
 
+PLOT_HELP = {
+    "scatter": "Plot numeric X and Y values as individual markers. Use it to compare two quantities or inspect the spread of measurements.",
+    "line": "Connect numeric X and Y points in source row order. Use this plot for traces such as time series or sweeps.",
+    "bar": "Plot a numeric Y value for each X category. Use the X column for category labels and the Y column for bar heights.",
+    "linear_fit": """Fit the model $y = mx + b$ by least squares. Select **Force fit through zero** to fix $b = 0$.
+
+The fit figure shows the data and fitted line. Use the separate residuals figure and results tables to inspect the fit.""",
+}
+
+
 BUILTINS = {
     f"nigiro.{name}": ({
         "api": 1, "id": f"nigiro.{name}", "version": "1", "name": label, "menu": menu,
+        "description": PLOT_HELP[name],
         "distinct_columns": True,
         "outputs": ["Fit figure", "Residuals figure", "Coefficients table", "Fitted values table"]
         if name == "linear_fit" else [f"{label} figure"],
@@ -167,6 +178,8 @@ def filter_rows(columns, rows, options):
 BUILTINS["nigiro.filter"] = ({
     "api": 1, "id": "nigiro.filter", "version": "1", "name": "Filter", "menu": "analysis",
     "outputs": ["Filtered source"],
+    "description": """Keep values or rows that match a condition. Select a column and use its current value in an
+expression such as `value > 0 and value <= 10`. Choose whether the result includes all columns or only the selected column.""",
     "fields": [
         {"key": "column", "label": "Column", "type": "column", "default": 0},
         {"key": "expression", "label": "Expression", "type": "text", "default": "value > 0"},
@@ -180,6 +193,8 @@ BUILTINS["nigiro.filter"] = ({
 BUILTINS[COLUMN_FORMULA_PLUGIN] = ({
     "api": 1, "id": COLUMN_FORMULA_PLUGIN, "version": "1", "name": "Column Formula", "menu": "analysis",
     "outputs": ["Calculated worksheet"],
+    "description": """Calculate replacement values for a column in a new worksheet. Use `value` for the current
+value or a reference such as `$Source:Column` for data from another column. The original worksheet stays intact.""",
     "fields": [
         {"key": "column", "label": "Column to calculate", "type": "column", "default": 0},
         {"key": "expression", "label": "Formula", "type": "text", "default": "value"},
@@ -190,6 +205,8 @@ BUILTINS[COLUMN_FORMULA_PLUGIN] = ({
 BUILTINS[ARRAY_FORMULA_PLUGIN] = ({
     "api": 1, "id": ARRAY_FORMULA_PLUGIN, "version": "1", "name": "Add Array", "menu": "analysis",
     "outputs": ["Calculated array"],
+    "description": """Create an array from confirmed source references. Use a formula such as `=$Source:Column * 2`.
+References can point to other arrays, table columns, or scalar values.""",
     "fields": [
         {"key": "name", "label": "Name", "type": "text", "default": "Array"},
         {"key": "expression", "label": "Formula", "type": "text", "default": "$Source:Column"},

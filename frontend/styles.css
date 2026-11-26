@@ -279,14 +279,16 @@ button.primary:hover:not(:disabled), .run-split summary:hover { background: var(
   border: 0; background: var(--panel); color: var(--text); line-height: 1.55;
 }
 .notes-panel textarea:focus-visible { outline-offset: -2px; }
-.notes-preview { flex: 1; overflow: auto; padding: 10px; line-height: 1.55; overflow-wrap: anywhere; user-select: text; }
-.notes-preview > * { margin: 0 0 10px; }
-.notes-preview a { color: var(--accent-ink); }
-.notes-preview pre { background: var(--surface); padding: 8px; overflow: auto; }
-.notes-preview blockquote { border-left: 3px solid var(--line); padding-left: 8px; }
-.notes-preview table { border-collapse: collapse; }
-.notes-preview :is(th, td) { padding: 3px 6px; border: 1px solid var(--line); }
-.notes-preview img { max-width: 100%; }
+.notes-preview { flex: 1; overflow: auto; padding: 10px; }
+.markdown-content { line-height: 1.55; overflow-wrap: anywhere; user-select: text; }
+.markdown-content > * { margin: 0 0 10px; }
+.markdown-content a { color: var(--accent-ink); }
+.markdown-content pre { background: var(--surface); padding: 8px; overflow: auto; }
+.markdown-content blockquote { border-left: 3px solid var(--line); padding-left: 8px; }
+.markdown-content table { border-collapse: collapse; }
+.markdown-content :is(th, td) { padding: 3px 6px; border: 1px solid var(--line); }
+.markdown-content img { max-width: 100%; }
+.markdown-content .katex:has(> math[display="block"]) { display: block; overflow: auto; }
 .dirty { width: 7px; height: 7px; border-radius: 50%; background: #c37c0a; }
 
 .menu-bar {

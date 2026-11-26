@@ -10,7 +10,6 @@ export type MenuRequest = Request
   | { action: "choose_overlay" }
   | { action: "figure_settings" }
   | { action: "settings" }
-  | { action: "choose_scale" }
   | { action: "choose_scalar" }
   | { action: "choose_array" }
   | { action: "choose_save_workflow" }

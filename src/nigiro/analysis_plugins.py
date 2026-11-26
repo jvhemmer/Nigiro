@@ -7,7 +7,7 @@ import keyword
 import math
 
 import numpy as np
-from scipy import optimize, signal, special
+from scipy import integrate, optimize, signal, special
 
 
 def numeric_column(rows, index, name):
@@ -50,6 +50,38 @@ def analysis_window(x, text):
     if not math.isfinite(low) or not math.isfinite(high) or low >= high:
         raise ValueError("Enter finite range limits in increasing order.")
     return (x >= low) & (x <= high)
+
+
+def integrate_peak(columns, rows, options):
+    ix, iy = options["x"], options["y"]
+    x, y = numeric_column(rows, ix, "X"), numeric_column(rows, iy, "Y")
+    keep = analysis_window(x, options["range"])
+    count = int(keep.sum())
+    if count < 2:
+        raise ValueError(
+            f"Select at least two points in the integration range. "
+            f"Found {count} in {columns[ix]!r}. "
+            f"This source spans {x.min():.9g} to {x.max():.9g} in that column."
+        )
+    x, y = x[keep], y[keep]
+    if not (np.all(np.diff(x) > 0) or np.all(np.diff(x) < 0)):
+        raise ValueError("Select one monotonic sweep or time interval with distinct X values.")
+    span = x[-1] - x[0]
+    baseline = y[0] + (y[-1] - y[0]) * ((x - x[0]) / span) if options["baseline"] == "endpoints" else np.zeros_like(y)
+    corrected = y - baseline
+    area = float(integrate.trapezoid(corrected, x))
+    return {
+        "traces": [analysis_trace("Baseline", x, baseline),
+                   analysis_trace("Signal", x, y, fill="tonexty")],
+        "elements": ["fit", "observations"], "x_label": columns[ix], "y_label": columns[iy],
+        "summary": {"Signed area": area, "Area units": f"{columns[iy]} × {columns[ix]}"},
+        "sources": {
+            "area": analysis_table("Peak area", ("Signed area", "Absolute area", "Start X", "End X"),
+                                   [(area, abs(area), float(x[0]), float(x[-1]))]),
+            "baseline": analysis_table("Baseline", (columns[ix], columns[iy], "Baseline", "Corrected"),
+                                       zip(x.tolist(), y.tolist(), baseline.tolist(), corrected.tolist())),
+        },
+    }
 
 
 def aligned_pair(inputs, x_key, y_key, duplicates):

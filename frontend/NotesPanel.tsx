@@ -1,8 +1,6 @@
-import { useState } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { lazy, Suspense, useState } from "react";
 
-const markdownPlugins = [remarkGfm];
+const MarkdownContent = lazy(() => import("./MarkdownContent"));
 
 export function NotesPanel({ text, onChange }: { text: string; onChange: (text: string) => void }) {
   const [preview, setPreview] = useState(false);
@@ -13,10 +11,9 @@ export function NotesPanel({ text, onChange }: { text: string; onChange: (text: 
     </div>
     {preview ? (
       <div className="notes-preview">
-        <Markdown remarkPlugins={markdownPlugins} skipHtml
-          components={{ a: ({ node: _node, ...link }) => <a {...link} target="_blank" rel="noopener noreferrer" /> }}>
-          {text}
-        </Markdown>
+        <Suspense fallback={<p role="status">Loading preview…</p>}>
+          <MarkdownContent text={text} />
+        </Suspense>
       </div>
     ) : <textarea aria-label="Project notes" value={text} placeholder="Write project notes in Markdown…"
       onChange={(event) => onChange(event.target.value)} />}

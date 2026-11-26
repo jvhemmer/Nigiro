@@ -36,6 +36,7 @@ export interface PluginDefinition {
   version: string;
   checksum: string | null;
   name: string;
+  description?: string;
   menu: "plot" | "analysis";
   fields: PluginField[];
   distinct_columns?: boolean;
@@ -242,7 +243,6 @@ export type Request =
   | { action: "delete_step"; step_id: number }
   | { action: "move_source"; source_id: ProjectSource["id"]; destination: number; placement?: { group_id: string | null } }
   | { action: "source_group"; mode: "create" | "rename" | "toggle" | "delete"; group_id?: string; name?: string }
-  | { action: "scale_column"; runs: { source_id: ProjectSource["id"]; column: number }[]; factor: number }
   | { action: "apply_formula"; source_id: ProjectSource["id"]; column: number; expression: string }
   | { action: "add_scalar"; name: string; value: number; comment?: string }
   | ({ action: "add_array"; name: string; comment?: string } & ({ values: string } | { expression: string }))

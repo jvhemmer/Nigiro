@@ -123,6 +123,10 @@ Define the plugin's `fields` as a list of controls. Each control has a `key`, `l
 
 Set the optional `outputs` field to a list of labels, such as `["Fit figure", "Coefficients table"]`. Nigiro shows these labels on the **Output** tab.
 
+Set the optional `description` field to Markdown text for the **Help** tab. Use `$...$` for inline equations.
+For a display equation, put `$$` on separate lines above and below the equation. Use a raw Python string
+(`r"""..."""`) to preserve LaTeX backslashes. Project Notes preview supports the same Markdown math.
+
 Define `run(columns, rows, options)`. Nigiro passes the column names, corrected worksheet rows, and selected options. Column indices start at zero. Return a dictionary with a `traces` list of Plotly trace dictionaries. The desktop renderer supports `scatter`, `bar`, and `pie`. You can also return `layout`, `x_label`, `y_label`, and a `summary` of name-value pairs. Use JSON-compatible values.
 
 Return `sources` to create output tables. Map each stable key, such as `fitted`, to a dictionary with `name`, `columns`, and `rows`. Nigiro makes the tables available as sources for later runs. An analysis plugin with a summary and no explicit tables supplies a results table.
@@ -144,7 +148,8 @@ Set `"input_mode": "joint"` to receive named inputs together. Each column field 
 - Use **Align / Resample XY** to put two traces on a shared X grid. Select the X and Y columns for each trace. The result covers their shared X range.
 - Under **Signal Processing**, use **FFT Spectrum** for a one-sided amplitude spectrum. Use **Filter Signal** for Butterworth band-stop, notch, or harmonic filtering. Supply a sampling rate or a time column in seconds.
 - **Linear Fit** has a **Force fit through zero** option. **Nonlinear Curve Fit** offers named functions and custom expressions. Enter a guess and limits for each parameter, or leave them blank to use the model defaults. Both tools create a fit figure, a residuals figure, and result tables.
-- Under **Electrochemistry**, **Filter Segments** detects sweeps from a potential column and keeps the rows you select. It can also use an existing segment column. **Detect CV Segments** adds segment and direction columns for inspection. **Find CV Peaks**, **Integrate Peak**, **iR Correction**, **Estimate Onset Potential**, and **Tafel Analysis (Irreversible)** use selected data columns. For Tafel analysis, enter the potential limits of the linear region.
+- Under **Analysis**, **Integrate Peak** measures the area between a signal and its baseline over the selected X range.
+- Under **Electrochemistry**, **Filter Segments** detects sweeps from a potential column and keeps the rows you select. It can also use an existing segment column. **Detect CV Segments** adds segment and direction columns for inspection. **Find CV Peaks**, **iR Correction**, **Estimate Onset Potential**, and **Tafel Analysis (Irreversible)** use selected data columns. For Tafel analysis, enter the potential limits of the linear region.
 
 ### Fit an impedance spectrum
 
