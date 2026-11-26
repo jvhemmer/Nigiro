@@ -15,6 +15,32 @@ from nigiro.source_tables import output_tables
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_filter_rows_uses_one_based_inclusive_ranges_and_replays(self):
+        worker = Workspace()
+        worker.settings.run_automatically = True
+        worker.dispatch({"action": "sample"})
+        original = worker.project.worksheet.rows
+        _, filter_rows = BUILTINS["nigiro.filter_rows"]
+        for expression, expected in (("1:3", original[:3]), ("3:", original[2:]), ("3:end", original[2:]),
+                                     ("3:-1", original[2:]), ("-2:-1", original[-2:]),
+                                     ("end", original[-1:]), (":", original)):
+            with self.subTest(expression=expression):
+                result = filter_rows(worker.project.worksheet.columns, original, {"range": expression})
+                self.assertEqual(result["sources"]["selected"]["rows"], expected)
+        for expression in ("0:2", "9:", "4:2", "1:2:3"):
+            with self.subTest(expression=expression), self.assertRaises(ValueError):
+                filter_rows(worker.project.worksheet.columns, original, {"range": expression})
+
+        result = worker.dispatch({"action": "execute_plugin", "plugin_id": "nigiro.filter_rows", "version": "1",
+                                  "checksum": None, "output": "separate",
+                                  "runs": [{"source_id": None, "options": {"range": "2:4"}}]})["project"]
+        self.assertFalse(result["figures"])
+        self.assertEqual(result["source_table"]["rows"], original[1:4])
+        self.assertEqual(result["source_table"]["columns"], worker.project.worksheet.columns)
+        replayed = worker.dispatch({"action": "run_all"})["project"]
+        self.assertEqual(replayed["source_table"]["rows"], original[1:4])
+        self.assertEqual(worker.project.worksheet.rows, original)
+
     def test_filter_columns_keeps_all_rows_and_replays_headers_by_name(self):
         worker = Workspace()
         worker.settings.run_automatically = True

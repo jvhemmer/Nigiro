@@ -2,6 +2,8 @@
 
 Nigiro is a free, open-source desktop app for scientific plotting and reproducible analysis. The editor links a CSV, a worksheet, a linear fit, and a figure.
 
+Download a desktop installer for Windows, Linux, or macOS from [GitHub Releases](https://github.com/jvhemmer/Nigiro/releases/latest).
+
 ## Run the desktop app in development
 
 Install Node.js 22.12 or later, uv, and the Tauri prerequisites for your operating system. See the [uv install guide](https://docs.astral.sh/uv/getting-started/installation/) and [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
@@ -87,7 +89,7 @@ Save the project to keep the figures, their settings, and the analysis tables. N
 
 ## Run recorded steps
 
-Nigiro records imports, plots, analyses, and worksheet changes in **Recorded Steps**. Use **Analysis → Operations → Scalar multiplication** to scale a working column in each selected source without changing the imported CSV files. **Filter** creates a new source with matching rows or matching values from one column. For example, enter `0 < value <= 10` to keep values in that interval.
+Nigiro records imports, plots, analyses, and worksheet changes in **Recorded Steps**. In **Analysis → Operations**, **Filter** keeps rows or values that match a condition, such as `0 < value <= 10`. Use **Filter Rows** to keep a range by row number. The first row is 1 and both ends are included. Enter `1:100` for the first 100 rows or `100:end` for row 100 through the last row.
 
 1. Drag a recorded step to change the execution order. Right-click a step to edit its options or move it earlier or later.
 2. Select **Run all** to rerun the workflow in order. Select **Run next** from the dropdown to run the first queued or stale step.

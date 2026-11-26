@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from html import escape
 
 from .analysis_catalog import ANALYSIS_PLUGINS
@@ -206,6 +207,39 @@ BUILTINS["nigiro.filter_columns"] = ({
 original order. The input worksheet stays intact.""",
     "fields": [{"key": "columns", "label": "Columns to keep", "type": "columns", "default": []}],
 }, filter_columns)
+
+
+def filter_row_range(columns, rows, options):
+    match = re.fullmatch(r"(end|-?[0-9]+)?\s*(?:(:)\s*(end|-?[0-9]+)?)?", options["range"].strip(), re.IGNORECASE)
+    if not match or not any(match.groups()):
+        raise ValueError("Enter a row or a range such as 1:100 or 100:end.")
+    first, separator, last = match.groups()
+
+    def row_number(value):
+        number = -1 if value.lower() == "end" else int(value)
+        return len(rows) + number + 1 if number < 0 else number
+
+    start = row_number(first) if first is not None else 1
+    stop = (row_number(last) if last is not None else len(rows)) if separator else start
+    if not 1 <= start <= stop <= len(rows):
+        raise ValueError(f"Choose a range in ascending order within rows 1 to {len(rows)}.")
+    return {"sources": {"selected": {
+        "name": "Selected rows", "columns": columns, "rows": rows[start - 1:stop],
+    }}}
+
+
+BUILTINS["nigiro.filter_rows"] = ({
+    "api": 1, "id": "nigiro.filter_rows", "version": "1", "name": "Filter Rows", "menu": "analysis",
+    "table_only": True, "outputs": ["Worksheet with the selected rows"],
+    "description": """Keep a range of rows in a new worksheet with all the original columns.
+Row numbers start at 1 and both ends are included.
+
+- `1:100` keeps the first 100 rows.
+- `100:`, `100:end`, and `100:-1` keep row 100 through the last row.
+- `-10:-1` keeps the last 10 rows.
+- `5` keeps row 5. `:` keeps all rows.""",
+    "fields": [{"key": "range", "label": "Row range", "type": "text", "default": ":"}],
+}, filter_row_range)
 
 
 BUILTINS[COLUMN_FORMULA_PLUGIN] = ({
