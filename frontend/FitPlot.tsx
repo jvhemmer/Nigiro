@@ -173,7 +173,7 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
   const [error, setError] = useState("");
   const selectedTrace = useRef(false);
   const plotly = useRef<Renderer | null>(null);
-  const webGLFailed = useRef(false);
+  const [webGLFailed, setWebGLFailed] = useState(false);
   const traces = useMemo(() => structuredClone(data.traces), [data]);
   const rendered = useRef<PlotlyHTMLElement | null>(null);
   const drawing = useRef<Promise<void>>(Promise.resolve());
@@ -275,14 +275,20 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
     observer.observe(view);
     const canvasObserver = new ResizeObserver(sizeFrame);
     canvasObserver.observe(node);
+    function handleContextLoss() {
+      setWebGLFailed(true);
+    }
+    node.addEventListener("webglcontextlost", handleContextLoss, true);
     scroll.addEventListener("wheel", zoomPreview, { passive: false, capture: true });
     measure();
     return () => {
       observer.disconnect();
       canvasObserver.disconnect();
+      node.removeEventListener("webglcontextlost", handleContextLoss, true);
       scroll.removeEventListener("wheel", zoomPreview, true);
-      plotly.current?.purge(node);
       rendered.current = null;
+      // Let an in-flight draw finish before releasing its Plotly resources.
+      void drawing.current.then(() => plotly.current?.purge(node));
     };
   }, []);
 
@@ -306,7 +312,7 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
 
     drawing.current = drawing.current.then(async () => {
       if (!active) return;
-      const accelerated = !webGLFailed.current && !Object.values(traceStyles).some((trace) => trace.zorder !== undefined) && canAccelerate(data);
+      const accelerated = !webGLFailed && !Object.values(traceStyles).some((trace) => trace.zorder !== undefined) && canAccelerate(data);
       const [renderer] = await Promise.all([
         loadRenderer(accelerated),
         document.fonts.load(`12px "${figureFont}"`),
@@ -314,7 +320,8 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
       if (!active) return;
       const previous = lastDraw.current;
       if (previous?.data === data && previous.colors === colors && previous.style === style
-        && previous.traceStyles === traceStyles && previous.width === width && previous.height === height && rendered.current) {
+        && previous.traceStyles === traceStyles && previous.width === width && previous.height === height
+        && plotly.current === renderer && rendered.current) {
         chart = rendered.current;
         chart.on("plotly_click", selectPoint);
         chart.on("plotly_legendclick", selectLegend);
@@ -347,7 +354,10 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
       }
       const series = traces.map((trace, index) => merge(trace, tracePresentation(trace, index, data, style, colors, traceStyles)));
       const options = { ...layout, ...setCanvas(), autosize: false };
-      if (plotly.current && plotly.current !== renderer) plotly.current.purge(node);
+      if (plotly.current && plotly.current !== renderer) {
+        rendered.current = null;
+        plotly.current.purge(node);
+      }
       plotly.current = renderer;
       let next: PlotlyHTMLElement;
       try {
@@ -355,12 +365,8 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
         next = await renderer.react(node, preview, options, config);
       } catch (reason) {
         if (!accelerated) throw reason;
-        renderer.purge(node);
-        webGLFailed.current = true;
-        const fallback = await loadRenderer(false);
-        if (!active) return;
-        plotly.current = fallback;
-        next = await fallback.react(node, series, options, config);
+        if (active) setWebGLFailed(true);
+        return;
       }
       // Adjust the canvas after Plotly measures the margins around the axes.
       for (let attempt = 0; active && attempt < 5 && (lockedWidth !== null || lockedHeight !== null); attempt++) {
@@ -390,7 +396,7 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
       chart?.removeAllListeners?.("plotly_click");
       chart?.removeAllListeners?.("plotly_legendclick");
     };
-  }, [data, traces, colors, style, traceStyles, revision, onSelect, width, height, lockedWidth, lockedHeight, visible]);
+  }, [data, traces, colors, style, traceStyles, revision, onSelect, width, height, lockedWidth, lockedHeight, visible, webGLFailed]);
 
   return (
     <div className="chart-panel">
