@@ -74,7 +74,11 @@ jobs:
               }},
           }
           if os.environ["RUNNER_OS"] == "macOS":
-              config["bundle"]["macOS"] = {"signingIdentity": "-"}
+              # The frozen engine loads separately signed Python libraries.
+              config["bundle"]["macOS"] = {
+                  "signingIdentity": "-",
+                  "entitlements": str((directory / "macos-ad-hoc.entitlements.plist").resolve()),
+              }
           (directory / "tauri.release.generated.json").write_text(json.dumps(config), encoding="utf-8")
           PY
       - uses: tauri-apps/tauri-action@v1
@@ -96,10 +100,14 @@ jobs:
         run: |
           uv run --no-project python - <<'PY'
           import json
+          import plistlib
           import subprocess
           from pathlib import Path
 
           engine = Path("src-tauri/target/release/bundle/macos/Nigiro.app/Contents/MacOS/nigiro-engine").resolve()
+          entitlements = plistlib.loads(subprocess.check_output(["codesign", "-d", "--entitlements", "-", str(engine)]))
+          if not entitlements.get("com.apple.security.cs.disable-library-validation"):
+              raise SystemExit("The signed engine needs permission to load its bundled Python libraries.")
           request = json.dumps({"action": "state", "_paged": True})
           response = subprocess.run([str(engine)], input=request + "\n", text=True,
                                     stdout=subprocess.PIPE, timeout=120, check=True)
