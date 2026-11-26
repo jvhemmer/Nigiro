@@ -169,6 +169,10 @@ class Plot:
             raise ValueError("Choose different X and Y columns.")
 
 
+def _valid_trace_color(color: object) -> bool:
+    return isinstance(color, str) and (color == "transparent" or bool(re.fullmatch(r"#[0-9a-fA-F]{6}", color)))
+
+
 @dataclass(frozen=True)
 class FigureColor:
     element: Literal["fit", "observations"]
@@ -176,9 +180,7 @@ class FigureColor:
     figure_id: int | None = None
 
     def __post_init__(self) -> None:
-        if self.element not in ("fit", "observations") or not (
-            isinstance(self.color, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", self.color)
-        ):
+        if self.element not in ("fit", "observations") or not _valid_trace_color(self.color):
             raise ValueError("Invalid figure color.")
         if self.figure_id is not None and (type(self.figure_id) is not int or self.figure_id < 0):
             raise ValueError("Invalid figure reference.")
@@ -213,9 +215,10 @@ class TraceAppearance:
         if self.style is None:
             return
         if self.style_kind == "fill":
-            if (not isinstance(self.style, dict) or self.style.keys() != {"color", "opacity"}
-                or not isinstance(self.style["color"], str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", self.style["color"])
-                or type(self.style["opacity"]) not in (int, float) or not 0 <= self.style["opacity"] <= 1):
+            if (not isinstance(self.style, dict) or not self.style or not self.style.keys() <= {"color", "opacity"}
+                or ("color" in self.style and not _valid_trace_color(self.style["color"]))
+                or ("opacity" in self.style and
+                    (type(self.style["opacity"]) not in (int, float) or not 0 <= self.style["opacity"] <= 1))):
                 raise ValueError("Choose a fill color and an opacity from 0 to 100%.")
             object.__setattr__(self, "style", self.style.copy())
             return
@@ -225,14 +228,13 @@ class TraceAppearance:
                 raise ValueError("Enter a draw order from -10000 to 10000.")
             object.__setattr__(self, "style", self.style.copy())
             return
-        if not isinstance(self.style, dict) or self.style.keys() != {"color", "width", "dash"}:
-            raise ValueError("Choose a line color, width, and dash style.")
-        color, width, dash = (self.style[key] for key in ("color", "width", "dash"))
-        if not isinstance(color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+        if not isinstance(self.style, dict) or not self.style or not self.style.keys() <= {"color", "width", "dash"}:
+            raise ValueError("Choose a line color, width, or dash style.")
+        if "color" in self.style and not _valid_trace_color(self.style["color"]):
             raise ValueError("Choose a valid line color.")
-        if type(width) not in (int, float) or not 0.1 <= width <= 12:
+        if "width" in self.style and (type(self.style["width"]) not in (int, float) or not 0.1 <= self.style["width"] <= 12):
             raise ValueError("Choose a line width from 0.1 to 12 px.")
-        if dash not in ("solid", "dash", "dot", "dashdot", "longdash", "longdashdot"):
+        if "dash" in self.style and self.style["dash"] not in ("solid", "dash", "dot", "dashdot", "longdash", "longdashdot"):
             raise ValueError("Choose a valid line dash style.")
         object.__setattr__(self, "style", self.style.copy())
 

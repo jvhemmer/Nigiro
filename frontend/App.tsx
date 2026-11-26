@@ -1,3 +1,5 @@
+import { ColorField, isHexColor, plotlyColor } from "./ColorField";
+import { InspectField, InspectNumber } from "./InspectField";
 import { describeCircuit } from "./CircuitDesigner";
 import { Fragment, useCallback, useEffect, useId, useRef, useState, type MouseEvent, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -83,24 +85,29 @@ function TraceInspectForm({ figureId, index, initialLine, initialFill, orderInde
   busy: boolean;
   run: Run;
 }) {
-  const [line, setLine] = useState<TraceLineStyle | null | undefined>(initialLine);
-  const [fill, setFill] = useState<TraceFillStyle | null | undefined>(initialFill);
-  const [order, setOrder] = useState<string | null>(String(initialOrder));
+  const storedLine = { color: override?.color, width: override?.width, dash: override?.dash };
+  const storedFill = override?.fill ?? {};
+  const [line, setLine] = useState<Partial<TraceLineStyle>>(storedLine);
+  const [fill, setFill] = useState<Partial<TraceFillStyle>>(storedFill);
+  const [order, setOrder] = useState<string | null>(storedOrder === undefined ? null : String(storedOrder));
   const [color, setColor] = useState(elementColor?.color);
-  const lineChanged = line !== initialLine && (line === null || line?.color !== initialLine?.color
-    || line?.width !== initialLine?.width || line?.dash !== initialLine?.dash);
-  const fillChanged = fill !== initialFill && (fill === null || fill?.color !== initialFill?.color
-    || fill?.opacity !== initialFill?.opacity);
-  const orderChanged = orderIndex !== undefined && (order === null || order === "" || Number(order) !== initialOrder);
   const edits: InspectStyleChange[] = [];
-  if (lineChanged && line !== undefined) edits.push({ action: "trace_style", trace: index, kind: "line", style: line });
-  if (fillChanged && fill !== undefined) edits.push({ action: "trace_style", trace: index, kind: "fill", style: fill });
-  if (orderChanged) edits.push({ action: "trace_style", trace: orderIndex, kind: "order",
-    style: order === null ? null : { zorder: Number(order) } });
+  if (line.color !== storedLine.color || line.width !== storedLine.width || line.dash !== storedLine.dash) {
+    edits.push({ action: "trace_style", trace: index, kind: "line",
+      style: line.color === undefined && line.width === undefined && line.dash === undefined ? null : line });
+  }
+  if (fill.color !== storedFill.color || fill.opacity !== storedFill.opacity) {
+    edits.push({ action: "trace_style", trace: index, kind: "fill",
+      style: fill.color === undefined && fill.opacity === undefined ? null : fill });
+  }
+  if (orderIndex !== undefined && (order === "" || (order === null ? storedOrder !== undefined : Number(order) !== storedOrder))) {
+    edits.push({ action: "trace_style", trace: orderIndex, kind: "order",
+      style: order === null ? null : { zorder: Number(order) } });
+  }
   if (elementColor && color && color !== elementColor.color) edits.push({ action: "color", element: elementColor.element, color });
-  const valid = (!lineChanged || !line || (line.width >= 0.1 && line.width <= 12))
-    && (!fillChanged || !fill || (fill.opacity >= 0 && fill.opacity <= 1))
-    && (!orderChanged || order === null || (order !== "" && Number.isInteger(Number(order)) && Math.abs(Number(order)) <= 10000));
+  const valid = (line.width === undefined || (line.width >= 0.1 && line.width <= 12))
+    && (fill.opacity === undefined || (fill.opacity >= 0 && fill.opacity <= 1))
+    && (order === null || (order !== "" && Number.isInteger(Number(order)) && Math.abs(Number(order)) <= 10000));
 
   return <form className="fit-settings trace-line-editor" noValidate onSubmit={(event) => {
     event.preventDefault();
@@ -115,42 +122,48 @@ function TraceInspectForm({ figureId, index, initialLine, initialFill, orderInde
     }
   }}>
     {initialLine && <>
-      <label><span>Line color</span><input type="color" value={(line ?? initialLine).color} disabled={!line || busy}
-        onChange={(event) => setLine({ ...(line ?? initialLine), color: event.target.value })} /></label>
-      <label><span>Line width (px)</span><input type="number" min={0.1} max={12} step="any" disabled={!line || busy}
-        value={line && Number.isFinite(line.width) ? line.width : line ? "" : initialLine.width}
-        onChange={(event) => setLine({ ...(line ?? initialLine), width: event.target.valueAsNumber })} /></label>
-      <label><span>Line style</span><select value={(line ?? initialLine).dash} disabled={!line || busy}
-        onChange={(event) => setLine({ ...(line ?? initialLine), dash: event.target.value as TraceLineStyle["dash"] })}>
-        {Object.entries(lineDashes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </select></label>
-      {override?.color && <button type="button" disabled={busy} onClick={() => setLine(line ? null : initialLine)}>
-        {line ? "Reset line" : "Keep line style"}
-      </button>}
+      <InspectField label="Line color" disabled={busy}
+        revert={line.color === undefined ? undefined : () => setLine({ ...line, color: undefined })}>
+        {(id) => <ColorField id={id} label="Line color" value={line.color ?? initialLine.color} disabled={busy}
+          onChange={(color) => setLine({ ...line, color })} />}
+      </InspectField>
+      <InspectField label="Line width (px)" disabled={busy}
+        revert={line.width === undefined ? undefined : () => setLine({ ...line, width: undefined })}>
+        {(id) => <InspectNumber id={id} min={0.1} max={12} increment={0.1} disabled={busy}
+          value={Number.isFinite(line.width ?? initialLine.width) ? line.width ?? initialLine.width : ""}
+          onChange={(value) => setLine({ ...line, width: value === "" ? NaN : Number(value) })} />}
+      </InspectField>
+      <InspectField label="Line style" disabled={busy}
+        revert={line.dash === undefined ? undefined : () => setLine({ ...line, dash: undefined })}>
+        {(id) => <select id={id} value={line.dash ?? initialLine.dash} disabled={busy}
+          onChange={(event) => setLine({ ...line, dash: event.target.value as TraceLineStyle["dash"] })}>
+          {Object.entries(lineDashes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>}
+      </InspectField>
     </>}
     {initialFill && <>
-      <label><span>Fill color</span><input type="color" value={(fill ?? initialFill).color} disabled={!fill || busy}
-        onChange={(event) => setFill({ ...(fill ?? initialFill), color: event.target.value })} /></label>
-      <label><span>Fill opacity (%)</span><input type="number" min={0} max={100} step="any" disabled={!fill || busy}
-        value={Number.isFinite((fill ?? initialFill).opacity) ? Math.round((fill ?? initialFill).opacity * 1e8) / 1e6 : ""}
-        onChange={(event) => setFill({ ...(fill ?? initialFill), opacity: event.target.valueAsNumber / 100 })} /></label>
-      {override?.fill && <button type="button" disabled={busy} onClick={() => setFill(fill ? null : initialFill)}>
-        {fill ? "Reset fill" : "Keep fill style"}
-      </button>}
+      <InspectField label="Fill color" disabled={busy}
+        revert={fill.color === undefined ? undefined : () => setFill({ ...fill, color: undefined })}>
+        {(id) => <ColorField id={id} label="Fill color" value={fill.color ?? initialFill.color} disabled={busy}
+          onChange={(color) => setFill({ ...fill, color })} />}
+      </InspectField>
+      <InspectField label="Fill opacity (%)" disabled={busy}
+        revert={fill.opacity === undefined ? undefined : () => setFill({ ...fill, opacity: undefined })}>
+        {(id) => <InspectNumber id={id} min={0} max={100} increment={1} disabled={busy}
+          value={Number.isFinite(fill.opacity ?? initialFill.opacity) ? Math.round((fill.opacity ?? initialFill.opacity) * 1e8) / 1e6 : ""}
+          onChange={(value) => setFill({ ...fill, opacity: value === "" ? NaN : Number(value) / 100 })} />}
+      </InspectField>
     </>}
-    {orderIndex !== undefined && <>
-      <label title="Higher values draw in front. A shaded area and its baseline share an order.">
-        <span>Draw order (Z)</span>
-        <input type="number" min={-10000} max={10000} step={1} value={order ?? String(initialOrder)} disabled={order === null || busy}
-          onChange={(event) => setOrder(event.target.value)} />
-      </label>
-      {storedOrder !== undefined && <button type="button" disabled={busy} onClick={() => setOrder(order === null ? String(initialOrder) : null)}>
-        {order === null ? "Keep draw order" : "Reset order"}
-      </button>}
-    </>}
-    {elementColor && <label><span>{elementNames[elementColor.element]} color</span>
-      <input type="color" value={color} onChange={(event) => setColor(event.target.value)} disabled={busy} />
-    </label>}
+    {orderIndex !== undefined && <InspectField label="Draw order (Z)" disabled={busy}
+      title="Higher values draw in front. A shaded area and its baseline share an order."
+      revert={order === null ? undefined : () => setOrder(null)}>
+      {(id) => <InspectNumber id={id} min={-10000} max={10000} increment={1} disabled={busy}
+        value={order ?? initialOrder} onChange={setOrder} />}
+    </InspectField>}
+    {elementColor && <InspectField label={`${elementNames[elementColor.element]} color`}>
+      {(id) => <ColorField id={id} label={`${elementNames[elementColor.element]} color`}
+        value={color ?? elementColor.color} onChange={setColor} disabled={busy} />}
+    </InspectField>}
     <div className="trace-line-actions">
       <button className="primary" type="submit" disabled={busy || !valid}>Apply</button>
     </div>
@@ -314,18 +327,17 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
   const input = project.sources.find(({ id }) => id === (figure.recipe.source_id ?? null));
   const override = index === undefined ? undefined : project.trace_styles[index];
   const appearance = trace && index !== undefined && hasEditableLine(trace)
-    ? traceAppearance(trace, index, figure, project.figure_style, project.colors, override?.color
-      ? { color: override.color, width: override.width, dash: override.dash } : undefined) : undefined;
+    ? traceAppearance(trace, index, figure, project.figure_style, project.colors) : undefined;
   const renderedLine = appearance?.line;
   const stroke = renderedLine?.color ?? traceColor ?? color;
   const dash = renderedLine?.dash ?? (line && "dash" in line ? line.dash : undefined);
   const initialLine: TraceLineStyle | undefined = appearance ? {
-    color: typeof stroke === "string" && /^#[0-9a-f]{6}$/i.test(stroke) ? stroke : project.colors.observations,
+    color: typeof stroke === "string" && isHexColor(stroke) ? stroke : stroke === plotlyColor("transparent") || stroke === "transparent" ? "transparent" : project.colors.observations,
     width: renderedLine?.width ?? line?.width ?? 2,
     dash: typeof dash === "string" && Object.hasOwn(lineDashes, dash) ? dash as TraceLineStyle["dash"] : "solid",
   } : undefined;
   const initialFill = trace && hasTraceFill(trace)
-    ? override?.fill ?? fillAppearance(trace, typeof stroke === "string" ? stroke : project.colors.observations) : undefined;
+    ? fillAppearance(trace, typeof stroke === "string" ? stroke : project.colors.observations) : undefined;
   const orderIndex = index === undefined ? undefined : traceOrderIndex(figure.traces, index);
   const storedOrder = orderIndex === undefined ? undefined : project.trace_styles[orderIndex]?.zorder;
   const orderTrace = orderIndex === undefined ? undefined : figure.traces[orderIndex];
@@ -359,7 +371,7 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
     {index !== undefined && (initialLine || initialFill || editableOrder !== undefined || elementColor) && <TraceInspectForm
       key={JSON.stringify([inspection.id, index, initialLine, initialFill, storedOrder, nativeOrder, override, elementColor])}
       figureId={inspection.id} {...{ index, initialLine, initialFill, override, storedOrder, elementColor, busy, run }}
-      orderIndex={editableOrder} initialOrder={storedOrder ?? nativeOrder} />}
+      orderIndex={editableOrder} initialOrder={nativeOrder} />}
   </div>;
 }
 

@@ -231,7 +231,7 @@ class WorkflowTest(unittest.TestCase):
         worker.dispatch({"action": "move_source", "source_id": area["id"], "destination": 2,
                          "placement": {"group_id": custom["id"]}})
         base = {"action": "trace_style", "figure_id": peak["figure_id"]}
-        fill = {"color": "#fe22aa", "opacity": 0.35}
+        fill = {"color": "transparent", "opacity": 0.35}
         worker.dispatch({**base, "trace": 1, "style": {"color": "#224466", "width": 2, "dash": "dot"}})
         worker.dispatch({**base, "trace": 1, "style": None})
         batch = {"action": "inspect_style", "figure_id": peak["figure_id"], "trace": 1}
@@ -240,7 +240,9 @@ class WorkflowTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "draw order"):
             worker.dispatch({**batch, "changes": [fill_change, {**order_change, "style": {"zorder": 10001}}]})
         self.assertEqual(worker.project.figures[peak["figure_id"]].trace_styles, {})
-        edited = worker.dispatch({**batch, "changes": [fill_change, order_change]})["project"]
+        line_change = {"action": "trace_style", "trace": 1, "kind": "line", "style": {"color": "#224466", "width": 3}}
+        worker.dispatch({**batch, "changes": [line_change]})
+        edited = worker.dispatch({**batch, "changes": [fill_change, order_change, {**line_change, "style": {"width": 3}}]})["project"]
         repeated = worker.dispatch({**batch, "changes": []})["project"]
         self.assertEqual(repeated["trace_styles"], edited["trace_styles"])
         self.assertEqual(len(repeated["workflow"]["steps"]), len(edited["workflow"]["steps"]) + 1)
@@ -252,7 +254,7 @@ class WorkflowTest(unittest.TestCase):
             reopened = Workspace()
             for request in ({"action": "open", "path": str(path)}, {"action": "run_all"}):
                 project = reopened.dispatch(request)["project"]
-                self.assertEqual(project["trace_styles"], {1: {"fill": fill}, 0: {"zorder": -1}})
+                self.assertEqual(project["trace_styles"], {1: {"fill": fill, "width": 3}, 0: {"zorder": -1}})
                 self.assertTrue(project["source_groups"][0]["collapsed"])
                 self.assertEqual(next(source for source in project["sources"] if source["id"] == area["id"])["group_id"],
                                  custom["id"])

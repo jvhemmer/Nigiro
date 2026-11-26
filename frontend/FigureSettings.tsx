@@ -1,3 +1,4 @@
+import { ColorField } from "./ColorField";
 import { axisSettings, separateAxes, textRoles, type TextRole } from "./figureStyle";
 import { Fragment, createContext, useContext, useEffect, useId, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { formatMeasurement, parseMeasurement } from "./units";
@@ -392,7 +393,7 @@ function OptionalColor({ label, value, fallback, onChange }: {
   onChange: (value: string | null) => void;
 }) {
   return <>
-    <Field label={label}><input type="color" value={value ?? fallback} onChange={(event) => onChange(event.target.value)} /></Field>
+    <Field label={label}><ColorField label={label} value={value ?? fallback} onChange={onChange} /></Field>
     <Field label={`Use automatic ${label.toLowerCase()}`} checkbox>
       <input type="checkbox" checked={value == null} onChange={(event) => onChange(event.target.checked ? null : fallback)} />
     </Field>
@@ -415,8 +416,8 @@ function ColorCycle({ colors, onChange }: { colors: string[]; onChange: (colors:
     ]} />
     {colors.length > 0 && <ol className="cycle-colors">
       {colors.map((color, index) => <li key={index}>
-        <input type="color" aria-label={`Cycle color ${index + 1}`} value={color}
-          onChange={(event) => onChange(colors.map((item, i) => i === index ? event.target.value : item))} />
+        <ColorField label={`Cycle color ${index + 1}`} value={color}
+          onChange={(value) => onChange(colors.map((item, i) => i === index ? value : item))} />
         <button type="button" aria-label={`Remove cycle color ${index + 1}`}
           onClick={() => onChange(colors.filter((_, i) => i !== index))}>Remove</button>
       </li>)}
@@ -453,7 +454,7 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
         options={[["color", "Color"], ["transparent", "Transparent"]]}
         onChange={(mode) => set("background", mode === "transparent" ? "transparent" : "#ffffff")} />
       {style.background !== "transparent" && <Field label="Figure background color">
-        <input type="color" value={style.background} onChange={(event) => set("background", event.target.value)} />
+        <ColorField label="Figure background color" value={style.background} onChange={(value) => set("background", value)} />
       </Field>}
       <Choice label="Plot area background"
         value={style.plot_background == null ? "match" : style.plot_background === "transparent" ? "transparent" : "color"}
@@ -461,12 +462,11 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
         onChange={(mode) => set("plot_background", mode === "match" ? null : mode === "transparent" ? "transparent" :
           style.background === "transparent" ? "#ffffff" : style.background)} />
       {style.plot_background && style.plot_background !== "transparent" && <Field label="Plot area background color">
-        <input type="color" value={style.plot_background} onChange={(event) => set("plot_background", event.target.value)} />
+        <ColorField label="Plot area background color" value={style.plot_background} onChange={(value) => set("plot_background", value)} />
       </Field>}
     </SettingsGroup>
     <SettingsGroup title="Default text">
-      <Field label="Text color"><input type="color" value={style.text_color}
-        onChange={(event) => set("text_color", event.target.value)} /></Field>
+      <Field label="Text color"><ColorField label="Text color" value={style.text_color} onChange={(value) => set("text_color", value)} /></Field>
       <FontField value={style.font_family} onChange={(value) => set("font_family", value)} face={style.font_face}
         legacyFace={style.font_bold || style.font_italic ? `${style.font_bold ? 700 : 400}:${style.font_italic ? "italic" : "normal"}` : undefined}
         onFace={(face) => onChange({ ...style, font_face: face, font_bold: false, font_italic: false })} />
@@ -500,8 +500,7 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
       onChange={(value) => set("legend_background", value)} />
     <Field label="Show frame" checkbox><input type="checkbox" checked={style.legend_frame}
       onChange={(event) => set("legend_frame", event.target.checked)} /></Field>
-    <Field label="Frame color"><input type="color" value={style.legend_border_color}
-      onChange={(event) => set("legend_border_color", event.target.value)} /></Field>
+    <Field label="Frame color"><ColorField label="Frame color" value={style.legend_border_color} onChange={(value) => set("legend_border_color", value)} /></Field>
     <NumberField label="Frame width (px)" value={style.legend_border_width} onChange={(value) => set("legend_border_width", value)} />
     </SettingsGroup>}
     {tab === "traces" && <>
@@ -840,8 +839,8 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
               </select>
             </Field>
             <Field label="Accent color">
-              <input aria-label="Accent color" type="color" value={appearanceDraft.accent} onChange={(event) => setAppearanceDraft({
-                ...appearanceDraft, accent: event.target.value,
+              <ColorField label="Accent color" opaque value={appearanceDraft.accent} onChange={(value) => setAppearanceDraft({
+                ...appearanceDraft, accent: value,
               })} />
             </Field>
           </SettingsGroup>}

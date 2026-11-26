@@ -1,3 +1,4 @@
+import { plotlyColor } from "./ColorField";
 import { plotText } from "./plotText.mjs";
 import type { Layout, LayoutAxis } from "plotly.js";
 
@@ -156,7 +157,7 @@ function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision
     ticks,
     ticklen: axis.tick_length,
     tickwidth: axis.line_width,
-    tickcolor: style.text_color,
+    tickcolor: plotlyColor(style.text_color),
     tickangle: axis.angle,
     showticklabels: axis.tick_labels,
     ...(!categorical && {
@@ -170,7 +171,7 @@ function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision
           ticks,
           ticklen: axis.tick_length / 2,
           tickwidth: axis.line_width,
-          tickcolor: style.text_color,
+          tickcolor: plotlyColor(style.text_color),
           ...(step !== null && scale === "linear" ? { tickmode: "linear", dtick: step / 5, tick0: 0 } : { tickmode: "auto" }),
         },
       }),
@@ -178,7 +179,7 @@ function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision
     automargin: true,
     showline: axis.line,
     linewidth: axis.line_width,
-    linecolor: style.text_color,
+    linecolor: plotlyColor(style.text_color),
     mirror: axis.line && axis.mirror ? (axis.opposite_ticks ?? true) ? "ticks" : true : false,
     showgrid: axis.grid,
     gridcolor: "#e0e0e0",
@@ -192,10 +193,6 @@ function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision
   };
 }
 
-function plotlyBackground(color: string) {
-  return color === "transparent" ? "rgba(0,0,0,0)" : color;
-}
-
 function legendLayout(style: FigureStyle, fit: boolean): Partial<Layout> {
   const position = style.legend === "auto" ? (fit ? "above" : "none") : style.legend;
   if (position === "none") return { showlegend: false };
@@ -205,8 +202,8 @@ function legendLayout(style: FigureStyle, fit: boolean): Partial<Layout> {
     showlegend: true,
     legend: {
       font: textFont(style, "legend", style.tick_size),
-      bgcolor: plotlyBackground(style.legend_background ?? style.background),
-      bordercolor: style.legend_border_color,
+      bgcolor: plotlyColor(style.legend_background ?? style.background),
+      bordercolor: plotlyColor(style.legend_border_color),
       borderwidth: style.legend_frame ? style.legend_border_width : 0,
       itemdoubleclick: false,
       ...(position === "above"
@@ -231,10 +228,10 @@ export function figureLayout(style: FigureStyle, xLabel: string, yLabel: string,
     uirevision: revision,
     margin: { l: 54, r: 16, t: top, b: 50 },
     title: { text: plotText(style.title, style.title_renderer, style), font: titleFont, x: 0.5, y: 0.98, yanchor: "top" },
-    font: { family: font, size: style.label_size, color: style.text_color,
+    font: { family: font, size: style.label_size, color: plotlyColor(style.text_color),
       ...fontFace(style.font_face, style.font_bold, style.font_italic) },
-    paper_bgcolor: plotlyBackground(style.background),
-    plot_bgcolor: plotlyBackground(style.plot_background ?? style.background),
+    paper_bgcolor: plotlyColor(style.background),
+    plot_bgcolor: plotlyColor(style.plot_background ?? style.background),
     hovermode: "closest",
     dragmode: "zoom",
     ...legendLayout(style, fit || fitLegend),

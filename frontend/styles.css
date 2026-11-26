@@ -776,7 +776,6 @@ td input {
 
 .figure-fields { display: grid; gap: 7px; }
 .figure-field { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: center; gap: 8px; color: var(--muted); font-size: .87rem; }
-.figure-field input[type="color"] { padding: 2px 5px; }
 .figure-field input:not([type="checkbox"]), .plugin-fields input:not([type="checkbox"]) { height: 24px; }
 .fit-settings select, .figure-field select { padding-block: 0; }
 .figure-settings-error { color: var(--error); margin-top: 10px; }
@@ -865,18 +864,50 @@ td input {
 [data-drop-edge="after"]::after { bottom: 0; }
 .inspect-details { padding: 8px; overflow: auto; height: 100%; }
 .inspect-details h2 { margin: 0 0 8px; font-size: 1rem; overflow-wrap: anywhere; }
-.inspect-details dl { margin: 0 0 10px; }
-.inspect-details dt { margin-top: 7px; color: var(--muted); }
-.inspect-details dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+.inspect-details dl {
+  display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 6px 8px; padding-top: 6px; margin: 0 0 10px;
+}
+.inspect-details dt, .inspect-details dd { overflow-wrap: anywhere; }
+.inspect-details dt { color: var(--muted); }
 .inspect-comment { white-space: pre-wrap; }
 .inspect-traces { margin: 0 0 8px; padding: 0; list-style: none; }
 .inspect-traces button { width: 100%; justify-content: flex-start; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .inspect-traces li + li { margin-top: 4px; }
 .trace-list-back { margin-bottom: 6px; }
-.trace-line-editor { padding: 6px 0; }
-.trace-line-editor input {
-  min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 2px;
-  background: var(--panel); color: var(--text);
+.trace-line-editor { display: grid; gap: 5px; padding: 6px 0; }
+.inspect-field {
+  display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 16px;
+  align-items: center; gap: 4px;
+}
+.inspect-field > label { margin: 0; overflow-wrap: anywhere; }
+.inspect-field select, .inspect-number input {
+  height: 24px; min-width: 0; width: 100%; border: 1px solid var(--line);
+  border-radius: 2px; background: var(--panel); color: var(--text);
+}
+.inspect-field select {
+  appearance: none;
+  padding: 0 16px 0 4px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 8px center, right 4px center;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+.inspect-field option { background: var(--panel); color: var(--text); }
+.inspect-number { position: relative; min-width: 0; }
+.inspect-number input { appearance: textfield; padding: 0 18px 0 4px; }
+.inspect-number input::-webkit-inner-spin-button, .inspect-number input::-webkit-outer-spin-button {
+  appearance: none; margin: 0;
+}
+.inspect-number-step { position: absolute; inset: 1px 1px 1px auto; display: grid; width: 15px; }
+.inspect-number-step button {
+  height: 11px; min-height: 0; padding: 0; border: 0; border-radius: 0;
+  background: var(--surface); color: var(--text);
+}
+.inspect-number-step button + button { border-top: 1px solid var(--line); }
+button.inspect-revert {
+  height: 16px; min-height: 0; width: 16px; padding: 0; border-color: transparent; color: var(--muted);
 }
 .trace-line-actions { display: flex; justify-content: flex-end; gap: 4px; }
 
@@ -896,7 +927,6 @@ td input {
 
 .cycle-colors { margin: 0; padding-inline-start: 25px; }
 .cycle-colors li { padding: 2px 0; }
-.cycle-colors input { vertical-align: middle; margin-inline-end: 6px; }
 
 .plugin-field-title, .plugin-configuration .formula-editor > label { color: var(--text); font-size: .94rem; font-weight: 700; }
 .plugin-field-help { display: block; margin-top: 3px; font-size: .84em; font-weight: 400; line-height: 1.4; }
@@ -1061,3 +1091,27 @@ td input {
 .import-preview { min-height: 72px; max-height: 250px; overflow: auto; border: 1px solid var(--line); }
 .import-preview td { white-space: nowrap; padding: 3px 5px; }
 .import-preview ol { margin: 0; padding: 4px 4px 4px 35px; white-space: pre; }
+
+.color-field { min-width: 0; }
+button.color-field-trigger { width: 100%; min-height: 24px; padding: 3px; }
+.color-sample {
+  background-image: conic-gradient(#909090 25%, #d4d4d4 0 50%, #909090 0 75%, #d4d4d4 0);
+  background-size: 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.color-sample[data-opaque] { background-image: none; }
+.color-field-trigger .color-sample { width: 100%; height: 16px; }
+.color-palette { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.color-picker .color-sample[aria-pressed="true"], .color-transparent[aria-pressed="true"] {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: -2px;
+}
+.color-transparent { margin-top: 8px; }
+.color-transparent .color-sample { width: 18px; height: 14px; }
+.color-hex { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 8px; }
+.color-hex input {
+  min-width: 0; padding: 4px; border: 1px solid var(--line); border-radius: 2px;
+  background: var(--panel); color: var(--text);
+}
+.cycle-colors .color-field { display: inline-block; width: 50px; vertical-align: middle; margin-inline-end: 6px; }

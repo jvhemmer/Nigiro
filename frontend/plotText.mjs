@@ -91,6 +91,18 @@ export function plotText(text, renderer = "auto", math) {
   return escapePlotText(text);
 }
 
+export function plotLegendText(text, renderer = "auto", math) {
+  if (renderer === "plain") return plotText(decodePlotText(text), renderer, math);
+  const label = decodePlotText(text).replace(/(?<![\\$])\$\$([^$]+)(?<!\\)\$\$(?!\$)/g,
+    (_, expression) => `$${expression}$`);
+  if (renderer !== "auto") return plotText(label, renderer, math);
+
+  const expressions = [...label.matchAll(mathSpan)];
+  if (expressions.length === 0) return text;
+  const inline = expressions.every(([, expression]) => inlineMath(expression) !== null);
+  return plotText(label, inline ? "inline" : "auto", math);
+}
+
 export function formatPlotTicks(layout, renderers, math) {
   for (const [key, renderer] of Object.entries(renderers)) {
     const axis = layout[key];

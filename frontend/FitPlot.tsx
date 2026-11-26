@@ -1,4 +1,5 @@
-import { decodePlotText, formatPlotTicks, plotText } from "./plotText.mjs";
+import { isHexColor, plotlyColor } from "./ColorField";
+import { formatPlotTicks, plotLegendText } from "./plotText.mjs";
 import { loadMathJax } from "./mathText";
 import { useRevealDockPanel } from "./DockWorkspace";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
@@ -85,13 +86,13 @@ export function traceOrderIndex(traces: Data[], index: number): number {
 
 export function fillAppearance(trace: Data, fallback: string): TraceFillStyle {
   const fill = "fillcolor" in trace && typeof trace.fillcolor === "string" ? trace.fillcolor : "";
-  if (/^#[\da-f]{6}$/i.test(fill)) return { color: fill, opacity: 1 };
+  if (fill === "transparent" || isHexColor(fill)) return { color: fill, opacity: 1 };
   const rgb = /^rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\s*\)$/.exec(fill);
   if (rgb) return {
     color: "#" + rgb.slice(1, 4).map((value) => Number(value).toString(16).padStart(2, "0")).join(""),
     opacity: rgb[4] !== undefined ? Number(rgb[4]) : 1,
   };
-  return { color: /^#[\da-f]{6}$/i.test(fallback) ? fallback : "#245e9b", opacity: 0.5 };
+  return { color: isHexColor(fallback) ? fallback : "#245e9b", opacity: 0.5 };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -126,38 +127,55 @@ export function hasEditableLine(trace: Data): boolean {
 }
 
 export function traceAppearance(
-  trace: Data, index: number, data: PluginFigure, style: FigureStyle, colors: Colors, override?: Partial<TraceLineStyle>,
+  trace: Data, index: number, data: PluginFigure, style: FigureStyle, colors: Colors,
 ): { name?: string; marker?: object; line?: Partial<TraceLineStyle>; mode?: string; width?: number } {
   const element = data.elements?.[index];
   const custom = cycleColor(style, data.series_cycle?.[index]);
   const color = custom ?? data.series_colors?.[index] ?? (element ? colors[element] : undefined);
   const renderer = style.legend_renderer ?? "auto";
-  const name = typeof trace.name === "string" && (renderer !== "auto" || /\$[^$]+\$/.test(trace.name))
-    ? { name: plotText(decodePlotText(trace.name), renderer, style) } : {};
+  const name = typeof trace.name === "string" ? { name: plotLegendText(trace.name, renderer, style) } : {};
   if (trace.type === "bar" && color && (element || custom)) {
-    return { ...name, marker: { color }, ...(element && { width: style.bar_width }) };
+    return { ...name, marker: { color: plotlyColor(color) }, ...(element && { width: style.bar_width }) };
   }
   if ((trace.type === "scatter" || trace.type === "scattergl") && color) {
     if (element) {
-      const marker = { color: style.marker_color ?? color, size: style.marker_size, symbol: style.marker_symbol };
-      const line = { color: style.line_color ?? color, width: style.line_width, dash: style.line_dash, ...override };
+      const marker = { color: plotlyColor(style.marker_color ?? color), size: style.marker_size, symbol: style.marker_symbol };
+      const line = { color: plotlyColor(style.line_color ?? color), width: style.line_width, dash: style.line_dash };
       const mode = (trace.mode ?? "lines").split("+").filter((part) =>
         (part !== "markers" || style.show_markers) && (part !== "lines" || style.show_lines));
       return { ...name, marker, line, mode: mode.join("+") || "none" };
     }
-    if (custom) return { ...name, marker: { color }, line: { color, ...override } };
+    if (custom) return { ...name, marker: { color: plotlyColor(color) }, line: { color: plotlyColor(color) } };
   }
-  return override ? { ...name, line: override } : name;
+  return name;
 }
 
 function tracePresentation(trace: Data, index: number, data: PluginFigure, style: FigureStyle, colors: Colors, edits: ProjectTraceStyles) {
   const { color, width, dash, fill } = edits[index] ?? {};
-  const line = color === undefined ? undefined : { color, width, dash };
+  const line = color !== undefined || width !== undefined || dash !== undefined ? {
+    ...(color !== undefined && { color: plotlyColor(color) }),
+    ...(width !== undefined && { width }),
+    ...(dash !== undefined && { dash }),
+  } : undefined;
   const zorder = edits[traceOrderIndex(data.traces, index)]?.zorder;
-  const channels = fill?.color.slice(1).match(/../g)?.map((channel) => Number.parseInt(channel, 16));
+  const appearance = traceAppearance(trace, index, data, style, colors);
+  let fillcolor: string | undefined;
+  if (fill && hasTraceFill(trace)) {
+    const nativeLine = "line" in trace ? trace.line : undefined;
+    const nativeColor = nativeLine && "color" in nativeLine ? nativeLine.color : undefined;
+    const fallback = fillAppearance(trace, appearance.line?.color ?? (typeof nativeColor === "string" ? nativeColor : colors.observations));
+    const fillColor = fill.color ?? fallback.color;
+    const alpha = fill.opacity ?? fallback.opacity;
+    fillcolor = plotlyColor(fillColor);
+    if (isHexColor(fillColor)) {
+      const channels = [1, 3, 5].map((start) => Number.parseInt(fillColor.slice(start, start + 2), 16));
+      fillcolor = `rgba(${channels.join(",")},${alpha})`;
+    }
+  }
   return {
-    ...traceAppearance(trace, index, data, style, colors, line),
-    ...(fill && channels && hasTraceFill(trace) && { fillcolor: `rgba(${channels.join(",")},${fill.opacity})` }),
+    ...appearance,
+    ...(line && { line: { ...appearance.line, ...line } }),
+    ...(fillcolor !== undefined && { fillcolor }),
     ...(zorder !== undefined && (trace.type == null || ["scatter", "scattergl", "bar"].includes(trace.type))
       && { zorder, ...(trace.type === "scattergl" && { type: "scatter" }) }),
   };

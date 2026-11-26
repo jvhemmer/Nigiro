@@ -246,12 +246,12 @@ export interface TraceLineStyle {
 }
 
 export type TraceFillStyle = { color: string; opacity: number };
-export type TraceStyle = Partial<TraceLineStyle> & { fill?: TraceFillStyle; zorder?: number };
+export type TraceStyle = Partial<TraceLineStyle> & { fill?: Partial<TraceFillStyle>; zorder?: number };
 export type InspectStyleChange =
   | { action: "color"; element: FigureElement; color: string }
   | ({ action: "trace_style"; trace: number } & (
-    { kind: "line"; style: TraceLineStyle | null }
-    | { kind: "fill"; style: TraceFillStyle | null }
+    { kind: "line"; style: Partial<TraceLineStyle> | null }
+    | { kind: "fill"; style: Partial<TraceFillStyle> | null }
     | { kind: "order"; style: { zorder: number } | null }
   ));
 
