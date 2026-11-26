@@ -768,6 +768,7 @@ export function App() {
     let label = "Workspace actions";
     let groups = [[newProject, openProject], ...dataGroups];
     const clicked = event.target.closest<HTMLElement>("[data-item-kind][data-item-id]");
+    const newGroup: MenuCommand = { label: "New group…", icon: FolderPlus, request: { action: "manage_item", change: { mode: "new_group" } } };
     const activeFigure = project?.figures.find(({ id }) => id === project.figure_id);
     const historyStep = event.target.closest<HTMLElement>("[data-workflow-id]");
     if (historyStep && project) {
@@ -803,6 +804,10 @@ export function App() {
           request: { action: "move_source", source_id: source.id, destination: index, placement: { group_id: group.id } },
         })),
       });
+      groups.push([newGroup]);
+    } else if (project && event.target.closest(".source-tree")) {
+      label = "Source actions";
+      groups = [[newGroup], ...dataGroups];
     } else if (clicked?.dataset.itemKind === "figure" || (activeFigure && event.target.closest(".figure-pane"))) {
       const target = clicked ? project?.figures.find(({ id }) => String(id) === clicked.dataset.itemId) : activeFigure;
       if (!target) return;
@@ -913,7 +918,11 @@ export function App() {
       {itemDialog && (
         <ItemDialog change={itemDialog} onClose={() => setItemDialog(null)} onApply={(name) => {
           setItemDialog(null);
-          void run({ action: "edit_item", item: itemDialog.item, name });
+          if (itemDialog.mode === "new_group") {
+            if (name !== null) void run({ action: "source_group", mode: "create", name });
+          } else {
+            void run({ action: "edit_item", item: itemDialog.item, name });
+          }
         }} />
       )}
       {project && inputDialog && (

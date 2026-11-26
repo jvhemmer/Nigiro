@@ -1,4 +1,4 @@
-import { Brackets, ChevronDown, ChevronRight, FolderPlus, Pencil, Table2, Trash2, Variable } from "lucide-react";
+import { Brackets, ChevronDown, ChevronRight, Pencil, Table2, Trash2, Variable } from "lucide-react";
 import { useState, type DragEvent } from "react";
 import { useRevealDockPanel } from "./DockWorkspace";
 import { SourcePath } from "./SourceChecklist";
@@ -13,7 +13,7 @@ export function SourcesPanel({ project, busy, run, onInspect }: {
   const reveal = useRevealDockPanel();
   const [drag, setDrag] = useState<number | null>(null);
   const [hover, setHover] = useState<{ key: string; edge: "before" | "after" } | null>(null);
-  const [edit, setEdit] = useState<{ id?: string; name: string } | null>(null);
+  const [edit, setEdit] = useState<{ id: string; name: string } | null>(null);
   const members = project.sources.map((source, index) => ({ source, index }));
 
   function endDrag() {
@@ -75,14 +75,9 @@ export function SourcesPanel({ project, busy, run, onInspect }: {
   }
 
   return <section className="source-tree">
-    <div className="source-tree-toolbar">
-      <button type="button" onClick={() => setEdit({ name: "" })} disabled={busy}>
-        <FolderPlus size={13} aria-hidden="true" /> New group…
-      </button>
-    </div>
     {edit && <form className="source-group-form" onSubmit={async (event) => {
       event.preventDefault();
-      if (edit.name.trim() && await run({ action: "source_group", mode: edit.id ? "rename" : "create",
+      if (edit.name.trim() && await run({ action: "source_group", mode: "rename",
         group_id: edit.id, name: edit.name })) setEdit(null);
     }}>
       <input aria-label="Group name" placeholder="Group name" required autoFocus value={edit.name} disabled={busy}

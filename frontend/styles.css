@@ -503,8 +503,7 @@ button.primary:hover:not(:disabled), .run-split summary:hover { background: var(
 }
 .source-list .source-option-path { text-overflow: clip; }
 .source-tree { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.source-tree-toolbar, .source-group-form { display: flex; gap: 4px; padding: 3px; }
-.source-tree-toolbar button { display: flex; gap: 4px; align-items: center; }
+.source-group-form { display: flex; gap: 4px; padding: 3px; }
 .source-group-form input { flex: 1; min-width: 0; }
 .source-tree .source-list { flex: 1; min-height: 0; height: auto; }
 .source-group-row { display: flex; align-items: center; background: var(--surface); }
