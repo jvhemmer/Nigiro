@@ -14,7 +14,7 @@ pub struct Worker {
     child: Child,
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
-    diagnostics: Option<File>,
+    diagnostics: File,
 }
 
 #[derive(Deserialize)]
@@ -68,7 +68,7 @@ impl Worker {
                 uv
             }
         };
-        let diagnostics = if *runtime != PythonRuntime::Bundled {
+        if *runtime != PythonRuntime::Bundled {
             if !resources.join("nigiro").join("desktop.py").is_file() {
                 return Err("The Python engine source is missing from this build.".into());
             }
@@ -77,12 +77,9 @@ impl Worker {
                 "assert sys.version_info >= (3, 10), 'Nigiro needs Python 3.10 or newer'; ",
                 "sys.path.insert(0, sys.argv[1]); import typst; from nigiro.desktop import main; main()",
             )]).arg(resources);
-            let log = tempfile::tempfile().map_err(|error| error.to_string())?;
-            command.stderr(log.try_clone().map_err(|error| error.to_string())?);
-            Some(log)
-        } else {
-            None
-        };
+        }
+        let diagnostics = tempfile::tempfile().map_err(|error| error.to_string())?;
+        command.stderr(diagnostics.try_clone().map_err(|error| error.to_string())?);
         command.env("NIGIRO_PLUGIN_DIR", plugin_dir);
         #[cfg(windows)]
         {
@@ -110,30 +107,18 @@ impl Worker {
         let input = self.input.as_mut().expect("Worker stdin is open.");
         let mut line = serde_json::to_vec(request).map_err(|err| err.to_string())?;
         line.push(b'\n');
-        input
-            .write_all(&line)
-            .and_then(|_| input.flush())
-            .map_err(|err| format!("Could not send a request to the analysis engine. {err}"))?;
+        if let Err(error) = input.write_all(&line).and_then(|_| input.flush()) {
+            return Err(self.exit_error(&format!(
+                "Could not send a request to the analysis engine. {error}"
+            )));
+        }
 
         let mut reply = String::new();
         self.output
             .read_line(&mut reply)
             .map_err(|err| format!("Could not read the analysis engine response. {err}"))?;
         if reply.is_empty() {
-            if let Some(log) = &mut self.diagnostics {
-                let size = log.metadata().map_or(0, |info| info.len());
-                let mut tail = Vec::new();
-                if log.seek(SeekFrom::Start(size.saturating_sub(2048))).is_ok()
-                    && log.take(2048).read_to_end(&mut tail).is_ok()
-                    && !tail.is_empty()
-                {
-                    return Err(format!(
-                        "The Python engine stopped. {}",
-                        String::from_utf8_lossy(&tail).trim()
-                    ));
-                }
-            }
-            return Err("The analysis engine stopped. Close and reopen Nigiro.".into());
+            return Err(self.exit_error("The analysis engine stopped."));
         }
         match serde_json::from_str(&reply) {
             Ok(Reply::Success { state }) => Ok(state),
@@ -143,6 +128,24 @@ impl Worker {
             )),
         }
     }
+
+    fn exit_error(&mut self, message: &str) -> String {
+        let log = &mut self.diagnostics;
+        let size = log.metadata().map_or(0, |info| info.len());
+        let mut tail = Vec::new();
+        if log.seek(SeekFrom::Start(size.saturating_sub(2048))).is_ok()
+            && log.take(2048).read_to_end(&mut tail).is_ok()
+        {
+            let details = String::from_utf8_lossy(&tail);
+            if !details.trim().is_empty() {
+                return format!("{message} {}", details.trim());
+            }
+        }
+        match self.child.try_wait() {
+            Ok(Some(status)) => format!("{message} Process status: {status}."),
+            _ => message.to_string(),
+        }
+    }
 }
 
 impl Drop for Worker {
@@ -150,5 +153,36 @@ impl Drop for Worker {
         // Close stdin so Python can exit and PyInstaller can remove its temporary files.
         self.input.take();
         let _ = self.child.wait();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn bundled_worker_reports_stderr_when_it_exits() {
+        let diagnostics = tempfile::tempfile().unwrap();
+        let mut child = Command::new("sh")
+            .args([
+                "-c",
+                "read -r request; echo 'Could not load Python.' >&2; exit 1",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(diagnostics.try_clone().unwrap())
+            .spawn()
+            .unwrap();
+        let mut worker = Worker {
+            runtime: PythonRuntime::Bundled,
+            fallback: None,
+            input: child.stdin.take(),
+            output: BufReader::new(child.stdout.take().unwrap()),
+            child,
+            diagnostics,
+        };
+        let error = worker.request(&json!({"action":"state"})).unwrap_err();
+        assert_eq!(error, "The analysis engine stopped. Could not load Python.");
     }
 }

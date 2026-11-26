@@ -90,3 +90,19 @@ jobs:
           uploadUpdaterJson: true
           tauriScript: npx --no-install tauri
           args: --config src-tauri/tauri.release.generated.json --bundles ${{ matrix.bundles }} -- --locked
+      - name: Run the engine from the signed app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          uv run --no-project python - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+
+          engine = Path("src-tauri/target/release/bundle/macos/Nigiro.app/Contents/MacOS/nigiro-engine").resolve()
+          request = json.dumps({"action": "state", "_paged": True})
+          response = subprocess.run([str(engine)], input=request + "\n", text=True,
+                                    stdout=subprocess.PIPE, timeout=120, check=True)
+          if "project" not in json.loads(response.stdout).get("state", {}):
+              raise SystemExit("The bundled analysis engine did not return a project.")
+          PY
