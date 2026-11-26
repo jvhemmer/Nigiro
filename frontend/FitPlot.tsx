@@ -151,7 +151,7 @@ export function traceAppearance(
 }
 
 function tracePresentation(trace: Data, index: number, data: PluginFigure, style: FigureStyle, colors: Colors, edits: ProjectTraceStyles) {
-  const { color, width, dash, fill } = edits[index] ?? {};
+  const { color, width, dash, fill, legend } = edits[index] ?? {};
   const line = color !== undefined || width !== undefined || dash !== undefined ? {
     ...(color !== undefined && { color: plotlyColor(color) }),
     ...(width !== undefined && { width }),
@@ -174,6 +174,8 @@ function tracePresentation(trace: Data, index: number, data: PluginFigure, style
   }
   return {
     ...appearance,
+    ...(legend?.name !== undefined && { name: plotLegendText(legend.name, style.legend_renderer, style, true) }),
+    ...(legend?.showlegend !== undefined && { showlegend: legend.showlegend }),
     ...(line && { line: { ...appearance.line, ...line } }),
     ...(fillcolor !== undefined && { fillcolor }),
     ...(zorder !== undefined && (trace.type == null || ["scatter", "scattergl", "bar"].includes(trace.type))
@@ -374,11 +376,15 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
         chart.on("plotly_legendclick", selectLegend);
         return;
       }
+      const optedIntoLegend = style.legend === "auto"
+        && Object.values(traceStyles).some(({ legend }) => legend?.showlegend === true);
       const layout = merge(
         figureLayout(style, data.x_label ?? "", data.y_label ?? "", revision,
-          !!data.residual_panel, !!data.categorical_x, data.part === "fit" || !!data.overlay_inputs),
+          !!data.residual_panel, !!data.categorical_x, data.part === "fit" || !!data.overlay_inputs || optedIntoLegend),
         structuredClone(data.layout ?? {}),
       );
+      if (optedIntoLegend) layout.showlegend = true;
+      if (style.legend === "none") layout.showlegend = false;
       if (style.plot_background === "transparent" && style.background !== "transparent"
         && traces.some((trace) => trace.type == null || ["scatter", "scattergl", "bar"].includes(trace.type))) {
         // Plotly paints paper behind the axes. Leave a hole in that paper

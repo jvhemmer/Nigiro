@@ -781,7 +781,8 @@ class Workspace:
             elif action == "trace_style" and step.request.get("style") is not None:
                 options = [step.request["style"]]
                 labels = {"color": "Color", "width": "Line width (px)", "dash": "Line style",
-                          "opacity": "Fill opacity (0 to 1)", "zorder": "Draw order (Z)"}
+                          "opacity": "Fill opacity (0 to 1)", "zorder": "Draw order (Z)",
+                          "name": "Legend desc.", "showlegend": "Show in legend"}
             elif action in ("scale_column", "correct", "fit", "plot"):
                 keys = {"scale_column": ["factor"], "correct": ["value"], "fit": ["x", "y"], "plot": ["x", "y"]}[action]
                 options = [{key: step.request[key] for key in keys}]
@@ -1706,8 +1707,8 @@ class Workspace:
                     stored = record.trace_styles.get(operation.trace, {})
                     if operation.style_kind == "line":
                         current = {key: stored[key] for key in ("color", "width", "dash") if key in stored} or None
-                    elif operation.style_kind == "fill":
-                        current = stored.get("fill")
+                    elif operation.style_kind in ("fill", "legend"):
+                        current = stored.get(operation.style_kind)
                     else:
                         current = {"zorder": stored["zorder"]} if "zorder" in stored else None
                     if current == operation.style:

@@ -205,12 +205,12 @@ class TraceAppearance:
     figure_id: int
     trace: int
     style: dict | None
-    style_kind: Literal["line", "fill", "order"] = "line"
+    style_kind: Literal["line", "fill", "order", "legend"] = "line"
 
     def __post_init__(self) -> None:
         if any(type(index) is not int or index < 0 for index in (self.figure_id, self.trace)):
             raise ValueError("Choose a valid figure and trace.")
-        if self.style_kind not in ("line", "fill", "order"):
+        if self.style_kind not in ("line", "fill", "order", "legend"):
             raise ValueError("Choose a trace style to edit.")
         if self.style is None:
             return
@@ -220,6 +220,13 @@ class TraceAppearance:
                 or ("opacity" in self.style and
                     (type(self.style["opacity"]) not in (int, float) or not 0 <= self.style["opacity"] <= 1))):
                 raise ValueError("Choose a fill color and an opacity from 0 to 100%.")
+            object.__setattr__(self, "style", self.style.copy())
+            return
+        if self.style_kind == "legend":
+            if (not isinstance(self.style, dict) or not self.style or not self.style.keys() <= {"name", "showlegend"}
+                or ("name" in self.style and not isinstance(self.style["name"], str))
+                or ("showlegend" in self.style and type(self.style["showlegend"]) is not bool)):
+                raise ValueError("Enter a legend description and choose whether to show it.")
             object.__setattr__(self, "style", self.style.copy())
             return
         if self.style_kind == "order":
@@ -574,10 +581,13 @@ class Project:
                     for key in ("color", "width", "dash"):
                         style.pop(key, None)
                     style.update(op.style or {})
+                elif op.style_kind == "order":
+                    style.pop("zorder", None)
+                    style.update(op.style or {})
                 elif op.style is None:
-                    style.pop("fill" if op.style_kind == "fill" else "zorder", None)
+                    style.pop(op.style_kind, None)
                 else:
-                    style.update({"fill": op.style} if op.style_kind == "fill" else op.style)
+                    style[op.style_kind] = op.style
                 if style:
                     styles[op.trace] = style
                 else:

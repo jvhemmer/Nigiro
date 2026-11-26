@@ -1,3 +1,4 @@
+import { decodePlotText } from "./plotText.mjs";
 import { ColorField, isHexColor, plotlyColor } from "./ColorField";
 import { InspectField, InspectNumber } from "./InspectField";
 import { describeCircuit } from "./CircuitDesigner";
@@ -39,7 +40,7 @@ import { EditWorkflowPortsDialog, EditWorkflowRunDialog, RunWorkflowDialog, Save
 import { Worksheet } from "./Worksheet";
 import {
   elementNames, formatNumber, lineDashes, replacesProject, workspace,
-  type FigureElement, type ImportReview, type InspectStyleChange, type PluginDefinition, type PluginRun, type PluginStepInputs, type Project, type Request, type TraceFillStyle, type TraceLineStyle, type TraceStyle, type WorkflowPorts, type WorkflowStep, type WorkspaceItem,
+  type FigureElement, type ImportReview, type InspectStyleChange, type PluginDefinition, type PluginRun, type PluginStepInputs, type Project, type Request, type TraceFillStyle, type TraceLegendStyle, type TraceLineStyle, type TraceStyle, type WorkflowPorts, type WorkflowStep, type WorkspaceItem,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<boolean>;
@@ -71,12 +72,13 @@ function confirmDiscard(projectDirty: boolean, workspaceDirty: boolean) {
   });
 }
 
-function TraceInspectForm({ figureId, index, initialLine, initialFill, orderIndex, initialOrder, override,
+function TraceInspectForm({ figureId, index, initialLine, initialFill, initialLegend, orderIndex, initialOrder, override,
   storedOrder, elementColor, busy, run }: {
   figureId: number;
   index: number;
   initialLine?: TraceLineStyle;
   initialFill?: TraceFillStyle;
+  initialLegend?: TraceLegendStyle;
   orderIndex?: number;
   initialOrder: number;
   override?: TraceStyle;
@@ -87,8 +89,10 @@ function TraceInspectForm({ figureId, index, initialLine, initialFill, orderInde
 }) {
   const storedLine = { color: override?.color, width: override?.width, dash: override?.dash };
   const storedFill = override?.fill ?? {};
+  const storedLegend = override?.legend ?? {};
   const [line, setLine] = useState<Partial<TraceLineStyle>>(storedLine);
   const [fill, setFill] = useState<Partial<TraceFillStyle>>(storedFill);
+  const [legend, setLegend] = useState<Partial<TraceLegendStyle>>(storedLegend);
   const [order, setOrder] = useState<string | null>(storedOrder === undefined ? null : String(storedOrder));
   const [color, setColor] = useState(elementColor?.color);
   const edits: InspectStyleChange[] = [];
@@ -99,6 +103,10 @@ function TraceInspectForm({ figureId, index, initialLine, initialFill, orderInde
   if (fill.color !== storedFill.color || fill.opacity !== storedFill.opacity) {
     edits.push({ action: "trace_style", trace: index, kind: "fill",
       style: fill.color === undefined && fill.opacity === undefined ? null : fill });
+  }
+  if (legend.name !== storedLegend.name || legend.showlegend !== storedLegend.showlegend) {
+    edits.push({ action: "trace_style", trace: index, kind: "legend",
+      style: legend.name === undefined && legend.showlegend === undefined ? null : legend });
   }
   if (orderIndex !== undefined && (order === "" || (order === null ? storedOrder !== undefined : Number(order) !== storedOrder))) {
     edits.push({ action: "trace_style", trace: orderIndex, kind: "order",
@@ -139,6 +147,18 @@ function TraceInspectForm({ figureId, index, initialLine, initialFill, orderInde
           onChange={(event) => setLine({ ...line, dash: event.target.value as TraceLineStyle["dash"] })}>
           {Object.entries(lineDashes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>}
+      </InspectField>
+    </>}
+    {initialLegend && <>
+      <InspectField label="Show in legend" disabled={busy}
+        revert={legend.showlegend === undefined ? undefined : () => setLegend({ ...legend, showlegend: undefined })}>
+        {(id) => <input id={id} type="checkbox" checked={legend.showlegend ?? initialLegend.showlegend} disabled={busy}
+          onChange={(event) => setLegend({ ...legend, showlegend: event.target.checked })} />}
+      </InspectField>
+      <InspectField label="Legend desc." disabled={busy}
+        revert={legend.name === undefined ? undefined : () => setLegend({ ...legend, name: undefined })}>
+        {(id) => <input id={id} type="text" value={legend.name ?? initialLegend.name} disabled={busy}
+          onChange={(event) => setLegend({ ...legend, name: event.target.value })} />}
       </InspectField>
     </>}
     {initialFill && <>
@@ -338,6 +358,14 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
   } : undefined;
   const initialFill = trace && hasTraceFill(trace)
     ? fillAppearance(trace, typeof stroke === "string" ? stroke : project.colors.observations) : undefined;
+  const autoLegend = figure.layout?.showlegend ?? (!!figure.residual_panel || figure.part === "fit" || !!figure.overlay_inputs);
+  const initialLegend = initialLine && trace ? {
+    name: decodePlotText(trace.name ?? ""),
+    showlegend: (!("showlegend" in trace) || trace.showlegend !== false)
+      && (project.figure_style.legend !== "auto" || autoLegend
+        || Object.entries(project.trace_styles).some(([otherIndex, { legend }]) =>
+          Number(otherIndex) !== index && legend?.showlegend === true)),
+  } : undefined;
   const orderIndex = index === undefined ? undefined : traceOrderIndex(figure.traces, index);
   const storedOrder = orderIndex === undefined ? undefined : project.trace_styles[orderIndex]?.zorder;
   const orderTrace = orderIndex === undefined ? undefined : figure.traces[orderIndex];
@@ -352,7 +380,7 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
       {figure.overlay_inputs ? <><dt>Inputs</dt><dd>{figure.overlay_inputs.map(({ label }) => label).join(", ")}</dd></>
         : input && <><dt>Input</dt><dd>{input.name}</dd></>}
       {trace && <>
-        <dt>Legend label</dt><dd>{trace.name ?? "Unnamed"}</dd>
+        {!initialLegend && <><dt>Legend label</dt><dd>{trace.name ?? "Unnamed"}</dd></>}
         <dt>Trace type</dt><dd>{trace.type ?? "Scatter"}</dd>
         {!initialLine && color && <><dt>Color</dt><dd><span className="swatch" style={{ backgroundColor: color }} /> {color}</dd></>}
         {role && traceMode?.includes("markers") && project.figure_style.show_markers &&
@@ -369,8 +397,8 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
     </ul>}
     {onConfigure && <button type="button" disabled={busy} onClick={onConfigure}>Plugin settings…</button>}
     {index !== undefined && (initialLine || initialFill || editableOrder !== undefined || elementColor) && <TraceInspectForm
-      key={JSON.stringify([inspection.id, index, initialLine, initialFill, storedOrder, nativeOrder, override, elementColor])}
-      figureId={inspection.id} {...{ index, initialLine, initialFill, override, storedOrder, elementColor, busy, run }}
+      key={JSON.stringify([inspection.id, index, initialLine, initialFill, initialLegend, storedOrder, nativeOrder, override, elementColor])}
+      figureId={inspection.id} {...{ index, initialLine, initialFill, initialLegend, override, storedOrder, elementColor, busy, run }}
       orderIndex={editableOrder} initialOrder={nativeOrder} />}
   </div>;
 }

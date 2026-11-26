@@ -241,8 +241,12 @@ class WorkflowTest(unittest.TestCase):
             worker.dispatch({**batch, "changes": [fill_change, {**order_change, "style": {"zorder": 10001}}]})
         self.assertEqual(worker.project.figures[peak["figure_id"]].trace_styles, {})
         line_change = {"action": "trace_style", "trace": 1, "kind": "line", "style": {"color": "#224466", "width": 3}}
+        legend = {"name": "Peak $$i_1$$", "showlegend": False}
+        legend_change = {"action": "trace_style", "trace": 1, "kind": "legend", "style": legend}
         worker.dispatch({**batch, "changes": [line_change]})
-        edited = worker.dispatch({**batch, "changes": [fill_change, order_change, {**line_change, "style": {"width": 3}}]})["project"]
+        edited = worker.dispatch({
+            **batch, "changes": [fill_change, order_change, {**line_change, "style": {"width": 3}}, legend_change],
+        })["project"]
         repeated = worker.dispatch({**batch, "changes": []})["project"]
         self.assertEqual(repeated["trace_styles"], edited["trace_styles"])
         self.assertEqual(len(repeated["workflow"]["steps"]), len(edited["workflow"]["steps"]) + 1)
@@ -254,7 +258,7 @@ class WorkflowTest(unittest.TestCase):
             reopened = Workspace()
             for request in ({"action": "open", "path": str(path)}, {"action": "run_all"}):
                 project = reopened.dispatch(request)["project"]
-                self.assertEqual(project["trace_styles"], {1: {"fill": fill, "width": 3}, 0: {"zorder": -1}})
+                self.assertEqual(project["trace_styles"], {1: {"fill": fill, "width": 3, "legend": legend}, 0: {"zorder": -1}})
                 self.assertTrue(project["source_groups"][0]["collapsed"])
                 self.assertEqual(next(source for source in project["sources"] if source["id"] == area["id"])["group_id"],
                                  custom["id"])

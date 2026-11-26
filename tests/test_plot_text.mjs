@@ -28,4 +28,6 @@ test("legend auto prefers inline math for both dollar delimiters", () => {
   assert.equal(plotLegendText("$$i$$", "latex"), "$i$");
   assert.equal(plotLegendText("$$i$$", "plain"), "&#36;&#36;i&#36;&#36;");
   assert.equal(plotLegendText("a &amp; b"), "a &amp; b");
+  assert.equal(plotLegendText("<Control> & sample", "auto", undefined, true), "&lt;Control&gt; &amp; sample");
+  assert.equal(plotLegendText("Control $$i_1$$", "auto", undefined, true), "Control <i>i</i><sub>1</sub>");
 });

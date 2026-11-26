@@ -78,12 +78,15 @@ const GlobalControls = createContext<{
 
 const AxisCell = createContext("");
 
-function Field({ label, children, checkbox = false }: { label: string; children: ReactNode; checkbox?: boolean }) {
+function Field({ label, children, checkbox = false, controlId }: {
+  label: string; children: ReactNode; checkbox?: boolean; controlId?: string;
+}) {
   const controls = useContext(GlobalControls);
   const axis = useContext(AxisCell);
   const key = fieldKeys[label];
   return <div className="figure-field-row">
-    <label className={checkbox ? "figure-field figure-checkbox" : "figure-field"}>{checkbox && children}<span className={axis ? "axis-cell-label" : undefined}>{axis ? `${axis} ${label}` : label}</span>{!checkbox && children}</label>
+    {controlId ? <div className="figure-field"><label htmlFor={controlId}>{label}</label>{children}</div>
+      : <label className={checkbox ? "figure-field figure-checkbox" : "figure-field"}>{checkbox && children}<span className={axis ? "axis-cell-label" : undefined}>{axis ? `${axis} ${label}` : label}</span>{!checkbox && children}</label>}
     {controls && key && <div className="global-field-actions">
       <button type="button" disabled={controls.busy} title="Save as global value"
         aria-label={`Save ${axis ? `${axis} ` : ""}${label.toLowerCase()} as global`} onClick={() => controls.save(key)}><Save size={10} /></button>
@@ -91,6 +94,11 @@ function Field({ label, children, checkbox = false }: { label: string; children:
         aria-label={`Revert ${axis ? `${axis} ` : ""}${label.toLowerCase()} to global`} onClick={() => controls.reset(key)}><RotateCcw size={10} /></button>
     </div>}
   </div>;
+}
+
+function FigureColorField(props: Parameters<typeof ColorField>[0]) {
+  const id = useId();
+  return <Field label={props.label} controlId={id}><ColorField {...props} id={id} /></Field>;
 }
 
 function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
@@ -393,7 +401,7 @@ function OptionalColor({ label, value, fallback, onChange }: {
   onChange: (value: string | null) => void;
 }) {
   return <>
-    <Field label={label}><ColorField label={label} value={value ?? fallback} onChange={onChange} /></Field>
+    <FigureColorField label={label} value={value ?? fallback} onChange={onChange} />
     <Field label={`Use automatic ${label.toLowerCase()}`} checkbox>
       <input type="checkbox" checked={value == null} onChange={(event) => onChange(event.target.checked ? null : fallback)} />
     </Field>
@@ -453,20 +461,16 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
       <Choice label="Figure background" value={style.background === "transparent" ? "transparent" : "color"}
         options={[["color", "Color"], ["transparent", "Transparent"]]}
         onChange={(mode) => set("background", mode === "transparent" ? "transparent" : "#ffffff")} />
-      {style.background !== "transparent" && <Field label="Figure background color">
-        <ColorField label="Figure background color" value={style.background} onChange={(value) => set("background", value)} />
-      </Field>}
+      {style.background !== "transparent" && <FigureColorField label="Figure background color" value={style.background} onChange={(value) => set("background", value)} />}
       <Choice label="Plot area background"
         value={style.plot_background == null ? "match" : style.plot_background === "transparent" ? "transparent" : "color"}
         options={[["match", "Match figure"], ["color", "Color"], ["transparent", "Transparent"]]}
         onChange={(mode) => set("plot_background", mode === "match" ? null : mode === "transparent" ? "transparent" :
           style.background === "transparent" ? "#ffffff" : style.background)} />
-      {style.plot_background && style.plot_background !== "transparent" && <Field label="Plot area background color">
-        <ColorField label="Plot area background color" value={style.plot_background} onChange={(value) => set("plot_background", value)} />
-      </Field>}
+      {style.plot_background && style.plot_background !== "transparent" && <FigureColorField label="Plot area background color" value={style.plot_background} onChange={(value) => set("plot_background", value)} />}
     </SettingsGroup>
     <SettingsGroup title="Default text">
-      <Field label="Text color"><ColorField label="Text color" value={style.text_color} onChange={(value) => set("text_color", value)} /></Field>
+      <FigureColorField label="Text color" value={style.text_color} onChange={(value) => set("text_color", value)} />
       <FontField value={style.font_family} onChange={(value) => set("font_family", value)} face={style.font_face}
         legacyFace={style.font_bold || style.font_italic ? `${style.font_bold ? 700 : 400}:${style.font_italic ? "italic" : "normal"}` : undefined}
         onFace={(face) => onChange({ ...style, font_face: face, font_bold: false, font_italic: false })} />
@@ -500,7 +504,7 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
       onChange={(value) => set("legend_background", value)} />
     <Field label="Show frame" checkbox><input type="checkbox" checked={style.legend_frame}
       onChange={(event) => set("legend_frame", event.target.checked)} /></Field>
-    <Field label="Frame color"><ColorField label="Frame color" value={style.legend_border_color} onChange={(value) => set("legend_border_color", value)} /></Field>
+    <FigureColorField label="Frame color" value={style.legend_border_color} onChange={(value) => set("legend_border_color", value)} />
     <NumberField label="Frame width (px)" value={style.legend_border_width} onChange={(value) => set("legend_border_width", value)} />
     </SettingsGroup>}
     {tab === "traces" && <>
@@ -838,11 +842,9 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
                 <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
               </select>
             </Field>
-            <Field label="Accent color">
-              <ColorField label="Accent color" opaque value={appearanceDraft.accent} onChange={(value) => setAppearanceDraft({
+            <FigureColorField label="Accent color" opaque value={appearanceDraft.accent} onChange={(value) => setAppearanceDraft({
                 ...appearanceDraft, accent: value,
               })} />
-            </Field>
           </SettingsGroup>}
           <div hidden={page !== "figures"}>
             {tab === "axes" ? <AxisFields global={global} inheritedFamily={style.font_family} withControls={withControls}

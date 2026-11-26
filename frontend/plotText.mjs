@@ -15,8 +15,11 @@ const inlineStyles = new Map([["text", ""], ["mathrm", ""], ["mathbf", "b"], ["m
 const mathSpan = /(?<!\\)\$([^$]+)(?<!\\)\$/g;
 
 function escapePlotText(text) {
-  return text.replaceAll("&", "&amp;").replaceAll("$", "&#36;")
-    .replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>");
+  return escapeLabel(text).replaceAll("$", "&#36;");
+}
+
+function escapeLabel(text) {
+  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>");
 }
 
 export function decodePlotText(text) {
@@ -91,14 +94,15 @@ export function plotText(text, renderer = "auto", math) {
   return escapePlotText(text);
 }
 
-export function plotLegendText(text, renderer = "auto", math) {
-  if (renderer === "plain") return plotText(decodePlotText(text), renderer, math);
-  const label = decodePlotText(text).replace(/(?<![\\$])\$\$([^$]+)(?<!\\)\$\$(?!\$)/g,
+export function plotLegendText(text, renderer = "auto", math, literal = false) {
+  const decoded = literal ? text : decodePlotText(text);
+  if (renderer === "plain") return plotText(decoded, renderer, math);
+  const label = decoded.replace(/(?<![\\$])\$\$([^$]+)(?<!\\)\$\$(?!\$)/g,
     (_, expression) => `$${expression}$`);
   if (renderer !== "auto") return plotText(label, renderer, math);
 
   const expressions = [...label.matchAll(mathSpan)];
-  if (expressions.length === 0) return text;
+  if (expressions.length === 0) return literal ? escapeLabel(text) : text;
   const inline = expressions.every(([, expression]) => inlineMath(expression) !== null);
   return plotText(label, inline ? "inline" : "auto", math);
 }

@@ -881,10 +881,12 @@ td input {
   align-items: center; gap: 4px;
 }
 .inspect-field > label { margin: 0; overflow-wrap: anywhere; }
-.inspect-field select, .inspect-number input {
+.inspect-field select, .inspect-field input[type="text"], .inspect-number input {
   height: 24px; min-width: 0; width: 100%; border: 1px solid var(--line);
   border-radius: 2px; background: var(--panel); color: var(--text);
 }
+.inspect-field input[type="text"] { padding: 0 4px; }
+.inspect-field input[type="checkbox"] { justify-self: start; margin: 0; }
 .inspect-field select {
   appearance: none;
   padding: 0 16px 0 4px;
@@ -1093,7 +1095,7 @@ button.inspect-revert {
 .import-preview ol { margin: 0; padding: 4px 4px 4px 35px; white-space: pre; }
 
 .color-field { min-width: 0; }
-button.color-field-trigger { width: 100%; min-height: 24px; padding: 3px; }
+button.color-field-trigger { display: flex; width: 100%; height: 24px; min-height: 24px; padding: 3px; }
 .color-sample {
   background-image: conic-gradient(#909090 25%, #d4d4d4 0 50%, #909090 0 75%, #d4d4d4 0);
   background-size: 10px 10px;
