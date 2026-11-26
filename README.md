@@ -181,10 +181,6 @@ Enter sizes with units, such as `9 pt`, `8 cm`, or `400 px`. Bare numbers use pi
 - Set labels, scales, limits, ticks, axis line width, and hover rulers in **Axes**. The **Label** and **Ticks** groups each have their own font and text renderer. The tick renderer applies to custom tick text, such as bar categories. Use **Configure axes separately** to edit each axis. Otherwise, **Global** applies to every axis in the figure. Choose plain numbers, SI prefixes, or a shared scientific exponent for numeric ticks. Leave a limit blank for automatic scaling.
 - Select **Apply** to update the figure. Save the project to keep its settings.
 
-Select a line and use **Show in legend** and **Legend desc.** in **Inspect**. Select **Apply** or press **Enter** to save both fields as one recorded step. In **Auto**, selecting **Show in legend** can display the legend for a single line. Use **Figure settings → Legend → Position** to hide the entire legend. Legend descriptions use the figure’s text renderer. **Auto** prefers inline math for `$…$` and `$$…$$`.
-
-Use the same color picker in **Inspect** and **Figure settings**. Choose a swatch, enter a hex color, or choose **Transparent**. For new desktop color controls, reuse [`ColorField`](frontend/ColorField.tsx). Pass `opaque` only for settings that require a solid color, such as the UI accent.
-
 The defaults use a white background, dark axes, outward ticks, and no grid. Nigiro supplies DejaVu Sans. For another font, install the same font on each machine that renders the figure.
 
 ## Export a figure
