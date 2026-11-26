@@ -28,6 +28,8 @@ class Workflow:
     error: str | None = None
     source_order: list[str | dict | None] = field(default_factory=list)
     next_step_id: int = 1
+    source_groups: dict[str, dict] = field(default_factory=dict)
+    source_memberships: dict[str, str | None] = field(default_factory=dict)
 
     def reference(self, kind: str, value):
         if kind == "source" and value is not None:

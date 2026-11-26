@@ -75,16 +75,43 @@ export function WorkflowStepDialog({ step, sources, busy, error, onClose, onRun 
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [options, setOptions] = useState<PluginOptions[]>(step.options);
+  const [advanced, setAdvanced] = useState(step.options.length === 0);
+  const [parameters, setParameters] = useState(() => JSON.stringify(step.parameters ?? {}, null, 2));
+  const [parseError, setParseError] = useState("");
   useEffect(() => { dialog.current?.showModal(); }, []);
 
   return <dialog ref={dialog} className="settings-dialog" aria-labelledby="workflow-dialog-title"
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <form onSubmit={async (event) => {
       event.preventDefault();
-      if (await onRun({ action: "edit_step", step_id: step.id, options })) onClose();
+      if (step.files?.length) return;
+      let details: Record<string, unknown> | undefined;
+      if (advanced) {
+        try {
+          const value: unknown = JSON.parse(parameters);
+          if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
+          details = value as Record<string, unknown>;
+        } catch {
+          setParseError("Enter the recorded parameters as a JSON object.");
+          return;
+        }
+      }
+      setParseError("");
+      if (await onRun({ action: "edit_step", step_id: step.id, options, parameters: details })) onClose();
     }}>
       <h2 id="workflow-dialog-title">{step.array ? "Edit Array" : step.label}</h2>
       <div className="fit-settings plugin-fields">
+        {step.files?.length ? step.files.map((file, slot) => <div className="recorded-import-file" key={slot}>
+          <span title={file}>{file}</span>
+          <button type="button" disabled={busy} onClick={async () => {
+            if (await onRun({ action: "replace_import", step_id: step.id, slot })) onClose();
+          }}>Replace file…</button>
+        </div>) : advanced ? <label>
+          <span>Recorded parameters (JSON)</span>
+          <textarea rows={12} spellCheck={false} value={parameters} disabled={busy}
+            onChange={(event) => { setParameters(event.target.value); setParseError(""); }} />
+        </label> :
+        <>
         {options.map((values, index) => <fieldset key={index}>
           {options.length > 1 && <legend>Input {index + 1}</legend>}
           {Object.entries(values).map(([key, value]) => step.editors?.[key] === "eis_circuit"
@@ -105,11 +132,16 @@ export function WorkflowStepDialog({ step, sources, busy, error, onClose, onRun 
             </label>
           ))}
         </fieldset>)}
+        </>}
       </div>
-      {error && <p role="alert" className="figure-settings-error">{error}</p>}
+      {(parseError || error) && <p role="alert" className="figure-settings-error">{parseError || error}</p>}
       <footer>
+        {!!step.options.length && step.parameters && <button type="button" disabled={busy} onClick={() => {
+          setAdvanced(!advanced);
+          setParseError("");
+        }}>{advanced ? "Basic options" : "Advanced options"}</button>}
         <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
-        <button type="submit" className="primary" disabled={busy}>Save step</button>
+        {!step.files?.length && <button type="submit" className="primary" disabled={busy}>Save step</button>}
       </footer>
     </form>
   </dialog>;

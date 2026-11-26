@@ -38,10 +38,21 @@ enum Action {
     MoveSource {
         source_id: Option<String>,
         destination: usize,
+        placement: Option<Value>,
+    },
+    SourceGroup {
+        mode: String,
+        group_id: Option<String>,
+        name: Option<String>,
     },
     EditStep {
         step_id: usize,
         options: Value,
+        parameters: Option<Value>,
+    },
+    ReplaceImport {
+        step_id: usize,
+        slot: usize,
     },
     DeleteStep {
         step_id: usize,
@@ -144,6 +155,7 @@ enum Action {
         figure_id: usize,
         trace: usize,
         style: Option<Value>,
+        kind: Option<String>,
     },
     Save {
         notes: Option<String>,
@@ -322,11 +334,37 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         Action::MoveSource {
             source_id,
             destination,
+            placement,
         } => {
-            json!({ "action": "move_source", "source_id": source_id, "destination": destination })
+            json!({ "action": "move_source", "source_id": source_id, "destination": destination, "placement": placement })
         }
-        Action::EditStep { step_id, options } => {
-            json!({ "action": "edit_step", "step_id": step_id, "options": options })
+        Action::SourceGroup {
+            mode,
+            group_id,
+            name,
+        } => {
+            json!({ "action": "source_group", "mode": mode, "group_id": group_id, "name": name })
+        }
+        Action::EditStep {
+            step_id,
+            options,
+            parameters,
+        } => {
+            json!({ "action": "edit_step", "step_id": step_id, "options": options, "parameters": parameters })
+        }
+        Action::ReplaceImport { step_id, slot } => {
+            return Ok(pick_file(
+                window,
+                "replace_import",
+                "Replace imported data",
+                "CSV",
+                "csv",
+            )?
+            .map(|mut request| {
+                request["step_id"] = json!(step_id);
+                request["slot"] = json!(slot);
+                request
+            }));
         }
         Action::DeleteStep { step_id } => json!({ "action": "delete_step", "step_id": step_id }),
         Action::ScaleColumn { runs, factor } => {
@@ -409,8 +447,9 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             figure_id,
             trace,
             style,
+            kind,
         } => {
-            json!({ "action": "trace_style", "figure_id": figure_id, "trace": trace, "style": style })
+            json!({ "action": "trace_style", "figure_id": figure_id, "trace": trace, "style": style, "kind": kind })
         }
         Action::Save { notes } => json!({ "action": "save", "notes": notes }),
         Action::ImportData => {
@@ -520,7 +559,7 @@ fn pick_file(
         .set_parent(window)
         .set_title(title)
         .add_filter(filter, &[extension]);
-    if action == "open" {
+    if matches!(action, "open" | "replace_import") {
         if let Some(directory) = dialog_directory(window)? {
             dialog = dialog.set_directory(directory);
         }

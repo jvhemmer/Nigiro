@@ -24,20 +24,19 @@ import { ScalarSourceDialog } from "./ScalarSourceDialog";
 import { FigureSettings } from "./FigureSettings";
 import type { DesktopInfo, DesktopPreferences, Release } from "./DesktopSettings";
 import { axisSettings, cycleColor, type StyleSection } from "./figureStyle";
-import { FigurePlot, hasEditableLine, traceAppearance, type CaptureFigure } from "./FitPlot";
+import { FigurePlot, fillAppearance, hasEditableLine, hasTraceFill, traceAppearance, traceOrderIndex, type CaptureFigure } from "./FitPlot";
 import { ItemDialog, type ItemAction } from "./ItemDialog";
 import { saveFigure, type ExportSettings, type ExportTarget } from "./exportFigure";
 import { MenuBar, type Menu, type MenuCommand, type MenuRequest } from "./MenuBar";
 import { columnFields, InputOptionsDialog, supportsPairedSources } from "./InputOptionsDialog";
-import { useListDrag } from "./useListDrag";
+import { SourcesPanel } from "./SourcesPanel";
 import { ViewTabs, viewTabId } from "./ViewTabs";
 import { statusLabels, WorkflowPanel, WorkflowStepDialog } from "./WorkflowPanel";
 import { RunWorkflowDialog, SaveWorkflowDialog } from "./WorkflowDialogs";
 import { Worksheet } from "./Worksheet";
-import { SourcePath } from "./SourceChecklist";
 import {
   elementNames, formatNumber, lineDashes, replacesProject, workspace,
-  type FigureElement, type PluginDefinition, type PluginRun, type Project, type Request, type TraceLineStyle, type WorkflowStep, type WorkspaceItem,
+  type FigureElement, type PluginDefinition, type PluginRun, type Project, type Request, type TraceFillStyle, type TraceLineStyle, type WorkflowStep, type WorkspaceItem,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<boolean>;
@@ -117,6 +116,53 @@ function TraceLineEditor({ initial, overridden, busy, onApply }: {
     <div className="trace-line-actions">
       {overridden && <button type="button" disabled={busy} onClick={() => onApply(null)}>Reset</button>}
       <button type="submit" disabled={busy || !changed || !valid}>Apply</button>
+    </div>
+  </form>;
+}
+
+function TraceFillEditor({ initial, overridden, busy, onApply }: {
+  initial: TraceFillStyle;
+  overridden: boolean;
+  busy: boolean;
+  onApply: (style: TraceFillStyle | null) => void;
+}) {
+  const [color, setColor] = useState(initial.color);
+  const [opacity, setOpacity] = useState(String(Math.round(initial.opacity * 1000) / 10));
+  const valid = opacity !== "" && Number(opacity) >= 0 && Number(opacity) <= 100;
+  return <form className="fit-settings trace-line-editor" onSubmit={(event) => {
+    event.preventDefault();
+    if (valid && !busy) onApply({ color, opacity: Number(opacity) / 100 });
+  }}>
+    <label><span>Fill color</span><input type="color" value={color} disabled={busy}
+      onChange={(event) => setColor(event.target.value)} /></label>
+    <label><span>Fill opacity (%)</span><input type="number" required min={0} max={100} step="any" value={opacity} disabled={busy}
+      onChange={(event) => setOpacity(event.target.value)} /></label>
+    <div className="trace-line-actions">
+      {overridden && <button type="button" disabled={busy} onClick={() => onApply(null)}>Reset fill</button>}
+      <button type="submit" disabled={busy || !valid}>Apply fill</button>
+    </div>
+  </form>;
+}
+
+function TraceOrderEditor({ initial, overridden, busy, onApply }: {
+  initial: number;
+  overridden: boolean;
+  busy: boolean;
+  onApply: (style: { zorder: number } | null) => void;
+}) {
+  const [value, setValue] = useState(String(initial));
+  return <form className="fit-settings trace-line-editor" onSubmit={(event) => {
+    event.preventDefault();
+    if (!busy && value !== "") onApply({ zorder: Number(value) });
+  }}>
+    <label title="Higher values draw in front. A shaded area and its baseline share an order.">
+      <span>Draw order (Z)</span>
+      <input type="number" required min={-10000} max={10000} step={1} value={value} disabled={busy}
+        onChange={(event) => setValue(event.target.value)} />
+    </label>
+    <div className="trace-line-actions">
+      {overridden && <button type="button" disabled={busy} onClick={() => onApply(null)}>Reset order</button>}
+      <button type="submit" disabled={busy || value === ""}>Apply order</button>
     </div>
   </form>;
 }
@@ -251,7 +297,7 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
         )))}
         {step.status === "failed" && <><dt>Error</dt><dd>{project.workflow.error}</dd></>}
       </dl>
-      {!!step.options.length && <button type="button" disabled={busy} onClick={() => onEditStep(step)}>Edit Step…</button>}
+      {(step.files?.length || step.parameters) && <button type="button" disabled={busy} onClick={() => onEditStep(step)}>Edit Step…</button>}
     </div>;
   }
   const figure = inspection?.kind === "figure" && inspection.id === project.figure_id ? project.figure : null;
@@ -275,7 +321,8 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
   const input = project.sources.find(({ id }) => id === (figure.recipe.source_id ?? null));
   const override = index === undefined ? undefined : project.trace_styles[index];
   const appearance = trace && index !== undefined && hasEditableLine(trace)
-    ? traceAppearance(trace, index, figure, project.figure_style, project.colors, override) : undefined;
+    ? traceAppearance(trace, index, figure, project.figure_style, project.colors, override?.color
+      ? { color: override.color, width: override.width, dash: override.dash } : undefined) : undefined;
   const renderedLine = appearance?.line;
   const stroke = renderedLine?.color ?? traceColor ?? color;
   const dash = renderedLine?.dash ?? (line && "dash" in line ? line.dash : undefined);
@@ -284,6 +331,12 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
     width: renderedLine?.width ?? line?.width ?? 2,
     dash: typeof dash === "string" && Object.hasOwn(lineDashes, dash) ? dash as TraceLineStyle["dash"] : "solid",
   } : undefined;
+  const initialFill = trace && hasTraceFill(trace)
+    ? override?.fill ?? fillAppearance(trace, typeof stroke === "string" ? stroke : project.colors.observations) : undefined;
+  const orderIndex = index === undefined ? undefined : traceOrderIndex(figure.traces, index);
+  const storedOrder = orderIndex === undefined ? undefined : project.trace_styles[orderIndex]?.zorder;
+  const orderTrace = orderIndex === undefined ? undefined : figure.traces[orderIndex];
+  const nativeOrder = orderTrace && "zorder" in orderTrace && typeof orderTrace.zorder === "number" ? orderTrace.zorder : 0;
   return <div className="inspector inspect-details">
     {trace && <button type="button" className="trace-list-back" onClick={() => onInspectFigure(inspection.id)}>All traces</button>}
     <h2>{trace ? trace.name || `Trace ${(index ?? 0) + 1}` : figureName}</h2>
@@ -309,8 +362,16 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
     </ul>}
     {index !== undefined && initialLine && <TraceLineEditor
       key={`${inspection.id}:${index}:${initialLine.color}:${initialLine.width}:${initialLine.dash}`}
-      initial={initialLine} overridden={!!override} busy={busy}
+      initial={initialLine} overridden={!!override?.color} busy={busy}
       onApply={(style) => { void run({ action: "trace_style", figure_id: inspection.id, trace: index, style }); }} />}
+    {index !== undefined && initialFill && <TraceFillEditor
+      key={`${inspection.id}:${index}:${initialFill.color}:${initialFill.opacity}`}
+      initial={initialFill} overridden={!!override?.fill} busy={busy}
+      onApply={(style) => { void run({ action: "trace_style", kind: "fill", figure_id: inspection.id, trace: index, style }); }} />}
+    {trace && orderIndex !== undefined && (trace.type == null || ["scatter", "scattergl", "bar"].includes(trace.type)) && <TraceOrderEditor
+      key={`${inspection.id}:${orderIndex}:${storedOrder ?? nativeOrder}`}
+      initial={storedOrder ?? nativeOrder} overridden={storedOrder !== undefined} busy={busy}
+      onApply={(style) => { void run({ action: "trace_style", kind: "order", figure_id: inspection.id, trace: orderIndex, style }); }} />}
     {!initialLine && trace && role && color && !figure.overlay_inputs && <ColorField
       key={`${inspection.id}:${role}:${color}`} figureId={inspection.id}
       element={role} color={color} busy={busy} run={run} />}
@@ -338,38 +399,6 @@ function WorksheetPanel({ project, busy, run, onInspect }: { project: Project; b
           onCorrect={(row, column, value) => void run({ action: "correct", row, column, value })} />
       </div>
     </div>
-  );
-}
-
-function SourcesPanel({ project, busy, run, onInspect }: { project: Project; busy: boolean; run: Run; onInspect: (id: string | null) => void }) {
-  const reveal = useRevealDockPanel();
-  const drag = useListDrag(busy, (from, to) => {
-    void run({ action: "move_source", source_id: project.sources[from].id, destination: to });
-  });
-  if (!project.sources.length) return <p className="dock-empty">No sources in this project.</p>;
-  return (
-    <ul className="source-list" aria-label="Project sources">
-      {project.sources.map((source, index) => {
-        const detail = source.workflow_run ? `Produced by ${source.workflow_run}` : source.detail;
-        return (
-          <li key={source.id ?? "raw"} {...drag(index)}>
-            <button type="button" title={[source.name, detail ?? source.original_path].filter(Boolean).join("\n")} aria-current={source.id === project.source_id} disabled={busy}
-              data-item-kind="source" data-item-id={source.id ?? ""}
-              onClick={async () => {
-                onInspect(source.id);
-                if (source.id !== project.source_id) await run({ action: "select_source", source_id: source.id });
-                reveal("worksheet");
-              }}>
-              {source.array_step !== undefined ? <Brackets size={13} aria-hidden="true" />
-                : source.scalar ? <Variable size={13} aria-hidden="true" /> : <Table2 size={13} aria-hidden="true" />}
-              <span className="source-list-name">{source.name}</span>
-              {detail ? <span className="source-list-detail">{detail}</span>
-                : source.original_path && <SourcePath path={source.original_path} />}
-            </button>
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 
@@ -747,7 +776,7 @@ export function App() {
       if (!step) return;
       label = "Recorded step actions";
       groups = [[
-        { label: "Edit Step…", request: step.options.length ? { action: "choose_step", step } : null },
+        { label: "Edit Step…", request: step.files?.length || step.parameters ? { action: "choose_step", step } : null },
         { label: "Move Earlier", request: index > 0 ? { action: "move_step", step_id: step.id, direction: -1 } : null },
         { label: "Move Later", request: index < project.workflow.steps.length - 1 ? { action: "move_step", step_id: step.id, direction: 1 } : null },
       ], [{ label: "Delete…", request: { action: "delete_step", step_id: step.id } }]];
@@ -757,13 +786,23 @@ export function App() {
       if (!source) return;
       label = "Source actions";
       const arrayStep = project.workflow.steps.find(({ id }) => id === source.array_step);
+      const peers = project.sources.flatMap((item, position) => item.group_id === source.group_id ? [position] : []);
+      const position = peers.indexOf(index);
       groups = [[
         ...(arrayStep ? [{ label: "Edit Array…", request: { action: "choose_step", step: arrayStep } } satisfies MenuCommand] : []),
         ...itemCommands({ kind: "source", id: source.id }, source.name),
       ], [
-        { label: "Move Earlier", request: index > 0 ? { action: "move_source", source_id: source.id, destination: index - 1 } : null },
-        { label: "Move Later", request: index < project.sources.length - 1 ? { action: "move_source", source_id: source.id, destination: index + 1 } : null },
+        { label: "Move Earlier", request: position > 0 ? { action: "move_source", source_id: source.id, destination: peers[position - 1] } : null },
+        { label: "Move Later", request: position < peers.length - 1 ? { action: "move_source", source_id: source.id, destination: peers[position + 1] } : null },
       ]];
+      const destinations = [{ id: null, name: "Outside groups" }, ...(project.source_groups ?? [])]
+        .filter((group) => group.id !== source.group_id);
+      if (destinations.length) groups[1].push({
+        label: "Move to", request: null, submenu: destinations.map((group) => ({
+          label: group.name,
+          request: { action: "move_source", source_id: source.id, destination: index, placement: { group_id: group.id } },
+        })),
+      });
     } else if (clicked?.dataset.itemKind === "figure" || (activeFigure && event.target.closest(".figure-pane"))) {
       const target = clicked ? project?.figures.find(({ id }) => String(id) === clicked.dataset.itemId) : activeFigure;
       if (!target) return;

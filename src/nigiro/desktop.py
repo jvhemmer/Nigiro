@@ -9,6 +9,7 @@ import sys
 from copy import copy
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
+from uuid import uuid4
 
 import matplotlib
 import numpy
@@ -372,6 +373,8 @@ class Workspace:
         original = raw.worksheet.rows if raw else None
         available = {**project.raw_sources, **self.sources}
         details = self.source_details(project)
+        ordered_sources = self.ordered_sources()
+        groups, memberships = self.source_layout(ordered_sources, names)
         array_producers = self.array_producers()
         workflow_runs = self.workflow_source_runs()
         state["project"] = {
@@ -402,18 +405,22 @@ class Workspace:
             } for key in project.visible_figures],
             "figure_id": self.figure_id,
             "figure_input": {"name": figure_input.name, "columns": figure_input.columns, "rows": () if paged else figure_input.rows} if figure_input else None,
+            "source_groups": groups,
             "sources": [
                 {"id": key, "name": self.source_name(project, key, self.sources, names), "columns": table.worksheet.columns
                  if isinstance(table, Source) else table.columns,
                  "original_path": table.original_path if isinstance(table, Source) else None,
                  "kind": "raw" if isinstance(table, Source) else "derived",
+                 "group_id": memberships[key],
+                 **({"group_name": project.item_names.get(("source", key), table.name)}
+                    if memberships[key] is not None and isinstance(table, SourceTable) else {}),
                  **({"scalar": True} if isinstance(table, Source) and table.scalar_value is not None else {}),
                  **({"detail": details[key]} if key in details else {}),
                  **({"array_step": array_producers[key]} if key in array_producers else {}),
                  **({"workflow_run": workflow_runs[key]} if key in workflow_runs else {}),
                  **({"comment": comment} if (comment := self.source_comment(project, key, table)) else {}),
                  "row_count": len(table.worksheet.rows if isinstance(table, Source) else table.rows)}
-                for key in self.ordered_sources() for table in (available[key],)
+                for key in ordered_sources for table in (available[key],)
             ],
             "source_id": self.source_id,
             "source_table": {"name": selected_table.name, "columns": selected_table.columns, "rows": selected_table.rows[offset:end] if paged else selected_table.rows} if selected_table else None,
@@ -457,10 +464,66 @@ class Workspace:
                 ordered[key] = None
         return list(ordered | active)
 
-    def move_source(self, source_id: str | None, destination: int) -> None:
+    def source_layout(self, sources, figure_names):
+        plan = self.workflow
+        producers = {}
+        for key in sources:
+            origin = source_origin(key) if key is not None else None
+            if origin is not None:
+                reference = plan.reference("source", key)
+                group_id = f"step:{reference['output'].split('/')[0]}" if isinstance(reference, dict) else f"figure:{origin}"
+                producers.setdefault(group_id, []).append((key, origin))
+        groups = {key: {"name": figure_names[origins[0][1]], "collapsed": False}
+                  for key, origins in producers.items() if len(origins) > 1}
+        memberships = {source: key for key in groups for source, _ in producers[key]}
+        for key, settings in plan.source_groups.items():
+            if settings.get("deleted"):
+                groups.pop(key, None)
+            elif key.startswith("manual:") or key in groups:
+                groups[key] = {**groups.get(key, {}), **settings}
+        for source in sources:
+            key = self.source_membership_key(source)
+            group = plan.source_memberships.get(key, memberships.get(source))
+            memberships[source] = group if group in groups else None
+        return [{"id": key, **value} for key, value in groups.items()], memberships
+
+    def source_membership_key(self, source_id):
+        return json.dumps(self.workflow.reference("source", source_id), sort_keys=True)
+
+    def change_source_group(self, request):
+        groups, _ = self.source_layout(self.ordered_sources(), self.figure_names(self.project))
+        mode = request["mode"]
+        group_id = request.get("group_id")
+        if mode == "create":
+            group_id = f"manual:{uuid4().hex}"
+        elif not any(group["id"] == group_id for group in groups):
+            raise ValueError("Choose an available source group.")
+        settings = self.workflow.source_groups.get(group_id, {}).copy()
+        if mode in ("create", "rename"):
+            name = (request.get("name") or "").strip()
+            if not name:
+                raise ValueError("Enter a group name.")
+            settings.update(name=name)
+            settings.setdefault("collapsed", False)
+        elif mode == "toggle":
+            settings["collapsed"] = not next(group["collapsed"] for group in groups if group["id"] == group_id)
+        elif mode == "delete":
+            settings = {"deleted": True}
+        else:
+            raise ValueError("Choose a source group action.")
+        self.workflow.source_groups[group_id] = settings
+        self.dirty = True
+
+    def move_source(self, source_id: str | None, destination: int, *, placement: dict | None = None) -> None:
         sources = self.ordered_sources()
         if source_id not in sources or type(destination) is not int or not 0 <= destination < len(sources):
             raise ValueError("Choose an available source and position.")
+        if placement is not None:
+            group_id = placement["group_id"]
+            groups, _ = self.source_layout(sources, self.figure_names(self.project))
+            if group_id is not None and not any(group["id"] == group_id for group in groups):
+                raise ValueError("Choose an available source group.")
+            self.workflow.source_memberships[self.source_membership_key(source_id)] = group_id
         sources.remove(source_id)
         sources.insert(destination, source_id)
         self.workflow.source_order = [self.workflow.reference("source", key) for key in sources]
@@ -484,12 +547,20 @@ class Workspace:
                 return f"Plot: {request['plot_type'].title()}"
             case "overlay_figures":
                 return "Plot: Overlay"
+            case "trace_style":
+                return {"fill": "Change area fill", "order": "Change draw order"}.get(
+                    request.get("kind"), "Change trace line style",
+                )
             case "execute_plugin" | "run_plugin":
                 plugin = self.plugins.plugins.get((request["plugin_id"], request["version"], request["checksum"]))
                 if plugin:
                     manifest = plugin.manifest
                     return f"{manifest['menu'].title()}: {manifest['name']}"
         return fallback
+
+    @staticmethod
+    def editable_step_parameters(command):
+        return {key: value for key, value in command.items() if key not in ("action", "default_style", "definition")}
 
     def workflow_snapshot(self) -> dict:
         plan = self.workflow
@@ -519,6 +590,12 @@ class Workspace:
                 options, labels = [{key: step.request[key]}], {key: "Formula" if key == "expression" else "Values"}
             elif action == "invoke_workflow":
                 options, labels = [], {}
+            elif action == "edit_item" and step.request["name"] is not None:
+                options, labels = [{"name": step.request["name"]}], {"name": "Name"}
+            elif action == "trace_style" and step.request.get("style") is not None:
+                options = [step.request["style"]]
+                labels = {"color": "Color", "width": "Line width (px)", "dash": "Line style",
+                          "opacity": "Fill opacity (0 to 1)", "zorder": "Draw order (Z)"}
             elif action in ("scale_column", "correct", "fit", "plot"):
                 keys = {"scale_column": ["factor"], "correct": ["value"], "fit": ["x", "y"], "plot": ["x", "y"]}[action]
                 options = [{key: step.request[key] for key in keys}]
@@ -530,6 +607,7 @@ class Workspace:
                 "options": options, "labels": labels,
                 **({"editors": editors} if editors else {}),
                 **({"files": [source.original_path or source.name for source in step.sources]} if step.sources else {}),
+                **({"parameters": self.editable_step_parameters(step.request)} if action != "import_data" else {}),
                 **({"formula": True} if action in ("apply_formula", "add_array") and "expression" in step.request else {}),
                 **({"array": True} if action == "add_array" else {}),
                 **({"scalar": True} if action == "add_scalar" else {}),
@@ -718,10 +796,28 @@ class Workspace:
             plan.steps.pop(index)
             plan.steps.insert(destination, step)
             plan.invalidate(min(index, destination))
+        elif request["action"] == "replace_import":
+            slot = request["slot"]
+            if step.request["action"] != "import_data" or type(slot) is not int or not 0 <= slot < len(step.sources):
+                raise ValueError("Choose a file in the import step.")
+            path = Path(request["path"]).resolve()
+            source = Source(path.name, path.read_bytes(), original_path=str(path))
+            source.worksheet
+            sources = list(step.sources)
+            sources[slot] = source
+            command = {**step.request, "import_path": sources[-1].original_path or str(path)}
+            plan.steps[index] = replace(step, request=command, sources=tuple(sources),
+                                        label="Import " + ", ".join(item.name for item in sources))
+            plan.invalidate(index)
         else:
             previous = self.workflow_snapshot()["steps"][index]["options"]
             options = request["options"]
-            if not previous or len(options) != len(previous) or any(
+            details = request.get("parameters")
+            if details is not None:
+                if (step.request["action"] == "import_data" or not isinstance(details, dict)
+                    or details.keys() != self.editable_step_parameters(step.request).keys()):
+                    raise ValueError("Keep all recorded parameter names.")
+            elif not previous or not isinstance(options, list) or len(options) != len(previous) or any(
                 not isinstance(values, dict) or values.keys() != original.keys()
                 or any(type(value) not in (bool, str, int, float) for value in values.values())
                 for values, original in zip(options, previous)
@@ -729,7 +825,10 @@ class Workspace:
                 raise ValueError("Enter valid step options.")
             command = step.request.copy()
             action = command["action"]
-            if action == "execute_plugin":
+            if details is not None:
+                command.update(map_references(details, lambda kind, value:
+                    value if isinstance(value, dict) else plan.reference(kind, value)))
+            elif action == "execute_plugin":
                 command["runs"] = [{**run, "options": values} for run, values in zip(command["runs"], options)]
                 plugin = self.plugins.plugins.get((command["plugin_id"], command["version"], command["checksum"]))
                 if plugin and plugin.manifest.get("input_mode") == "joint":
@@ -740,6 +839,8 @@ class Workspace:
                         }
             elif action == "run_plugin":
                 command["options"] = options[0]
+            elif action == "trace_style":
+                command["style"] = options[0]
             else:
                 command.update(options[0])
             if action == "scale_column":
@@ -752,6 +853,15 @@ class Workspace:
                 Source.array(command["name"], command["values"])
             if action == "add_scalar":
                 Source.scalar(command["name"], command["value"])
+            if action == "trace_style":
+                TraceAppearance(0, 0, command.get("style"), command.get("kind") or "line")
+            if action == "edit_item":
+                item = command["item"]
+                name = command["name"]
+                if item["kind"] not in ("source", "figure") or (name is not None and (not isinstance(name, str) or not name.strip())):
+                    raise ValueError("Enter an item name.")
+                if name is not None:
+                    command["name"] = name.strip()
             plan.steps[index] = replace(step, request=command)
             plan.invalidate(index)
         self.dirty = True
@@ -808,8 +918,10 @@ class Workspace:
                 if self.workflow.needs_replay or self.workflow.completed < length:
                     self.run_workflow(limit=min(self.workflow.completed + 1, length))
             case "move_source":
-                self.move_source(request["source_id"], request["destination"])
-            case "edit_step" | "move_step" | "delete_step":
+                self.move_source(request["source_id"], request["destination"], placement=request.get("placement"))
+            case "source_group":
+                self.change_source_group(request)
+            case "edit_step" | "move_step" | "delete_step" | "replace_import":
                 self.edit_workflow(request)
             case "state":
                 pass
@@ -921,7 +1033,7 @@ class Workspace:
                 self.enqueue(request, label)
             case "correct" | "fit" | "plot" | "color" | "figure_style" | "trace_style" | "edit_item" | "run_batch":
                 labels = {"correct": "Correct worksheet cell", "fit": "Analysis: Linear Fit", "plot": "Plot",
-                          "color": "Change trace color", "figure_style": "Change figure settings", "trace_style": "Change trace line style",
+                          "color": "Change trace color", "figure_style": "Change figure settings", "trace_style": "Change trace style",
                           "edit_item": "Edit item", "run_batch": "Run analysis batch"}
                 self.enqueue(request, labels[request["action"]])
             case _:
@@ -1148,12 +1260,24 @@ class Workspace:
                     if record.colors[operation.element] == operation.color:
                         return
                 elif request["action"] == "trace_style":
-                    operation = TraceAppearance(figure_id, request["trace"], request.get("style"))
+                    operation = TraceAppearance(figure_id, request["trace"], request.get("style"), request.get("kind") or "line")
                     result = self.combined.get(figure_id) or self.results.get(figure_id)
                     traces = result.figure["traces"] if result and result.figure else []
-                    if operation.trace >= len(traces) or traces[operation.trace].get("type") not in (None, "scatter", "scattergl"):
-                        raise ValueError("Choose an available line trace.")
-                    if record.trace_styles.get(operation.trace) == operation.style:
+                    trace = traces[operation.trace] if operation.trace < len(traces) else {}
+                    if not trace or trace.get("type") not in (None, "scatter", "scattergl", "bar"):
+                        raise ValueError("Choose an available trace.")
+                    if operation.style_kind == "line" and trace.get("type") == "bar":
+                        raise ValueError("Choose a line trace.")
+                    if operation.style_kind == "fill" and trace.get("fill") in (None, "none"):
+                        raise ValueError("Choose a trace with a shaded area.")
+                    stored = record.trace_styles.get(operation.trace, {})
+                    if operation.style_kind == "line":
+                        current = {key: stored[key] for key in ("color", "width", "dash") if key in stored} or None
+                    elif operation.style_kind == "fill":
+                        current = stored.get("fill")
+                    else:
+                        current = {"zorder": stored["zorder"]} if "zorder" in stored else None
+                    if current == operation.style:
                         return
                 else:
                     style = FigureStyle(**request["style"])

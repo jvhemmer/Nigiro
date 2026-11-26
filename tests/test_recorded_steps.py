@@ -15,6 +15,71 @@ from nigiro.source_tables import output_tables
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_peak_source_group_and_trace_edits_survive_replay(self):
+        worker = Workspace()
+        worker.settings.run_automatically = True
+        worker.dispatch({"action": "sample"})
+        peak = worker.dispatch({
+            "action": "execute_plugin", "plugin_id": "nigiro.integrate_peak", "version": "1", "checksum": None,
+            "output": "overlay", "runs": [{"source_id": None,
+                "options": {"x": 0, "y": 1, "range": "1,5", "baseline": "endpoints"}}],
+        })["project"]
+        group, = peak["source_groups"]
+        self.assertEqual(group["name"], "Integrate Peak 1")
+        self.assertEqual([source["group_name"] for source in peak["sources"] if source["group_id"] == group["id"]],
+                         ["Peak area", "Baseline"])
+        worker.dispatch({"action": "source_group", "mode": "create", "name": "Results"})
+        project = worker.dispatch({"action": "source_group", "mode": "toggle", "group_id": group["id"]})["project"]
+        custom, = [entry for entry in project["source_groups"] if entry["name"] == "Results"]
+        area = next(source for source in project["sources"] if source.get("group_name") == "Peak area")
+        worker.dispatch({"action": "move_source", "source_id": area["id"], "destination": 2,
+                         "placement": {"group_id": custom["id"]}})
+        base = {"action": "trace_style", "figure_id": peak["figure_id"]}
+        fill = {"color": "#fe22aa", "opacity": 0.35}
+        worker.dispatch({**base, "trace": 1, "kind": "fill", "style": fill})
+        worker.dispatch({**base, "trace": 1, "style": {"color": "#224466", "width": 2, "dash": "dot"}})
+        worker.dispatch({**base, "trace": 1, "style": None})
+        worker.dispatch({**base, "trace": 0, "kind": "order", "style": {"zorder": -1}})
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "peak.nigiro"
+            worker.dispatch({"action": "save", "path": str(path)})
+            reopened = Workspace()
+            for request in ({"action": "open", "path": str(path)}, {"action": "run_all"}):
+                project = reopened.dispatch(request)["project"]
+                self.assertEqual(project["trace_styles"], {1: {"fill": fill}, 0: {"zorder": -1}})
+                self.assertTrue(project["source_groups"][0]["collapsed"])
+                self.assertEqual(next(source for source in project["sources"] if source["id"] == area["id"])["group_id"],
+                                 custom["id"])
+            project = reopened.dispatch({"action": "source_group", "mode": "delete", "group_id": custom["id"]})["project"]
+            self.assertIsNone(next(source for source in project["sources"] if source["id"] == area["id"])["group_id"])
+            project = reopened.dispatch({"action": "source_group", "mode": "delete", "group_id": group["id"]})["project"]
+            self.assertEqual(project["source_groups"], [])
+            self.assertEqual(len(project["sources"]), 3)
+
+    def test_replace_import_and_edit_rename_keep_downstream_references(self):
+        worker = Workspace()
+        worker.settings.run_automatically = True
+        with tempfile.TemporaryDirectory() as directory:
+            first, second = (Path(directory) / name for name in ("before.csv", "after.csv"))
+            first.write_text("X,Y\n0,1\n1,2\n")
+            second.write_text("X,Y\n0,3\n1,4\n")
+            worker.dispatch({"action": "import_data", "paths": [str(first)]})
+            worker.dispatch({"action": "edit_item", "item": {"kind": "source", "id": None}, "name": "Before"})
+            worker.dispatch({
+                "action": "execute_plugin", "plugin_id": "nigiro.line", "version": "1", "checksum": None,
+                "output": "overlay", "runs": [{"source_id": None, "options": {"x": 0, "y": 1}}],
+            })
+            worker.dispatch({"action": "edit_step", "step_id": 2, "options": [{"name": "After"}]})
+            stale = worker.dispatch({"action": "replace_import", "step_id": 1, "slot": 0, "path": str(second)})["project"]
+            self.assertEqual(stale["workflow"]["steps"][0]["files"], [str(second)])
+            self.assertEqual(stale["workflow"]["steps"][2]["status"], "stale")
+            self.assertEqual(stale["sources"][0]["name"], "Before")
+            replay = worker.dispatch({"action": "run_all"})["project"]
+            self.assertEqual(replay["sources"][0]["name"], "After")
+            self.assertEqual(replay["sources"][0]["original_path"], str(second))
+            self.assertEqual(replay["figure"]["traces"][0]["y"], [3, 4])
+
     def test_overlay_keeps_input_figures_and_replays_with_one_pair_of_axes(self):
         worker = Workspace()
         worker.settings.run_automatically = True

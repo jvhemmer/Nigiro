@@ -128,6 +128,8 @@ def workflow_record(archive: ZipFile, workflow: Workflow, files: dict[bytes, str
         "needs_replay": workflow.needs_replay,
         "error": workflow.error,
         "source_order": workflow.source_order,
+        "source_groups": workflow.source_groups,
+        "source_memberships": workflow.source_memberships,
         "next_step_id": workflow.next_step_id,
     }
 
@@ -153,6 +155,7 @@ def read_workflow(archive: ZipFile, record: dict, files: dict[str, bytes]) -> Wo
         steps=steps, completed=completed, executed=set(record["executed"]), bindings=record["bindings"],
         needs_replay=record["needs_replay"], error=record["error"], source_order=record["source_order"],
         next_step_id=next_step_id,
+        source_groups=record.get("source_groups", {}), source_memberships=record.get("source_memberships", {}),
     )
 
 

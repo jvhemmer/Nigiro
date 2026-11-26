@@ -4,7 +4,7 @@ import { useRevealDockPanel } from "./DockWorkspace";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Data, PlotlyHTMLElement, PlotMouseEvent, LegendClickEvent } from "plotly.js";
 import { cycleColor, figureFont, figureLayout, tickRenderers, type FigureStyle, type StyleSection, type TextRenderer } from "./figureStyle";
-import type { FigureElement, PluginFigure, TraceLineStyle } from "./workspace";
+import type { FigureElement, PluginFigure, TraceFillStyle, TraceLineStyle, TraceStyle } from "./workspace";
 
 type Colors = Record<FigureElement, string>;
 type Renderer = typeof import("plotly.js-basic-dist-min");
@@ -58,7 +58,41 @@ interface FigurePlotProps {
   onInspect: (id: number) => void;
 }
 
-type ProjectTraceStyles = Record<number, TraceLineStyle>;
+type ProjectTraceStyles = Record<number, TraceStyle>;
+
+export function hasTraceFill(trace: Data) {
+  return "fill" in trace && !!trace.fill && trace.fill !== "none";
+}
+
+export function traceOrderIndex(traces: Data[], index: number): number {
+  // Keep a fill and the trace it fills to in the same drawing layer.
+  let trace = traces[index];
+  while ("fill" in trace && trace.fill?.startsWith("tonext")) {
+    const x = "xaxis" in trace ? trace.xaxis ?? "x" : "x";
+    const y = "yaxis" in trace ? trace.yaxis ?? "y" : "y";
+    let previous = index - 1;
+    for (; previous >= 0; previous -= 1) {
+      const item = traces[previous];
+      if (("xaxis" in item ? item.xaxis ?? "x" : "x") === x
+        && ("yaxis" in item ? item.yaxis ?? "y" : "y") === y) break;
+    }
+    if (previous < 0) break;
+    index = previous;
+    trace = traces[index];
+  }
+  return index;
+}
+
+export function fillAppearance(trace: Data, fallback: string): TraceFillStyle {
+  const fill = "fillcolor" in trace && typeof trace.fillcolor === "string" ? trace.fillcolor : "";
+  if (/^#[\da-f]{6}$/i.test(fill)) return { color: fill, opacity: 1 };
+  const rgb = /^rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\s*\)$/.exec(fill);
+  if (rgb) return {
+    color: "#" + rgb.slice(1, 4).map((value) => Number(value).toString(16).padStart(2, "0")).join(""),
+    opacity: rgb[4] !== undefined ? Number(rgb[4]) : 1,
+  };
+  return { color: /^#[\da-f]{6}$/i.test(fallback) ? fallback : "#245e9b", opacity: 0.5 };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -92,7 +126,7 @@ export function hasEditableLine(trace: Data): boolean {
 }
 
 export function traceAppearance(
-  trace: Data, index: number, data: PluginFigure, style: FigureStyle, colors: Colors, override?: TraceLineStyle,
+  trace: Data, index: number, data: PluginFigure, style: FigureStyle, colors: Colors, override?: Partial<TraceLineStyle>,
 ): { name?: string; marker?: object; line?: Partial<TraceLineStyle>; mode?: string; width?: number } {
   const element = data.elements?.[index];
   const custom = cycleColor(style, data.series_cycle?.[index]);
@@ -114,6 +148,19 @@ export function traceAppearance(
     if (custom) return { ...name, marker: { color }, line: { color, ...override } };
   }
   return override ? { ...name, line: override } : name;
+}
+
+function tracePresentation(trace: Data, index: number, data: PluginFigure, style: FigureStyle, colors: Colors, edits: ProjectTraceStyles) {
+  const { color, width, dash, fill } = edits[index] ?? {};
+  const line = color === undefined ? undefined : { color, width, dash };
+  const zorder = edits[traceOrderIndex(data.traces, index)]?.zorder;
+  const channels = fill?.color.slice(1).match(/../g)?.map((channel) => Number.parseInt(channel, 16));
+  return {
+    ...traceAppearance(trace, index, data, style, colors, line),
+    ...(fill && channels && hasTraceFill(trace) && { fillcolor: `rgba(${channels.join(",")},${fill.opacity})` }),
+    ...(zorder !== undefined && (trace.type == null || ["scatter", "scattergl", "bar"].includes(trace.type))
+      && { zorder, ...(trace.type === "scattergl" && { type: "scatter" }) }),
+  };
 }
 
 export function FigurePlot({ capture, data, colors, style, traceStyles, revision, onEdit, onSelect, onInspect }: FigurePlotProps) {
@@ -169,7 +216,7 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
           const current = graph.data[index];
           const visible = current && "visible" in current ? current.visible : undefined;
           return {
-            ...traceAppearance(trace, index, data, style, colors, traceStyles[index]),
+            ...tracePresentation(trace, index, data, style, colors, traceStyles),
             ...(visible !== undefined && (!("visible" in trace) || visible !== trace.visible) && { visible }),
           };
         });
@@ -259,7 +306,7 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
 
     drawing.current = drawing.current.then(async () => {
       if (!active) return;
-      const accelerated = !webGLFailed.current && canAccelerate(data);
+      const accelerated = !webGLFailed.current && !Object.values(traceStyles).some((trace) => trace.zorder !== undefined) && canAccelerate(data);
       const [renderer] = await Promise.all([
         loadRenderer(accelerated),
         document.fonts.load(`12px "${figureFont}"`),
@@ -298,7 +345,7 @@ export function FigurePlot({ capture, data, colors, style, traceStyles, revision
         node.style.height = `${canvasHeight}px`;
         return { width: canvasWidth, height: canvasHeight };
       }
-      const series = traces.map((trace, index) => merge(trace, traceAppearance(trace, index, data, style, colors, traceStyles[index])));
+      const series = traces.map((trace, index) => merge(trace, tracePresentation(trace, index, data, style, colors, traceStyles)));
       const options = { ...layout, ...setCanvas(), autosize: false };
       if (plotly.current && plotly.current !== renderer) plotly.current.purge(node);
       plotly.current = renderer;

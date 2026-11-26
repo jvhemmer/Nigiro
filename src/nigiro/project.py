@@ -179,11 +179,27 @@ class TraceAppearance:
     figure_id: int
     trace: int
     style: dict | None
+    style_kind: Literal["line", "fill", "order"] = "line"
 
     def __post_init__(self) -> None:
         if any(type(index) is not int or index < 0 for index in (self.figure_id, self.trace)):
             raise ValueError("Choose a valid figure and trace.")
+        if self.style_kind not in ("line", "fill", "order"):
+            raise ValueError("Choose a trace style to edit.")
         if self.style is None:
+            return
+        if self.style_kind == "fill":
+            if (not isinstance(self.style, dict) or self.style.keys() != {"color", "opacity"}
+                or not isinstance(self.style["color"], str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", self.style["color"])
+                or type(self.style["opacity"]) not in (int, float) or not 0 <= self.style["opacity"] <= 1):
+                raise ValueError("Choose a fill color and an opacity from 0 to 100%.")
+            object.__setattr__(self, "style", self.style.copy())
+            return
+        if self.style_kind == "order":
+            if (not isinstance(self.style, dict) or self.style.keys() != {"zorder"}
+                or type(self.style["zorder"]) is not int or not -10000 <= self.style["zorder"] <= 10000):
+                raise ValueError("Enter a draw order from -10000 to 10000.")
+            object.__setattr__(self, "style", self.style.copy())
             return
         if not isinstance(self.style, dict) or self.style.keys() != {"color", "width", "dash"}:
             raise ValueError("Choose a line color, width, and dash style.")
@@ -520,10 +536,19 @@ class Project:
                 if record is None:
                     raise ValueError("A trace style refers to a missing figure.")
                 styles = record.trace_styles.copy()
-                if op.style is None:
-                    styles.pop(op.trace, None)
+                style = styles.get(op.trace, {}).copy()
+                if op.style_kind == "line":
+                    for key in ("color", "width", "dash"):
+                        style.pop(key, None)
+                    style.update(op.style or {})
+                elif op.style is None:
+                    style.pop("fill" if op.style_kind == "fill" else "zorder", None)
                 else:
-                    styles[op.trace] = op.style
+                    style.update({"fill": op.style} if op.style_kind == "fill" else op.style)
+                if style:
+                    styles[op.trace] = style
+                else:
+                    styles.pop(op.trace, None)
                 figures[op.figure_id] = replace(record, trace_styles=styles)
             elif isinstance(op, FigureStyle) and current in figures:
                 figures[current] = replace(figures[current], style=op)

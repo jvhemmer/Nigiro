@@ -502,6 +502,24 @@ button.primary:hover:not(:disabled), .run-split summary:hover { background: var(
   color: color-mix(in srgb, var(--text) 64%, var(--panel));
 }
 .source-list .source-option-path { text-overflow: clip; }
+.source-tree { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.source-tree-toolbar, .source-group-form { display: flex; gap: 4px; padding: 3px; }
+.source-tree-toolbar button { display: flex; gap: 4px; align-items: center; }
+.source-group-form input { flex: 1; min-width: 0; }
+.source-tree .source-list { flex: 1; min-height: 0; height: auto; }
+.source-group-row { display: flex; align-items: center; background: var(--surface); }
+.source-group-row button { width: auto; }
+.source-group-row .source-group-title { flex: 1; min-width: 0; }
+.source-group-title small { color: var(--muted); }
+.source-group-children { list-style: none; padding-left: 16px; }
+.source-root-drop {
+  position: absolute; inset: auto 3px 3px; padding: 4px;
+  background: var(--panel); border: 1px dashed var(--line); color: var(--muted);
+}
+.source-group-row[data-drop-edge], .source-root-drop[data-drop-edge] { background: var(--accent-soft); }
+.recorded-import-file { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.recorded-import-file span { overflow-wrap: anywhere; min-width: 0; }
+.recorded-import-file button { flex: none; }
 
 .section-header {
   display: flex;

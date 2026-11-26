@@ -115,7 +115,11 @@ export interface ProjectSource {
   comment?: string;
   array_step?: number;
   row_count: number;
+  group_id: string | null;
+  group_name?: string;
 }
+
+export type SourceGroup = { id: string; name: string; collapsed: boolean };
 
 export interface Appearance {
   theme: "system" | "light" | "dark";
@@ -132,6 +136,7 @@ export interface WorkflowStep {
   labels: Record<string, string>;
   editors?: Record<string, NonNullable<PluginField["editor"]>>;
   files?: string[];
+  parameters?: Record<string, unknown>;
   scalar?: boolean;
   workflow_outputs?: string[];
 }
@@ -166,7 +171,7 @@ export interface Project {
   notes: string;
   workspace: { name: string; path: string | null; dirty: boolean; active_project: string | null; projects: SavedPath[] } | null;
   recent_workspaces: SavedPath[];
-  trace_styles: Record<number, TraceLineStyle>;
+  trace_styles: Record<number, TraceStyle>;
   saved_workflows: SavedWorkflow[];
   appearance: Appearance;
   row_count: number;
@@ -186,6 +191,7 @@ export interface Project {
   figure_id: number | null;
   figure_input: SourceTable | null;
   sources: ProjectSource[];
+  source_groups: SourceGroup[];
   source_id: string | null;
   source_table: SourceTable | null;
   source_original_rows: string[][] | null;
@@ -209,6 +215,9 @@ export interface TraceLineStyle {
   dash: keyof typeof lineDashes;
 }
 
+export type TraceFillStyle = { color: string; opacity: number };
+export type TraceStyle = Partial<TraceLineStyle> & { fill?: TraceFillStyle; zorder?: number };
+
 export type Request =
   | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "install_plugin" | "new_workspace" | "open_workspace" }
   | { action: "open_recent_workspace" | "switch_workspace_project"; path: string }
@@ -218,9 +227,11 @@ export type Request =
   | { action: "save_workflow"; name: string; steps: number[]; inputs: Record<string, string>; outputs: WorkflowOutput[] }
   | { action: "import_workflow" }
   | { action: "run_saved_workflow"; id: string; name: string; sources: Record<string, string | null>; numbers: Record<string, number> }
-  | { action: "edit_step"; step_id: number; options: PluginOptions[] }
+  | { action: "edit_step"; step_id: number; options: PluginOptions[]; parameters?: Record<string, unknown> }
+  | { action: "replace_import"; step_id: number; slot: number }
   | { action: "delete_step"; step_id: number }
-  | { action: "move_source"; source_id: ProjectSource["id"]; destination: number }
+  | { action: "move_source"; source_id: ProjectSource["id"]; destination: number; placement?: { group_id: string | null } }
+  | { action: "source_group"; mode: "create" | "rename" | "toggle" | "delete"; group_id?: string; name?: string }
   | { action: "scale_column"; runs: { source_id: ProjectSource["id"]; column: number }[]; factor: number }
   | { action: "apply_formula"; source_id: ProjectSource["id"]; column: number; expression: string }
   | { action: "add_scalar"; name: string; value: number; comment?: string }
@@ -234,7 +245,11 @@ export type Request =
   | { action: "overlay_figures"; figure_ids: number[] }
   | { action: "edit_item"; item: WorkspaceItem; name: string | null }
   | { action: "color"; element: FigureElement; color: string; figure_id: number }
-  | { action: "trace_style"; figure_id: number; trace: number; style: TraceLineStyle | null }
+  | ({ action: "trace_style"; figure_id: number; trace: number } & (
+    { kind?: "line"; style: TraceLineStyle | null }
+    | { kind: "fill"; style: TraceFillStyle | null }
+    | { kind: "order"; style: { zorder: number } | null }
+  ))
   | { action: "set_preferences"; style: FigureStyle; appearance: Appearance; run_automatically?: boolean }
   | { action: "set_global_style"; style: FigureStyle }
   | { action: "figure_style"; style: FigureStyle; figure_id: number }
