@@ -198,6 +198,8 @@ class PluginRegistry:
                     raise ValueError(f"Invalid value for {field['label']}.")
                 options[field["key"]] = column
                 continue
+            if field["type"] == "column" and isinstance(value, str):
+                value = options[field["key"]] = worksheet.column_index(value)
             if not valid_value(field, value, len(worksheet.columns)):
                 raise ValueError(f"Invalid value for {field['label']}.")
             if field["type"] == "column":

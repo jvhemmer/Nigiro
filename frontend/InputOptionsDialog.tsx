@@ -99,6 +99,12 @@ function matchColumn(source: SourceChoice, reference: SourceChoice, index: numbe
   return matches.length === 1 ? matches[0] : -1;
 }
 
+function storedColumn(columns: string[], value: PluginOptions[string]): number {
+  if (typeof value === "number") return value >= 0 && value < columns.length ? value : -1;
+  return typeof value === "string" && columns.indexOf(value) === columns.lastIndexOf(value)
+    ? columns.indexOf(value) : -1;
+}
+
 function cvInputColumn(columns: string[], mode: PluginOptions[string]) {
   const pattern = mode === "column" ? /^segments?\b/i : /working electrode|\b(potential|voltage|ewe)\b/i;
   return columns.findIndex((name) => pattern.test(name.trim()));
@@ -126,10 +132,12 @@ const scalarFields: PluginField[] = [
   { key: "factor", label: "Factor", type: "number", default: 1 },
 ];
 
-export function InputOptionsDialog({ target, project, previous, editingSource, configuring, busy, error, onClose, onRun }: {
+export function InputOptionsDialog({ target, project, previous, initial, warning, editingSource, configuring, busy, error, onClose, onRun }: {
   target: PluginDefinition | "scale";
-  project: Project;
+  project: Pick<Project, "sources" | "figures" | "source_id">;
   previous?: PluginOptions;
+  initial?: PluginSubmission;
+  warning?: string | null;
   editingSource?: SourceChoice;
   configuring: boolean;
   busy: boolean;
@@ -144,44 +152,77 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
   const sources = editingSource ? [editingSource] : scale
     ? project.sources.filter((source) => source.kind === "raw")
     : project.sources;
-  const initialSource = sources.find((source) => source.id === project.source_id) ?? sources[0];
+  const initialRun = initial?.runs.find((run) => sources.some(({ id }) => id === run.source_id));
+  const initialSource = (initialRun && sources.find(({ id }) => id === initialRun.source_id))
+    ?? sources.find((source) => source.id === project.source_id) ?? sources[0];
+  const savedOptions = initialRun?.options ?? initial?.runs[0]?.options ?? previous;
   const axisSources = sources.filter(({ columns }) => columns.length > 0);
-  const pair = !configuring && supportsPairedSources(plugin);
+  const pair = (!configuring || !!initial) && supportsPairedSources(plugin);
   const joint = plugin?.input_mode === "joint";
   const tableOnly = plugin?.table_only;
   const sameSource = (initialSource?.columns.length ?? 0) > 1;
-  const [xInput, setXInput] = useState({ id: initialSource?.id ?? null, column: 0 });
-  const [yInput, setYInput] = useState({
-    id: (sameSource ? initialSource : axisSources.find(({ id }) => id !== initialSource?.id) ?? initialSource)?.id ?? null,
-    column: sameSource ? 1 : 0,
-  });
+  const alternate = sameSource ? initialSource : axisSources.find(({ id }) => id !== initialSource?.id) ?? initialSource;
+  function axisInput(axis: "x" | "y", fallback: SourceChoice | undefined, column: number) {
+    const ref = initialRun?.references?.[axis] ?? initial?.runs[0]?.references?.[axis];
+    if (!ref && initial && !initialRun) return { id: "", column: -1 };
+    const id = ref ? ref.source_id : fallback?.id ?? null;
+    return { id, column: storedColumn(axisSources.find((source) => source.id === id)?.columns ?? [],
+      ref?.column ?? (initialRun ? initialRun.options[axis] ?? column : column)) };
+  }
+  const [xInput, setXInput] = useState(() => axisInput("x", initialSource, 0));
+  const [yInput, setYInput] = useState(() => axisInput("y", alternate, sameSource ? 1 : 0));
   const xSource = axisSources.find(({ id }) => id === xInput.id);
   const ySource = axisSources.find(({ id }) => id === yInput.id);
   const definitionFields = plugin?.fields ?? scalarFields;
   const [jointInputs, setJointInputs] = useState(() => Object.fromEntries(
     definitionFields.filter(({ type }) => type === "column").map((field) => {
       const source = (field.prefer_other_source ? axisSources.find(({ id }) => id !== initialSource?.id) : undefined) ?? initialSource;
+      const saved = (initialRun ?? initial?.runs[0])?.references?.[field.key];
+      if (saved) {
+        return [field.key, { source_id: saved.source_id,
+          column: storedColumn(axisSources.find(({ id }) => id === saved.source_id)?.columns ?? [], saved.column) }];
+      }
       return [field.key, { source_id: source?.id ?? null, column: Math.min(Number(field.default), (source?.columns.length ?? 0) - 1) }];
     }),
   ));
   const filterSegments = plugin?.id === "nigiro.filter_segments";
   const segmentModeField = filterSegments ? definitionFields.find(({ key }) => key === "mode") : undefined;
   const defaultSegmentMode = cvInputColumn(initialSource?.columns ?? [], "column") >= 0 ? "column" : "potential";
-  const preferredSegmentColumn = cvInputColumn(initialSource?.columns ?? [], previous?.mode ?? defaultSegmentMode);
+  const preferredSegmentColumn = cvInputColumn(initialSource?.columns ?? [], savedOptions?.mode ?? defaultSegmentMode);
   const [tab, setTab] = useState<(typeof tabs)[number]>("Inputs");
-  const [picked, setPicked] = useState(() => new Set(initialSource ? [initialSource.id] : []));
+  const [changedOptions, setChangedOptions] = useState(new Set<string>());
+  const [picked, setPicked] = useState(() => new Set(initial
+    ? initial.runs.filter((run) => sources.some(({ id }) => id === run.source_id)).map(({ source_id }) => source_id)
+    : initialSource ? [initialSource.id] : []));
   const [referenceId, setReferenceId] = useState<SourceId>(initialSource?.id ?? null);
   const [options, setOptions] = useState<PluginOptions>(() => Object.fromEntries(definitionFields.map((field) => {
     const defaultValue = filterSegments && field.key === "mode" ? defaultSegmentMode
       : filterSegments && field.key === "column" && preferredSegmentColumn >= 0 ? preferredSegmentColumn : field.default;
-    const value = previous?.[field.key] ?? defaultValue;
-    return [field.key, field.type === "column" ? Math.min(Number(value), (initialSource?.columns.length ?? 0) - 1) : value];
+    const value = savedOptions?.[field.key] ?? defaultValue;
+    return [field.key, field.type === "column"
+      ? initial || typeof value === "string" ? storedColumn(initialSource?.columns ?? [], value)
+        : Math.min(Number(value), (initialSource?.columns.length ?? 0) - 1)
+      : value];
   })));
-  const [overrides, setOverrides] = useState(new Map<SourceId, Record<string, number>>());
-  const [mode, setMode] = useState<PluginSubmission["output"]>("overlay");
-  const [destination, setDestination] = useState<number | null>(null);
-  const [destinations, setDestinations] = useState(new Map<SourceId, number | null>());
-  const inputs = sources.filter(({ id }) => picked.has(id));
+  const [overrides, setOverrides] = useState(() => new Map<SourceId, Record<string, number>>(
+    initial?.runs.flatMap((run) => {
+      const source = sources.find(({ id }) => id === run.source_id);
+      if (!source || !initialSource || source.id === initialSource.id) return [];
+      return [[source.id, Object.fromEntries(definitionFields.filter((field) => field.type === "column")
+        .flatMap(({ key }) => {
+          const column = storedColumn(source.columns, run.options[key]);
+          return column === matchColumn(source, initialSource, Number(options[key])) ? [] : [[key, column]];
+        }))]];
+    }),
+  ));
+  const availableDestination = (id?: number | null) => project.figures.find((figure) => figure.id === id)?.id ?? null;
+  const [mode, setMode] = useState<PluginSubmission["output"]>(initial?.output ?? "overlay");
+  const [destination, setDestination] = useState<number | null>(() => availableDestination(initial?.target_id));
+  const [destinations, setDestinations] = useState(() => new Map<SourceId, number | null>(
+    initial?.runs.map((run) => [run.source_id, availableDestination(run.target_id)]),
+  ));
+  const inputs = initial ? [...picked].flatMap((id) => sources.filter((source) => source.id === id))
+    : sources.filter(({ id }) => picked.has(id));
   const reference = inputs.find(({ id }) => id === referenceId) ?? inputs[0];
   const fields = definitionFields.filter((field) => field.type === "column").map((field) =>
     filterSegments && options.mode === "column" ? { ...field, label: "Segment column" } : field);
@@ -201,9 +242,18 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
     ? plugin.model_parameters[String(options.model)] ?? String(options.parameters).split(",").map((name) => name.trim()).filter(Boolean)
     : null;
   const emptyRequired = config.find((field) => field.type === "text" && field.required && !String(options[field.key]).trim());
-  const output = tableOnly || scale || formula ? "separate" : !pair && !joint && inputs.length > 1 ? mode : "overlay";
+  const output = tableOnly || scale || formula ? "separate"
+    : !pair && !joint && (inputs.length > 1 || initial) ? mode : "overlay";
   const runs = reference ? inputs.map((source) => {
     const mapped = { ...submittedOptions };
+    const saved = initial?.runs.find(({ source_id }) => source_id === source.id)?.options;
+    if (saved) {
+      for (const field of definitionFields) {
+        if (!changedOptions.has(field.key) && field.type !== "column" && isVisible(field) && field.key in saved) {
+          mapped[field.key] = saved[field.key];
+        }
+      }
+    }
     for (const { key } of fields) {
       const override = inputs.length > 1 ? overrides.get(source.id)?.[key] : undefined;
       mapped[key] = override ?? matchColumn(source, reference, Number(options[key]));
@@ -217,6 +267,7 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
   }) : [];
   const inputError = pair
     ? !xSource || !ySource ? "Select a source for each axis."
+      : xInput.column < 0 || yInput.column < 0 ? "Choose a column for each axis."
       : xSource.id === ySource.id && xInput.column === yInput.column ? "Choose different columns for X and Y."
       : "row_count" in xSource && "row_count" in ySource && xSource.row_count !== ySource.row_count
         ? "Choose X and Y sources with the same number of rows." : ""
@@ -245,9 +296,11 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
     const segmentModeChanged = filterSegments && key === "mode" && value !== options.mode;
     const preferred = segmentModeChanged ? cvInputColumn(reference?.columns ?? [], value) : -1;
     if (segmentModeChanged) setOverrides(new Map());
+    const modelChanged = plugin?.model_parameters && (key === "model" || key === "parameters");
+    if (initial) setChangedOptions((current) => new Set([...current, key, ...(modelChanged ? ["guesses", "lower", "upper"] : [])]));
     setOptions((current) => ({ ...current,
       ...(preferred >= 0 ? { column: preferred } : {}),
-      ...(plugin?.model_parameters && (key === "model" || key === "parameters") ? { guesses: "", lower: "", upper: "" } : {}),
+      ...(modelChanged ? { guesses: "", lower: "", upper: "" } : {}),
       [key]: value,
     }));
   }
@@ -256,12 +309,19 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
     const before = sources.find(({ id }) => id === referenceId);
     if (!before || source.id === before.id) return;
     setReferenceId(source.id);
+    const saved = overrides.get(source.id);
+    if (saved) setOverrides((current) => {
+      const remaining = new Map(current);
+      remaining.delete(source.id);
+      return remaining;
+    });
     setOptions((current) => {
       const next = { ...current };
       for (const { key } of fields) {
         const matched = matchColumn(source, before, Number(current[key]));
         const preferred = filterSegments ? cvInputColumn(source.columns, current.mode) : -1;
-        next[key] = matched >= 0 ? matched : preferred >= 0 ? preferred : Math.min(Number(current[key]), source.columns.length - 1);
+        next[key] = saved?.[key] ?? (matched >= 0 ? matched : preferred >= 0 ? preferred
+          : initial && before.columns[Number(current[key])]?.trim() ? -1 : Math.min(Number(current[key]), source.columns.length - 1));
       }
       return next;
     });
@@ -312,7 +372,8 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
                   <select aria-label={`${field.label} source`} value={source ? sourceKey(source.id) : ""} onChange={(event) => {
                     const selected = axisSources.find(({ id }) => sourceKey(id) === event.target.value);
                     if (selected) setJointInputs((current) => ({
-                      ...current, [field.key]: { source_id: selected.id, column: Math.min(input.column, selected.columns.length - 1) },
+                      ...current, [field.key]: { source_id: selected.id, column: source
+                        ? matchColumn(selected, source, input.column) : -1 },
                     }));
                   }}>
                     {!source && <option value="" disabled>Choose a source</option>}
@@ -334,7 +395,7 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
                 <label><span>Source</span>
                   <select aria-label={`${axis} source`} value={source ? sourceKey(source.id) : ""} onChange={(event) => {
                     const next = axisSources.find(({ id }) => sourceKey(id) === event.target.value);
-                    if (next) set({ id: next.id, column: 0 });
+                    if (next) set({ id: next.id, column: initial && source ? matchColumn(next, source, input.column) : 0 });
                   }}>
                     {!source && <option value="" disabled>Choose a source</option>}
                     {axisSources.map(({ id, name }) => <option key={sourceKey(id)} value={sourceKey(id)}>{name}</option>)}
@@ -346,7 +407,9 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
             ))}
             <p className="muted">Rows are paired in order.</p>
           </div> : <>
-          <SourceChecklist sources={sources} picked={picked} single={formula} disabled={configuring || busy} onChange={(next) => {
+          <SourceChecklist sources={sources} picked={picked} single={formula || (configuring && !!initial)}
+            label={configuring && initial && !formula ? "Source" : undefined}
+            disabled={(configuring && !initial) || busy} onChange={(next) => {
             const first = sources.find(({ id }) => next.has(id));
             if (!next.has(referenceId) && first) selectReference(first);
             setPicked(next);
@@ -388,6 +451,7 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
                           });
                         }}>
                         <option value="">{matched < 0 ? "Choose a column" : `Match · ${columnName(source.columns[matched], matched)}`}</option>
+                        {overrides.get(source.id)?.[key] === -1 && <option value={-1} disabled>Choose a column</option>}
                         {source.columns.map((name, index) => <option key={index} value={index}>{columnName(name, index)}</option>)}
                       </select>
                     </td>;
@@ -437,12 +501,13 @@ export function InputOptionsDialog({ target, project, previous, editingSource, c
           </>}
         </section>
         </div>
+        {warning && <p className="muted" role="status">{warning}</p>}
         {problem && <p className="muted">{problem}</p>}
         {error && <p className="error-banner" role="alert">{error}</p>}
         <footer>
           <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
           <button className="primary" type="submit" disabled={!!problem || busy}>
-            {configuring ? "Update figure" : scale ? "Add step" : formula ? "Calculate column" : plugin?.menu === "plot" ? "Create plot" : "Run analysis"}
+            {initial ? "Save step" : configuring ? "Update figure" : scale ? "Add step" : formula ? "Calculate column" : plugin?.menu === "plot" ? "Create plot" : "Run analysis"}
           </button>
         </footer>
       </form>

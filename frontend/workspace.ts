@@ -52,13 +52,21 @@ export interface PluginRun {
   checksum: string | null;
   options: PluginOptions;
   source_id?: string | null;
-  references?: Record<string, { source_id: string | null; column: number }>;
+  references?: Record<string, { source_id: string | null; column: number | string }>;
 }
 
 export interface PluginSubmission {
   output: "overlay" | "separate";
   target_id: number | null;
   runs: { source_id: string | null; options: PluginOptions; target_id: number | null; references?: PluginRun["references"] }[];
+}
+
+export interface PluginStepInputs {
+  plugin: PluginDefinition;
+  inputs: Pick<Project, "sources" | "figures" | "source_id">;
+  submission: PluginSubmission;
+  updates_figure: boolean;
+  warning: string | null;
 }
 
 export interface PluginFigure {
@@ -137,6 +145,7 @@ export interface WorkflowStep {
   editors?: Record<string, NonNullable<PluginField["editor"]>>;
   files?: string[];
   parameters?: Record<string, unknown>;
+  plugin_step?: boolean;
   scalar?: boolean;
   workflow_outputs?: string[];
 }
@@ -228,6 +237,7 @@ export type Request =
   | { action: "import_workflow" }
   | { action: "run_saved_workflow"; id: string; name: string; sources: Record<string, string | null>; numbers: Record<string, number> }
   | { action: "edit_step"; step_id: number; options: PluginOptions[]; parameters?: Record<string, unknown> }
+  | { action: "edit_plugin_step"; step_id: number; submission: PluginSubmission }
   | { action: "replace_import"; step_id: number; slot: number }
   | { action: "delete_step"; step_id: number }
   | { action: "move_source"; source_id: ProjectSource["id"]; destination: number; placement?: { group_id: string | null } }

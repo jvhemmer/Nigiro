@@ -60,6 +60,8 @@ class Execution:
 
 
 class Workspace:
+    plugin_dialog_actions = ("execute_plugin", "run_plugin", "apply_formula")
+
     def __init__(self) -> None:
         self.project = Project()
         self.workflow = Workflow(self.project)
@@ -82,6 +84,7 @@ class Workspace:
         self.row_offset = 0
         self.render_version = 0
         self.figure_tokens: dict[int, str] = {}
+        self.plugin_edit_prefix: tuple[int, Workspace] | None = None
 
     def set_project(self, project: Project, path: Path | None) -> None:
         project.validate()
@@ -562,6 +565,147 @@ class Workspace:
     def editable_step_parameters(command):
         return {key: value for key, value in command.items() if key not in ("action", "default_style", "definition")}
 
+    def record_plugin_columns(self, command, *, required=False):
+        if command["action"] == "run_batch":
+            steps = []
+            for step in command["steps"]:
+                captured = self.record_plugin_columns({**step, "action": "execute_plugin"}, required=required)
+                steps.append({**step, "runs": captured["runs"]})
+            return {**command, "steps": steps}
+        if command["action"] not in ("execute_plugin", "run_plugin"):
+            return command
+        plugin = self.plugins.resolve(PluginStep(command["plugin_id"], command["version"], command["checksum"], {}))
+        fields = [field["key"] for field in plugin.manifest["fields"] if field["type"] == "column"]
+
+        def record(run):
+            source_id = run["source_id"]
+            references = run.get("references", {})
+            inherited = {}
+            target = None if run.get("replace_inputs") else self.project.figures.get(run.get("figure_id"))
+            if target:
+                previous = plugin_step(target.recipe)
+                source_id, inherited = previous.source_id, previous.references
+            if not required and source_id not in self.project.raw_sources and source_id not in self.sources:
+                return run
+            table = self.input_worksheet(self.project, source_id, self.sources)
+            options = run["options"].copy()
+            for key in fields:
+                if key in options and key not in references and key not in inherited:
+                    options[key] = table.column_selection(options[key])
+            result = {**run, "options": options}
+            if references:
+                result["references"] = {
+                    key: {**ref, "column": self.input_worksheet(
+                        self.project, ref["source_id"], self.sources,
+                    ).column_selection(ref["column"])}
+                    for key, ref in references.items()
+                }
+            return result
+
+        return {**command, "runs": [record(run) for run in command["runs"]]} if command["action"] == "execute_plugin" else record(command)
+
+    def plugin_step_prefix(self, step_id):
+        index = next((i for i, step in enumerate(self.workflow.steps) if step.id == step_id), -1)
+        if index < 0 or self.workflow.steps[index].request["action"] not in self.plugin_dialog_actions:
+            raise ValueError("Choose a recorded plugin step.")
+        if self.plugin_edit_prefix is not None and self.plugin_edit_prefix[0] == step_id:
+            return index, self.plugin_edit_prefix[1]
+        local = copy(self)
+        local.plugin_edit_prefix = None
+        local.project = self.workflow.base
+        local.workflow = Workflow(self.workflow.base, steps=self.workflow.steps[:index])
+        local.run_workflow(restart=True)
+        self.plugin_edit_prefix = step_id, local
+        return index, local
+
+    def plugin_step_inputs(self, step_id):
+        index, local = self.plugin_step_prefix(step_id)
+        saved = self.workflow.steps[index].request
+        pin = (COLUMN_FORMULA_PLUGIN, "1", None) if saved["action"] == "apply_formula" else (
+            saved["plugin_id"], saved["version"], saved["checksum"],
+        )
+        plugin = self.plugins.resolve(PluginStep(*pin, {}))
+        missing = False
+        available_sources = set(local.ordered_sources())
+        available_figures = local.project.visible_figures
+
+        def resolve(kind, value):
+            nonlocal missing
+            try:
+                resolved = local.workflow.resolve(kind, value)
+                if resolved in (available_sources if kind == "source" else available_figures):
+                    return resolved
+            except ValueError:
+                pass
+            missing = True
+            return "unavailable" if kind == "source" else -1
+
+        command = map_references(saved, resolve)
+        target = command.get("figure_id")
+        if command["action"] == "run_plugin":
+            if target in local.project.figures and not command.get("replace_inputs"):
+                previous = plugin_step(local.project.figures[target].recipe)
+                command.update(source_id=previous.source_id, references=asdict(previous)["references"])
+            runs = [{**command, "target_id": None}]
+        elif command["action"] == "apply_formula":
+            runs = [{"source_id": command["source_id"], "target_id": None,
+                     "options": {"column": command["column"], "expression": command["expression"]}}]
+        else:
+            runs = command["runs"]
+        initial = {"output": command.get("output", "overlay"), "target_id": command.get("target_id"),
+                   "runs": [{key: run[key] for key in ("source_id", "options", "target_id", "references") if key in run}
+                            for run in runs]}
+        state = local.snapshot(paged=True, known_figures={str(key): token for key, token in local.figure_tokens.items()})["project"]
+        return {"plugin": plugin.definition, "inputs": {key: state[key] for key in ("sources", "figures", "source_id")},
+                "submission": initial, "updates_figure": target is not None,
+                "warning": local.workflow.error or ("Some recorded inputs are unavailable before this step." if missing else None)}
+
+    def edit_plugin_step(self, request):
+        index, local = self.plugin_step_prefix(request["step_id"])
+        plan = self.workflow
+        step = plan.steps[index]
+        command = step.request
+        submission = request["submission"]
+        runs = submission["runs"]
+        if not isinstance(runs, list) or not runs or submission["output"] not in ("overlay", "separate"):
+            raise ValueError("Choose plugin inputs and an output.")
+        if command["action"] == "apply_formula":
+            if len(runs) != 1:
+                raise ValueError("Choose the worksheet for the calculated column.")
+            source_id = runs[0]["source_id"]
+            worksheet = local.input_worksheet(local.project, source_id, local.sources)
+            options = runs[0]["options"]
+            available = set(local.ordered_sources())
+            previous = {}
+            for token, reference in command["references"].items():
+                try:
+                    if local.workflow.resolve("source", reference["source_id"]) in available:
+                        previous[token] = reference
+                except ValueError:
+                    continue
+            new = {**command, "source_id": local.workflow.reference("source", source_id),
+                   "column": worksheet.column_selection(options["column"]), "expression": options["expression"],
+                   "references": local.formula_references(options["expression"], previous, stable=True)}
+        elif command["action"] == "run_plugin" and command.get("figure_id") is not None:
+            if len(runs) != 1:
+                raise ValueError("Choose one set of inputs to update the figure.")
+            run = runs[0]
+            new = local.record_plugin_columns({**command, "source_id": run["source_id"], "options": run["options"],
+                                               "replace_inputs": True, "references": run.get("references", {})}, required=True)
+            # The existing target is already stored as a stable workflow reference.
+            target = new.pop("figure_id")
+            new = map_references(new, local.workflow.reference)
+            new["figure_id"] = target
+        else:
+            new = local.record_plugin_columns({**command, "action": "execute_plugin", "runs": runs,
+                                               "output": submission["output"], "target_id": submission.get("target_id")},
+                                              required=True)
+            new = map_references(new, local.workflow.reference)
+        plan.steps[index] = replace(step, request=new)
+        plan.invalidate(index)
+        self.plugin_edit_prefix = None
+        self.dirty = True
+
     def workflow_snapshot(self) -> dict:
         plan = self.workflow
         steps = []
@@ -608,6 +752,7 @@ class Workspace:
                 **({"editors": editors} if editors else {}),
                 **({"files": [source.original_path or source.name for source in step.sources]} if step.sources else {}),
                 **({"parameters": self.editable_step_parameters(step.request)} if action != "import_data" else {}),
+                **({"plugin_step": True} if action in self.plugin_dialog_actions else {}),
                 **({"formula": True} if action in ("apply_formula", "add_array") and "expression" in step.request else {}),
                 **({"array": True} if action == "add_array" else {}),
                 **({"scalar": True} if action == "add_scalar" else {}),
@@ -627,6 +772,7 @@ class Workspace:
             command["source_id"] = self.source_id
         if command["action"] in ("figure_style", "color") and "figure_id" not in command:
             command["figure_id"] = self.figure_id
+        command = self.record_plugin_columns(command)
         step = Step(step_id, self.step_label(command, label), map_references(command, plan.reference), sources)
         auto = self.settings.run_automatically and not plan.needs_replay and plan.completed == len(plan.steps)
         plan.steps.append(step)
@@ -867,11 +1013,15 @@ class Workspace:
         self.dirty = True
 
     def dispatch(self, request: dict) -> dict:
+        if request["action"] != "edit_plugin_step" and request["action"] != "plugin_step_inputs":
+            self.plugin_edit_prefix = None
         if request["action"] in ("new", "open", "select_source"):
             self.row_offset = 0
         match request["action"]:
             case "export_recipe":
                 return self.export_recipe()
+            case "plugin_step_inputs":
+                return self.plugin_step_inputs(request["step_id"])
             case "system_fonts":
                 return {"fonts": self.fonts.families(refresh=request.get("refresh", False)), "styles": self.fonts.styles()}
             case "export_fonts":
@@ -923,6 +1073,8 @@ class Workspace:
                 self.change_source_group(request)
             case "edit_step" | "move_step" | "delete_step" | "replace_import":
                 self.edit_workflow(request)
+            case "edit_plugin_step":
+                self.edit_plugin_step(request)
             case "state":
                 pass
             case "new":
@@ -998,7 +1150,9 @@ class Workspace:
                 return {}
             case "apply_formula":
                 references = self.formula_references(request["expression"])
-                self.enqueue({**request, "references": references}, "Column Formula")
+                worksheet = self.input_worksheet(self.project, request["source_id"], self.sources)
+                self.enqueue({**request, "column": worksheet.column_selection(request["column"]),
+                              "references": references}, "Column Formula")
             case "add_scalar":
                 scalar = Source.scalar(request["name"], request["value"], request.get("comment"))
                 self.enqueue({**request, "name": scalar.name, "comment": scalar.comment}, f"Add variable {scalar.name}")
@@ -1060,6 +1214,10 @@ class Workspace:
             recipes[key] = {**asdict(step), "source": plugin.source,
                             "analysis": plugin.manifest["menu"] == "analysis",
                             "input_mode": plugin.manifest.get("input_mode", "batch")}
+            named = [field["key"] for field in plugin.manifest["fields"] if field["type"] == "column"
+                     and field["key"] not in step.references and isinstance(step.options.get(field["key"]), str)]
+            if named:
+                recipes[key]["named_columns"] = named
             if result.dependencies:
                 if plugin.source is None:
                     builtin_dependencies.update(result.dependencies)
@@ -1228,12 +1386,13 @@ class Workspace:
                         if entry.fit_id is not None:
                             target = entry.fit_id
                         previous = plugin_step(project.figures[target].recipe)
-                        source_id = previous.source_id
+                        if not request.get("replace_inputs"):
+                            source_id = previous.source_id
                         figure_id = target
                     recipe = PluginStep(
                         request["plugin_id"], request["version"], request["checksum"], request["options"],
                         source_id=source_id, figure_id=target,
-                        references=previous.references if target is not None else {},
+                        references=request.get("references", {}) if target is None or request.get("replace_inputs") else previous.references,
                     )
                     recipe = replace(recipe, table_only=self.plugins.resolve(recipe).table_only)
                     if target is not None and recipe.pin != previous.pin:
@@ -1333,7 +1492,7 @@ class Workspace:
                 columns = [index for index, name in enumerate(worksheet.columns) if name == column]
                 if len(columns) != 1:
                     raise ValueError(f"Choose a unique column named {column!r} in {source!r}.")
-                selected, = columns
+                selected = column
             references[token] = {
                 "source_id": self.workflow.reference("source", key) if stable else key,
                 "column": selected,

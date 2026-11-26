@@ -50,6 +50,13 @@ enum Action {
         options: Value,
         parameters: Option<Value>,
     },
+    PluginStepInputs {
+        step_id: usize,
+    },
+    EditPluginStep {
+        step_id: usize,
+        submission: Value,
+    },
     ReplaceImport {
         step_id: usize,
         slot: usize,
@@ -351,6 +358,15 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             parameters,
         } => {
             json!({ "action": "edit_step", "step_id": step_id, "options": options, "parameters": parameters })
+        }
+        Action::PluginStepInputs { step_id } => {
+            json!({ "action": "plugin_step_inputs", "step_id": step_id })
+        }
+        Action::EditPluginStep {
+            step_id,
+            submission,
+        } => {
+            json!({ "action": "edit_plugin_step", "step_id": step_id, "submission": submission })
         }
         Action::ReplaceImport { step_id, slot } => {
             return Ok(pick_file(

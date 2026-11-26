@@ -36,7 +36,7 @@ import { RunWorkflowDialog, SaveWorkflowDialog } from "./WorkflowDialogs";
 import { Worksheet } from "./Worksheet";
 import {
   elementNames, formatNumber, lineDashes, replacesProject, workspace,
-  type FigureElement, type PluginDefinition, type PluginRun, type Project, type Request, type TraceFillStyle, type TraceLineStyle, type WorkflowStep, type WorkspaceItem,
+  type FigureElement, type PluginDefinition, type PluginRun, type PluginStepInputs, type Project, type Request, type TraceFillStyle, type TraceLineStyle, type WorkflowStep, type WorkspaceItem,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<boolean>;
@@ -475,7 +475,9 @@ export function App() {
     setNotes(value);
   }, []);
   const [plugins, setPlugins] = useState<PluginDefinition[]>([]);
-  const [inputDialog, setInputDialog] = useState<{ plugin: PluginDefinition; figureId?: number } | "scale" | null>(null);
+  const [inputDialog, setInputDialog] = useState<{
+    plugin: PluginDefinition; figureId?: number; edit?: PluginStepInputs & { stepId: number };
+  } | "scale" | null>(null);
   const [overlayDialog, setOverlayDialog] = useState(false);
   const [scalarDialog, setScalarDialog] = useState(false);
   const [arrayDialog, setArrayDialog] = useState(false);
@@ -642,10 +644,11 @@ export function App() {
     ? projectStem(project) + (project.figures.length > 1 ? `-figure-${figureNumber}` : "") : null;
   const editableTraces = figure?.traces.filter((_, index) => figure.elements?.[index]) ?? [];
   const pluginDialog = inputDialog === "scale" ? null : inputDialog;
+  const pluginEdit = pluginDialog?.edit;
   const previous = project?.operations.slice().reverse().find((step) =>
     step.kind === "plugin" && pluginDialog && matchesPlugin(step, pluginDialog.plugin));
-  const configuring = pluginDialog?.figureId !== undefined;
-  const editingSource = configuring && project && figure ? (
+  const configuring = pluginDialog?.figureId !== undefined || pluginEdit?.updates_figure === true;
+  const editingSource = configuring && !pluginEdit && project && figure ? (
     (figure.recipe.references?.x && figure.recipe.references.y ? {
       id: figure.recipe.source_id ?? null, name: "Paired sources", columns: [figure.x_label ?? "X", figure.y_label ?? "Y"],
     } : project.sources.find(({ id }) => id === (figure.recipe.source_id ?? null))) ?? {
@@ -690,6 +693,28 @@ export function App() {
     }
   }
 
+  async function openStep(step: WorkflowStep) {
+    setError("");
+    if (!step.plugin_step) {
+      setStepDialog(step);
+      return;
+    }
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const context = await invoke<PluginStepInputs>("workspace", {
+        request: { action: "plugin_step_inputs", step_id: step.id },
+      });
+      setInputDialog({ plugin: context.plugin, edit: { ...context, stepId: step.id } });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+
   function runMenu(request: MenuRequest) {
     closeContextMenu();
     if (request.action === "choose_plugin") {
@@ -701,7 +726,7 @@ export function App() {
     else if (request.action === "choose_overlay") { setError(""); setOverlayDialog(true); }
     else if (request.action === "choose_scalar") { setError(""); setScalarDialog(true); }
     else if (request.action === "choose_array") { setError(""); setArrayDialog(true); }
-    else if (request.action === "choose_step") { setError(""); setStepDialog(request.step); }
+    else if (request.action === "choose_step") void openStep(request.step);
     else if (request.action === "choose_save_workflow") { setError(""); setWorkflowDialog("save"); }
     else if (request.action === "choose_run_workflow") { setError(""); setWorkflowDialog("run"); }
     else if (request.action === "figure_settings") { setError(""); setFigureDialog("figure"); }
@@ -926,12 +951,16 @@ export function App() {
         }} />
       )}
       {project && inputDialog && (
-        <InputOptionsDialog target={inputDialog === "scale" ? inputDialog : inputDialog.plugin} project={project} previous={initialOptions}
+        <InputOptionsDialog target={inputDialog === "scale" ? inputDialog : inputDialog.plugin}
+          project={pluginEdit?.inputs ?? project} previous={initialOptions}
+          initial={pluginEdit?.submission} warning={pluginEdit?.warning}
           configuring={configuring} editingSource={editingSource} busy={busy} error={error}
           onClose={() => { setInputDialog(null); setError(""); }}
           onRun={async (submission) => {
             let success: boolean;
-            if (inputDialog === "scale") {
+            if (pluginEdit) {
+              success = await run({ action: "edit_plugin_step", step_id: pluginEdit.stepId, submission });
+            } else if (inputDialog === "scale") {
               const runs = submission.runs.map(({ source_id, options }) => ({ source_id, column: Number(options.column) }));
               success = await run({ action: "scale_column", runs, factor: Number(submission.runs[0].options.factor) });
             } else if (inputDialog.plugin.id === columnFormulaId) {

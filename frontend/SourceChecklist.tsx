@@ -42,16 +42,17 @@ export function SourcePath({ path }: { path: string }) {
   return <span ref={element} className="source-option-path" title={path} dir="ltr">{text}</span>;
 }
 
-export function SourceChecklist({ sources, picked, disabled, onChange, single = false }: {
+export function SourceChecklist({ sources, picked, disabled, onChange, single = false, label = single ? "Output worksheet" : "Sources" }: {
   sources: SourceChoice[];
   picked: ReadonlySet<SourceId>;
   disabled: boolean;
   single?: boolean;
+  label?: string;
   onChange: (picked: Set<SourceId>) => void;
 }) {
   const group = useId();
   return <fieldset>
-    <legend>{single ? "Output worksheet" : "Sources"}</legend>
+    <legend>{label}</legend>
     <ul className="batch-sources">
       {sources.map(({ id, name, original_path: path, row_count: rows, columns }) => <li key={id ?? "primary"}>
         <label className="source-option">

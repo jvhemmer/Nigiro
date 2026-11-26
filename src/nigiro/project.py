@@ -83,6 +83,23 @@ class Worksheet:
     columns: tuple[str, ...]
     rows: tuple[tuple[str, ...], ...]
 
+    def column_index(self, selection: int | str) -> int:
+        if isinstance(selection, str):
+            matches = [index for index, name in enumerate(self.columns) if name == selection]
+            if len(matches) != 1:
+                raise ValueError(f"Choose a unique column named {selection!r}. Edit the step to select an available column.")
+            return matches[0]
+        if type(selection) is not int or not 0 <= selection < len(self.columns):
+            raise ValueError("Choose an available column.")
+        return selection
+
+    def column_selection(self, index: int) -> int | str:
+        if type(index) is int and 0 <= index < len(self.columns):
+            name = self.columns[index]
+            if name.strip() and self.columns.count(name) == 1:
+                return name
+        return index
+
 
 @dataclass(frozen=True)
 class Correction:
@@ -216,12 +233,14 @@ class TraceAppearance:
 @dataclass(frozen=True)
 class ColumnReference:
     source_id: str | None
-    column: int
+    column: int | str
 
     def __post_init__(self) -> None:
         if self.source_id is not None:
             source_origin(self.source_id)
-        if type(self.column) is not int or self.column < 0:
+        if not (type(self.column) is int and self.column >= 0) and not (
+            isinstance(self.column, str) and self.column.strip()
+        ):
             raise ValueError("Invalid column reference.")
 
 
@@ -612,8 +631,9 @@ class Project:
 
     def recipe_references(self, step: PluginStep, tables: dict[str, SourceTable]) -> dict:
         return {
-            token: (self.recipe_input(reference.source_id, step, tables), reference.column)
+            token: (worksheet, worksheet.column_index(reference.column))
             for token, reference in step.references.items()
+            for worksheet in (self.recipe_input(reference.source_id, step, tables),)
         }
 
     @staticmethod
@@ -630,19 +650,18 @@ class Project:
             raise ValueError("Choose one column for X and one for Y.")
         x, y = (step.references[axis] for axis in ("x", "y"))
         x_table, y_table = (self.recipe_input(ref.source_id, step, tables) for ref in (x, y))
-        if x.column >= len(x_table.columns) or y.column >= len(y_table.columns):
-            raise ValueError("Choose available columns for X and Y.")
+        x_column, y_column = x_table.column_index(x.column), y_table.column_index(y.column)
         if len(x_table.rows) != len(y_table.rows):
             raise ValueError(f"X and Y sources must have the same number of rows ({len(x_table.rows)} and {len(y_table.rows)}).")
 
-        def label(table: Worksheet, ref: ColumnReference) -> str:
+        def label(table: Worksheet, ref: ColumnReference, column: int) -> str:
             if len(table.columns) == 1:
                 source = self.raw_sources.get(ref.source_id) or tables[ref.source_id]
                 return self.item_names.get(("source", ref.source_id), source.name)
-            return table.columns[ref.column]
+            return table.columns[column]
 
-        return Worksheet((label(x_table, x), label(y_table, y)), tuple(
-            (x_row[x.column], y_row[y.column]) for x_row, y_row in zip(x_table.rows, y_table.rows)
+        return Worksheet((label(x_table, x, x_column), label(y_table, y, y_column)), tuple(
+            (x_row[x_column], y_row[y_column]) for x_row, y_row in zip(x_table.rows, y_table.rows)
         ))
 
     def build_worksheet(self, source_id: str | None, scale_until: int) -> Worksheet:

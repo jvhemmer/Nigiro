@@ -15,6 +15,46 @@ from nigiro.source_tables import output_tables
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_plugin_edit_sees_only_earlier_sources_and_replays_named_columns(self):
+        worker = Workspace()
+        worker.settings.run_automatically = True
+        with tempfile.TemporaryDirectory() as directory:
+            first, second, reordered = (Path(directory) / name for name in ("first.csv", "second.csv", "reordered.csv"))
+            first.write_text("Potential,Current\n0,0\n1,2\n2,0\n")
+            second.write_text("Current,Potential\n0,0\n5,1\n0,2\n")
+            reordered.write_text("Spare,Potential,Current\n6,0,0\n7,1,8\n8,2,0\n")
+            worker.dispatch({"action": "import_data", "paths": [str(first)]})
+            worker.dispatch({
+                "action": "execute_plugin", "plugin_id": "nigiro.integrate_peak", "version": "1", "checksum": None,
+                "output": "overlay", "runs": [{"source_id": None,
+                    "options": {"x": 0, "y": 1, "range": "0,2", "baseline": "endpoints"}}],
+            })
+            worker.dispatch({"action": "import_data", "paths": [str(second)]})
+            inspect = {"action": "plugin_step_inputs", "step_id": 2}
+            context = worker.dispatch(inspect)
+            self.assertEqual([source["name"] for source in context["inputs"]["sources"]], ["first.csv"])
+            self.assertEqual(context["submission"]["runs"][0]["options"]["x"], "Potential")
+
+            worker.dispatch({"action": "move_step", "step_id": 2, "direction": 1})
+            context = worker.dispatch(inspect)
+            self.assertEqual([source["name"] for source in context["inputs"]["sources"]], ["first.csv", "second.csv"])
+            submission = context["submission"]
+            run = submission["runs"][0]
+            run.update(source_id="raw:0", options={**run["options"], "x": 1, "y": 0})
+            edited = worker.dispatch({"action": "edit_plugin_step", "step_id": 2, "submission": submission})["project"]
+            self.assertTrue(edited["workflow"]["needs_replay"])
+            self.assertEqual(edited["figure"]["summary"]["Signed area"], 2)
+            saved = worker.workflow.steps[-1].request["runs"][0]
+            self.assertEqual(saved["source_id"], {"output": "3/source/0"})
+            self.assertEqual((saved["options"]["x"], saved["options"]["y"]), ("Potential", "Current"))
+
+            worker.dispatch({"action": "replace_import", "step_id": 3, "slot": 0, "path": str(reordered)})
+            result = worker.dispatch({"action": "run_all"})["project"]
+            self.assertIsNone(result["workflow"]["error"])
+            self.assertEqual(result["figure"]["summary"]["Signed area"], 8)
+            recipe = worker.dispatch({"action": "export_recipe"})["project"]["script_recipe"]
+            self.assertEqual(next(iter(recipe["plugins"].values()))["named_columns"], ["x", "y"])
+
     def test_peak_source_group_and_trace_edits_survive_replay(self):
         worker = Workspace()
         worker.settings.run_automatically = True
