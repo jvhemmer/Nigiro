@@ -150,6 +150,7 @@ export interface WorkflowStep {
   plugin_step?: boolean;
   scalar?: boolean;
   workflow_outputs?: string[];
+  workflow_inputs?: string[];
 }
 
 export interface Workflow {
@@ -165,6 +166,21 @@ export interface SavedWorkflow {
   name: string;
   inputs: { output: string; kind: "csv" | "number"; name: string; default?: number }[];
   outputs: { kind: "source" | "figure"; name: string }[];
+}
+
+export interface WorkflowPorts {
+  name: string;
+  inputs: (SavedWorkflow["inputs"][number] & { exposed: boolean })[];
+  outputs: {
+    kind: "source" | "figure";
+    name: string;
+    reference: { output: string; table?: string };
+    exposed: boolean;
+  }[];
+  warning: string | null;
+  sources: { id: string | null; name: string; scalar?: boolean; array?: boolean }[];
+  bindings: Record<string, string | null>;
+  numbers: Record<string, number>;
 }
 
 export interface WorkflowOutput {
@@ -237,6 +253,9 @@ export type Request =
   | { action: "move_step"; step_id: number; direction: number }
   | { action: "save_workflow"; name: string; steps: number[]; inputs: Record<string, string>; outputs: WorkflowOutput[] }
   | { action: "import_workflow" }
+  | { action: "edit_workflow_ports"; step_id: number;
+      inputs: Record<string, { exposed: boolean; name: string }>; outputs: WorkflowPorts["outputs"] }
+  | { action: "edit_workflow_run"; step_id: number; name: string; sources: Record<string, string | null>; numbers: Record<string, number> }
   | { action: "run_saved_workflow"; id: string; name: string; sources: Record<string, string | null>; numbers: Record<string, number> }
   | { action: "edit_step"; step_id: number; options: PluginOptions[]; parameters?: Record<string, unknown> }
   | { action: "edit_plugin_step"; step_id: number; submission: PluginSubmission }

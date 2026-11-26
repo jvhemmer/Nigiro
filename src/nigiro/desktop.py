@@ -322,8 +322,9 @@ class Workspace:
         for step in self.workflow.steps:
             if step.request["action"] != "invoke_workflow":
                 continue
-            for index, port in enumerate(step.request["definition"]["outputs"]):
-                output = f"{step.id}/source/{index}"
+            slots = self.workflow_output_slots(step.request)
+            for port in step.request["definition"]["outputs"]:
+                output = f"{step.id}/source/{slots[self.workflow_output_key(port)]}"
                 if port["kind"] == "source" and output in bindings:
                     runs[bindings[output]] = step.request["name"]
         return runs
@@ -563,7 +564,8 @@ class Workspace:
 
     @staticmethod
     def editable_step_parameters(command):
-        return {key: value for key, value in command.items() if key not in ("action", "default_style", "definition")}
+        return {key: value for key, value in command.items()
+                if key not in ("action", "default_style", "definition", "output_slots")}
 
     def record_plugin_columns(self, command, *, required=False):
         if command["action"] == "run_batch":
@@ -606,10 +608,10 @@ class Workspace:
 
         return {**command, "runs": [record(run) for run in command["runs"]]} if command["action"] == "execute_plugin" else record(command)
 
-    def plugin_step_prefix(self, step_id):
+    def recorded_step_prefix(self, step_id, actions):
         index = next((i for i, step in enumerate(self.workflow.steps) if step.id == step_id), -1)
-        if index < 0 or self.workflow.steps[index].request["action"] not in self.plugin_dialog_actions:
-            raise ValueError("Choose a recorded plugin step.")
+        if index < 0 or self.workflow.steps[index].request["action"] not in actions:
+            raise ValueError("Choose a recorded step of this type.")
         if self.plugin_edit_prefix is not None and self.plugin_edit_prefix[0] == step_id:
             return index, self.plugin_edit_prefix[1]
         local = copy(self)
@@ -621,7 +623,7 @@ class Workspace:
         return index, local
 
     def plugin_step_inputs(self, step_id):
-        index, local = self.plugin_step_prefix(step_id)
+        index, local = self.recorded_step_prefix(step_id, self.plugin_dialog_actions)
         saved = self.workflow.steps[index].request
         pin = (COLUMN_FORMULA_PLUGIN, "1", None) if saved["action"] == "apply_formula" else (
             saved["plugin_id"], saved["version"], saved["checksum"],
@@ -663,7 +665,7 @@ class Workspace:
                 "warning": local.workflow.error or ("Some recorded inputs are unavailable before this step." if missing else None)}
 
     def edit_plugin_step(self, request):
-        index, local = self.plugin_step_prefix(request["step_id"])
+        index, local = self.recorded_step_prefix(request["step_id"], self.plugin_dialog_actions)
         plan = self.workflow
         step = plan.steps[index]
         command = step.request
@@ -760,6 +762,8 @@ class Workspace:
                 **({"scalar": True} if action == "add_scalar" else {}),
                 **({"workflow_outputs": [port["name"] for port in step.request["definition"]["outputs"]]}
                    if action == "invoke_workflow" else {}),
+                **({"workflow_inputs": [port["name"] for port in step.request["definition"]["inputs"] if port.get("exposed", True)]}
+                   if action == "invoke_workflow" else {}),
             })
         return {"steps": steps, "completed": plan.completed, "error": plan.error, "needs_replay": plan.needs_replay,
                 "has_base": plan.base.source is not None}
@@ -792,8 +796,8 @@ class Workspace:
         request = map_references(step.request, plan.resolve)
         before = self.project
         if request["action"] == "invoke_workflow":
-            for index, (kind, value) in enumerate(self.invoke_saved_workflow(request)):
-                plan.bindings[f"{step.id}/{kind}/{index}"] = value
+            for slot, kind, value in self.invoke_saved_workflow(request):
+                plan.bindings[f"{step.id}/{kind}/{slot}"] = value
         elif step.sources:
             self.import_sources(step.sources, import_path=request.get("import_path"), remember=False)
         else:
@@ -805,7 +809,7 @@ class Workspace:
 
     def save_workflow_definition(self, request: dict) -> None:
         plan = self.workflow
-        selected = set(request["steps"])
+        selected = set(request.get("steps", (step.id for step in plan.steps[:plan.completed])))
         steps = [step for step in plan.steps[:plan.completed] if step.id in selected]
         if len(steps) != len(selected):
             raise ValueError("Choose recorded steps that have finished running.")
@@ -839,14 +843,136 @@ class Workspace:
         key = register_workflow(self.workflow_directory, definition)
         self.saved_workflows[key] = definition
 
-    def invoke_saved_workflow(self, request: dict) -> list:
+    @staticmethod
+    def workflow_output_key(port):
+        return json.dumps(port["reference"], sort_keys=True, separators=(",", ":"))
+
+    def workflow_output_slots(self, request):
+        return request.get("output_slots", {
+            self.workflow_output_key(port): index for index, port in enumerate(request["definition"]["outputs"])
+        })
+
+    @staticmethod
+    def workflow_input_ports(definition):
+        ports = {port["output"]: {**port, "exposed": port.get("exposed", True)} for port in definition["inputs"]}
+        for step in definition["steps"]:
+            if step["request"]["action"] == "add_scalar":
+                key = f"{step['id']}/source/0"
+                ports.setdefault(key, {"output": key, "kind": "number", "name": step["request"]["name"],
+                                       "default": step["request"]["value"], "exposed": False})
+        return ports
+
+    def workflow_step_ports(self, step_id):
+        index, prefix = self.recorded_step_prefix(step_id, ("invoke_workflow",))
+        request = self.workflow.steps[index].request
+        definition = request["definition"]
+        published = {self.workflow_output_key(port): {**port, "exposed": True} for port in definition["outputs"]}
+        options = published.copy()
+        warning = prefix.workflow.error
+        try:
+            resolved = map_references(request, prefix.workflow.resolve)
+            local = prefix.run_workflow_definition(resolved)
+            names = local.figure_names(local.project)
+            candidates = (
+                *(("source", key, local.source_name(local.project, key, local.sources, names))
+                  for key in local.ordered_sources() if key not in prefix.project.raw_sources and key not in prefix.sources),
+                *(("figure", key, names[key]) for key in local.project.visible_figures if key not in prefix.project.figures),
+            )
+            for kind, key, name in candidates:
+                reference = local.workflow.reference(kind, key)
+                if isinstance(reference, dict):
+                    port = {"kind": kind, "reference": reference, "name": name, "exposed": False}
+                    options.setdefault(self.workflow_output_key(port), port)
+        except (ValueError, KeyError, TypeError, OSError) as error:
+            warning = warning or str(error)
+        source_names = prefix.figure_names(prefix.project)
+        source_ids = set(prefix.ordered_sources())
+        arrays = prefix.array_producers()
+        sources = [{
+            "id": key, "name": prefix.source_name(prefix.project, key, prefix.sources, source_names),
+            "scalar": source.scalar_value is not None,
+            "array": key in arrays,
+        } for key, source in prefix.project.raw_sources.items() if key in source_ids]
+        bindings = {}
+        for key, reference in request["references"].items():
+            try:
+                source_id = prefix.workflow.resolve("source", reference["source_id"])
+                if source_id in source_ids:
+                    bindings[key] = source_id
+            except ValueError:
+                continue
+        return {"name": request["name"], "inputs": list(self.workflow_input_ports(definition).values()),
+                "outputs": list(options.values()), "warning": warning, "sources": sources,
+                "bindings": bindings, "numbers": request["numbers"]}
+
+    def edit_workflow_ports(self, request):
+        plan = self.workflow
+        index = next((i for i, step in enumerate(plan.steps) if step.id == request["step_id"]), -1)
+        if index < 0 or plan.steps[index].request["action"] != "invoke_workflow":
+            raise ValueError("Choose a recorded workflow run.")
+        step = plan.steps[index]
+        command = step.request
+        definition = command["definition"]
+        ports = self.workflow_input_ports(definition)
+        if request["inputs"].keys() != ports.keys():
+            raise ValueError("Choose the recorded workflow inputs.")
+        inputs = [{**port, "exposed": request["inputs"][key]["exposed"], "name": request["inputs"][key]["name"].strip()}
+                  for key, port in ports.items()]
+        outputs = [{"kind": port["kind"], "reference": port["reference"], "name": port["name"].strip()}
+                   for port in request["outputs"]]
+        updated = validate_workflow({**definition, "inputs": inputs, "outputs": outputs})
+        slots = self.workflow_output_slots(command).copy()
+        next_slot = max(slots.values(), default=-1) + 1
+        for port in outputs:
+            key = self.workflow_output_key(port)
+            if key not in slots:
+                slots[key] = next_slot
+                next_slot += 1
+        plan.steps[index] = replace(step, request={**command, "definition": updated, "output_slots": slots})
+        plan.invalidate(index)
+        self.dirty = True
+
+    def edit_workflow_run(self, request):
+        index, prefix = self.recorded_step_prefix(request["step_id"], ("invoke_workflow",))
+        plan = self.workflow
+        step = plan.steps[index]
+        command = step.request
+        name = request["name"].strip()
+        if not name:
+            raise ValueError("Enter a name for the workflow run.")
+        references, numbers = command["references"].copy(), command["numbers"].copy()
+        for port in command["definition"]["inputs"]:
+            if not port.get("exposed", True):
+                continue
+            key = port["output"]
+            if key in request["sources"]:
+                source_id = request["sources"][key]
+                source = prefix.project.raw_sources.get(source_id)
+                if (source is None or (source.scalar_value is not None) != (port["kind"] == "number")
+                    or prefix.project.item_deleted("source", source_id)):
+                    raise ValueError(f"Choose an available source for {port['name']}.")
+                references[key] = {"source_id": prefix.workflow.reference("source", source_id)}
+                numbers.pop(key, None)
+            elif port["kind"] == "number" and key in request["numbers"]:
+                value = request["numbers"][key]
+                Source.scalar(port["name"], value)
+                numbers[key] = value
+                references.pop(key, None)
+            else:
+                raise ValueError(f"Choose an input for {port['name']}.")
+        updated = {**command, "name": name, "references": references, "numbers": numbers}
+        plan.steps[index] = replace(step, label=f"Workflow: {name}", request=updated)
+        plan.invalidate(index)
+        self.dirty = True
+
+    def run_workflow_definition(self, request):
         definition = validate_workflow(request["definition"])
         base = self.project
         local = copy(self)
-        local.workflow = Workflow(base)
+        steps = [Step(record["id"], record["label"], record["request"]) for record in definition["steps"]]
+        local.workflow = Workflow(base, steps=steps)
         inputs = {port["output"]: port for port in definition["inputs"]}
-        for record in definition["steps"]:
-            step = Step(record["id"], record["label"], record["request"])
+        for step in steps:
             prefix = f"{step.id}/source/"
             if step.request["action"] == "import_data":
                 ports = sorted((key for key in inputs if key.startswith(prefix)), key=lambda key: int(key.rsplit("/", 1)[1]))
@@ -867,25 +993,30 @@ class Workspace:
                         raise ValueError(f"Choose a variable for {inputs[key]['name']}.")
                     value = source.scalar_value
                 else:
-                    value = request["numbers"][key]
+                    value = request["numbers"].get(key, inputs[key].get("default", step.request["value"]))
                 step = replace(step, request={**step.request, "value": value})
             try:
                 local.execute_step(step)
             except (ValueError, KeyError, TypeError, OSError) as error:
                 raise ValueError(f"{step.label}. {error}") from error
+        return local
 
+    def invoke_saved_workflow(self, request: dict) -> list:
+        base = self.project
+        local = self.run_workflow_definition(request)
+        slots = self.workflow_output_slots(request)
         outputs = []
         edits = []
-        for port in definition["outputs"]:
+        for port in request["definition"]["outputs"]:
             kind = port["kind"]
             value = local.workflow.resolve(kind, port["reference"])
             if (kind == "source" and value not in local.ordered_sources()) or (
                 kind == "figure" and value not in local.project.visible_figures
             ):
                 raise ValueError(f"The workflow did not produce {port['name']}.")
-            outputs.append((kind, value))
+            outputs.append((slots[self.workflow_output_key(port)], kind, value))
             edits.append(ItemEdit(kind, value, f"{request['name']} · {port['name']}"))
-        exposed = set(outputs)
+        exposed = {(kind, value) for _, kind, value in outputs}
         for value in local.ordered_sources():
             if value is not None and value not in base.raw_sources and value not in self.sources and ("source", value) not in exposed:
                 edits.append(ItemEdit("source", value, None))
@@ -898,8 +1029,8 @@ class Workspace:
         self.project = updated
         self.results, self.combined, self.sources = local.results, local.combined, local.sources
         self.render_version, self.figure_tokens = local.render_version, local.figure_tokens
-        self.source_id = next((value for kind, value in reversed(outputs) if kind == "source"), self.source_id)
-        self.figure_id = next((value for kind, value in reversed(outputs) if kind == "figure"), self.figure_id)
+        self.source_id = next((value for _, kind, value in reversed(outputs) if kind == "source"), self.source_id)
+        self.figure_id = next((value for _, kind, value in reversed(outputs) if kind == "figure"), self.figure_id)
         self.row_offset = 0
         return outputs
 
@@ -1015,7 +1146,7 @@ class Workspace:
         self.dirty = True
 
     def dispatch(self, request: dict) -> dict:
-        if request["action"] != "edit_plugin_step" and request["action"] != "plugin_step_inputs":
+        if request["action"] not in ("edit_plugin_step", "plugin_step_inputs", "workflow_step_ports", "edit_workflow_run"):
             self.plugin_edit_prefix = None
         if request["action"] in ("new", "open", "select_source"):
             self.row_offset = 0
@@ -1024,6 +1155,8 @@ class Workspace:
                 return self.export_recipe()
             case "plugin_step_inputs":
                 return self.plugin_step_inputs(request["step_id"])
+            case "workflow_step_ports":
+                return self.workflow_step_ports(request["step_id"])
             case "system_fonts":
                 return {"fonts": self.fonts.families(refresh=request.get("refresh", False)), "styles": self.fonts.styles()}
             case "export_fonts":
@@ -1126,7 +1259,13 @@ class Workspace:
             case "save_workflow":
                 self.save_workflow_definition(request)
             case "import_workflow":
-                self.add_saved_workflow(read_workflow(Path(request["path"])))
+                paths = request["paths"] if "paths" in request else [request["path"]]
+                for definition in [read_workflow(Path(path)) for path in paths]:
+                    self.add_saved_workflow(definition)
+            case "edit_workflow_ports":
+                self.edit_workflow_ports(request)
+            case "edit_workflow_run":
+                self.edit_workflow_run(request)
             case "run_saved_workflow":
                 recipe = self.saved_workflows.get(request["id"])
                 if recipe is None:

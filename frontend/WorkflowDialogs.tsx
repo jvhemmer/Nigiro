@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import type { Project, Request, SavedWorkflow, WorkflowOutput } from "./workspace";
+import type { Project, Request, SavedWorkflow, WorkflowOutput, WorkflowPorts } from "./workspace";
 
 interface DialogProps {
   project: Project;
@@ -77,28 +77,36 @@ export function SaveWorkflowDialog({ project, busy, error, onClose, onRun }: Dia
       if (await onRun({ action: "save_workflow", name: name.trim(), steps: [...selected], inputs, outputs })) onClose();
     }}>
     <label><span>Workflow name</span><input required value={name} onChange={(event) => setName(event.target.value)} /></label>
+    <details>
+      <summary>Workflow steps · {selected.size} included</summary>
+      <p className="muted">All completed steps are included by default. These steps run inside the workflow.</p>
+      {steps.map((step) => <label className="workflow-check" key={step.id}>
+        <input type="checkbox" disabled={step.status !== "done"} checked={selected.has(step.id)} onChange={(event) => {
+          const checked = event.target.checked;
+          setSelected((current) => {
+            const next = new Set(current);
+            if (checked) next.add(step.id);
+            else next.delete(step.id);
+            return next;
+          });
+        }} />
+        <span>{step.label}</span>
+      </label>)}
+    </details>
     <fieldset>
-      <legend>Recorded steps and inputs</legend>
-      <p className="muted">Include the steps that produce your outputs. CSV imports become inputs. Select the variables that can change between runs.</p>
-      {steps.map((step) => {
+      <legend>Inputs</legend>
+      <p className="muted">CSV imports are supplied when the workflow runs. Select any variables you want users to set.</p>
+      {steps.filter((step) => selected.has(step.id) && (step.files?.length || step.scalar)).map((step) => {
         const key = `${step.id}/source/0`;
-        const include = selected.has(step.id);
         return <div className="workflow-port" key={step.id}>
-          <label className="workflow-check"><input type="checkbox" disabled={step.status !== "done"} checked={include} onChange={(event) => {
-            setSelected((current) => {
-              const next = new Set(current);
-              if (event.target.checked) next.add(step.id);
-              else next.delete(step.id);
-              return next;
-            });
-          }} /><span>{step.label}</span></label>
-          {include && step.files?.map((file, index) => {
+          <p>{step.label}</p>
+          {step.files?.map((file, index) => {
             const importKey = `${step.id}/source/${index}`;
             return <label key={importKey}><span>CSV input name</span>
               <input title={file} value={inputs[importKey]} onChange={(event) => setPort(importKey, event.target.value)} />
             </label>;
           })}
-          {include && step.scalar && <>
+          {step.scalar && <>
             <label className="workflow-check"><input type="checkbox" checked={key in portNames}
               onChange={(event) => setPort(key, event.target.checked ? step.label.replace(/^Add variable /, "") : undefined)} />
               <span>Expose as a number input</span></label>
@@ -126,33 +134,100 @@ export function SaveWorkflowDialog({ project, busy, error, onClose, onRun }: Dia
   </WorkflowDialog>;
 }
 
+function WorkflowPortEditor({ label, port, onChange }: {
+  label: string;
+  port: { name: string; exposed: boolean };
+  onChange: (port: { name: string; exposed: boolean }) => void;
+}) {
+  return <div className="workflow-port">
+    <label className="workflow-check">
+      <input type="checkbox" checked={port.exposed} onChange={(event) => onChange({ ...port, exposed: event.target.checked })} />
+      <span>{label}</span>
+    </label>
+    {port.exposed && <label><span>Display name</span>
+      <input required value={port.name} onChange={(event) => onChange({ ...port, name: event.target.value })} />
+    </label>}
+  </div>;
+}
+
+export function EditWorkflowPortsDialog({ context, stepId, busy, error, onClose, onRun }: Omit<DialogProps, "project"> & {
+  context: WorkflowPorts;
+  stepId: number;
+}) {
+  const [inputs, setInputs] = useState(context.inputs);
+  const [outputs, setOutputs] = useState(context.outputs);
+  const published = outputs.filter(({ exposed }) => exposed);
+  const valid = published.length > 0 && published.every(({ name }) => !!name.trim())
+    && inputs.every(({ name, exposed }) => !exposed || !!name.trim());
+  return <WorkflowDialog title={`Workflow inputs and outputs · ${context.name}`} submit="Save changes"
+    {...{ busy, error, onClose, valid }} onSubmit={async () => {
+      const settings = Object.fromEntries(inputs.map(({ output, exposed, name }, index) =>
+        [output, { exposed, name: name.trim() || context.inputs[index].name }]));
+      if (await onRun({ action: "edit_workflow_ports", step_id: stepId, inputs: settings, outputs: published })) onClose();
+    }}>
+    {context.warning && <p className="muted" role="status">{context.warning}</p>}
+    <fieldset>
+      <legend>Inputs</legend>
+      <p className="muted">Hidden inputs keep their current values or source assignments.</p>
+      {inputs.map((port, index) => <WorkflowPortEditor key={port.output} port={port}
+        label={`${context.inputs[index].name} · ${port.kind === "csv" ? "CSV" : "number"}`}
+        onChange={(value) => setInputs((current) => current.map((item, i) => i === index ? { ...item, ...value } : item))} />)}
+    </fieldset>
+    <fieldset>
+      <legend>Outputs</legend>
+      <p className="muted">Select the results to publish to this project.</p>
+      {outputs.map((port, index) => <WorkflowPortEditor key={JSON.stringify(port.reference)} port={port}
+        label={`${context.outputs[index].name} · ${port.kind}`}
+        onChange={(value) => setOutputs((current) => current.map((item, i) => i === index ? { ...item, ...value } : item))} />)}
+    </fieldset>
+  </WorkflowDialog>;
+}
+
 export function RunWorkflowDialog(props: DialogProps) {
   const workflows = props.project.saved_workflows;
   const [id, setId] = useState(workflows[0]?.id);
   const workflow = workflows.find((record) => record.id === id);
   if (!workflow) return null;
-  return <WorkflowRunForm key={id} {...props} workflow={workflow}
+  const sources = props.project.sources.filter((source) => source.kind === "raw")
+    .map((source) => ({ ...source, array: source.array_step !== undefined }));
+  return <WorkflowRunForm key={id} {...props} workflow={workflow} availableSources={sources} selectedSource={props.project.source_id}
     choose={<label><span>Workflow</span><select value={id} onChange={(event) => setId(event.target.value)}>
       {workflows.map((record) => <option key={record.id} value={record.id}>{record.name}</option>)}
     </select></label>} />;
 }
 
-function WorkflowRunForm({ project, workflow, choose, busy, error, onClose, onRun }: DialogProps & {
-  workflow: SavedWorkflow; choose: ReactNode;
+export function EditWorkflowRunDialog({ context, stepId, ...props }: Omit<DialogProps, "project"> & {
+  context: WorkflowPorts; stepId: number;
+}) {
+  const workflow = { id: "", name: context.name, inputs: context.inputs.filter(({ exposed }) => exposed),
+    outputs: context.outputs.filter(({ exposed }) => exposed) };
+  return <WorkflowRunForm {...props} workflow={workflow} availableSources={context.sources} selectedSource={null}
+    editing={{ stepId, bindings: context.bindings, numbers: context.numbers }}
+    choose={context.warning && <p className="muted" role="status">{context.warning}</p>} />;
+}
+
+function WorkflowRunForm({ availableSources, selectedSource, workflow, choose, editing, busy, error, onClose, onRun }: Omit<DialogProps, "project"> & {
+  workflow: SavedWorkflow;
+  choose: ReactNode;
+  availableSources: WorkflowPorts["sources"];
+  selectedSource: Project["source_id"];
+  editing?: { stepId: number; bindings: WorkflowPorts["bindings"]; numbers: WorkflowPorts["numbers"] };
 }) {
   const [name, setName] = useState(workflow.name);
-  const available = project.sources.filter((source) => source.kind === "raw" && !source.scalar && source.array_step === undefined);
-  const variables = project.sources.filter(({ scalar }) => scalar);
-  const defaultSource = available.find(({ id }) => id === project.source_id) ?? available[0];
-  const [sources, setSources] = useState<Record<string, string | null>>(() => Object.fromEntries(workflow.inputs
+  const available = availableSources.filter((source) => !source.scalar && !source.array);
+  const variables = availableSources.filter(({ scalar }) => scalar);
+  const defaultSource = available.find(({ id }) => id === selectedSource) ?? available[0];
+  const [sources, setSources] = useState<Record<string, string | null>>(() => editing?.bindings ?? Object.fromEntries(workflow.inputs
     .filter((port) => port.kind === "csv" && defaultSource).map((port) => [port.output, defaultSource.id])));
   const [numbers, setNumbers] = useState<Record<string, number>>(() => Object.fromEntries(workflow.inputs
-    .filter((port) => port.kind === "number").map((port) => [port.output, port.default ?? NaN])));
+    .filter((port) => port.kind === "number").map((port) => [port.output, editing?.numbers[port.output] ?? port.default ?? NaN])));
   const valid = Boolean(name.trim() && workflow.inputs.every((port) => port.kind === "number"
     ? port.output in sources || Number.isFinite(numbers[port.output]) : port.output in sources));
-  return <WorkflowDialog title="Run Workflow" submit="Run workflow" {...{ busy, error, onClose, valid }}
+  return <WorkflowDialog title={editing ? "Edit Workflow Run" : "Run Workflow"} submit={editing ? "Save changes" : "Run workflow"} {...{ busy, error, onClose, valid }}
     onSubmit={async () => {
-      if (await onRun({ action: "run_saved_workflow", id: workflow.id, name: name.trim(), numbers, sources })) onClose();
+      const values = { name: name.trim(), numbers, sources };
+      if (await onRun(editing ? { action: "edit_workflow_run", step_id: editing.stepId, ...values }
+        : { action: "run_saved_workflow", id: workflow.id, ...values })) onClose();
     }}>
     {choose}
     <label><span>Run name</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
@@ -173,7 +248,7 @@ function WorkflowRunForm({ project, workflow, choose, busy, error, onClose, onRu
               });
             }}>
               {numeric ? <option value="">Enter a value</option>
-                : !available.length && <option value="">Import a CSV first</option>}
+                : <option value="">{available.length ? "Choose a CSV source" : "Import a CSV first"}</option>}
               {(numeric ? variables : available).map(({ id, name }) => (
                 <option key={JSON.stringify(id)} value={JSON.stringify(id)}>{name}</option>
               ))}

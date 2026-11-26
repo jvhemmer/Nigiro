@@ -32,15 +32,15 @@ class Workflow:
     source_memberships: dict[str, str | None] = field(default_factory=dict)
 
     def reference(self, kind: str, value):
+        for output, bound in self.bindings.items():
+            if output.split("/")[1] == kind and bound == value:
+                return {"output": output}
         if kind == "source" and value is not None:
             origin = source_origin(value)
             if origin is not None:
                 figure = self.reference("figure", origin)
                 if isinstance(figure, dict):
                     return {**figure, "table": value.split(":", 1)[1]}
-        for output, bound in self.bindings.items():
-            if output.split("/")[1] == kind and bound == value:
-                return {"output": output}
         return value
 
     def resolve(self, _kind: str, value):
@@ -51,6 +51,8 @@ class Workflow:
             producer = output.split("/", 1)[0]
             if not any(str(step.id) == producer for step in self.steps):
                 raise ValueError("A required input came from a deleted step. Remove or replace this dependent step.")
+            if any(str(step.id) == producer for step in self.steps[:self.completed]):
+                raise ValueError("An earlier step no longer provides a required output. Restore that output or change this step's input.")
             raise ValueError("A required input comes from a later step. Move its producer before this step.")
         bound = self.bindings[output]
         return f"{bound}:{value['table']}" if "table" in value else bound

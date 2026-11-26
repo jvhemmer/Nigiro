@@ -13,7 +13,7 @@ from .workflow import map_references
 ACTIONS = {
     "import_data", "add_scalar", "add_array", "apply_formula", "execute_plugin",
     "run_plugin", "scale_column", "correct", "edit_item", "color", "figure_style",
-    "run_batch", "trace_style", "overlay_figures",
+    "run_batch", "trace_style", "overlay_figures", "invoke_workflow",
 }
 OUTPUT_KEY = re.compile(r"([1-9][0-9]*)/(source|figure)/([0-9]+)")
 TABLE_KEY = re.compile(r"[a-z][a-z0-9_-]*")
@@ -29,7 +29,8 @@ def validate_workflow(record: dict) -> dict:
         require(match is not None, "Include the step that produces each input.")
         producer, output_kind, _ = match.groups()
         table = reference.get("table")
-        require(int(producer) in available, "Include each input's producer before the step that uses it.")
+        require(int(producer) in available,
+                "Under Workflow steps, include the step that produces each required source or figure.")
         require((kind == output_kind and table is None)
                 or (kind == "source" and output_kind == "figure" and isinstance(table, str) and TABLE_KEY.fullmatch(table)))
         return reference
@@ -44,12 +45,15 @@ def validate_workflow(record: dict) -> dict:
         require(isinstance(step.get("label"), str) and isinstance(step.get("request"), dict))
         action = step["request"].get("action")
         require(isinstance(action, str) and action in ACTIONS, "This step cannot be saved in a reusable workflow.")
+        if action == "invoke_workflow":
+            validate_workflow(step["request"]["definition"])
         map_references(step["request"], check_reference)
         available[step["id"]] = action
 
     ports = set()
     for port in record["inputs"]:
         require(isinstance(port, dict) and isinstance(port.get("name"), str) and bool(port["name"].strip()))
+        require(type(port.get("exposed", True)) is bool)
         output = port.get("output")
         require(isinstance(output, str) and output not in ports)
         check_reference("source", {"output": output})

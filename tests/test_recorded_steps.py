@@ -279,6 +279,79 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(replayed["sources"][-1]["workflow_run"], "Second")
             self.assertEqual(replayed["workflow"]["completed"], 3)
 
+    def test_workflow_exposure_keeps_internal_steps_and_stable_output_references(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {
+            "NIGIRO_SETTINGS_PATH": str(Path(directory) / "settings.json"),
+        }):
+            root = Path(directory)
+            data = root / "data.csv"
+            data.write_text("E,I\n1,2\n3,4\n")
+            template = Workspace()
+            template.settings.run_automatically = True
+            template.dispatch({"action": "import_data", "paths": [str(data)]})
+            template.dispatch({"action": "add_scalar", "name": "R", "value": 2})
+            template.dispatch({"action": "add_array", "name": "First", "expression": "$data:E"})
+            first = template.source_id
+            template.dispatch({"action": "add_array", "name": "Second", "expression": "$data:I * $R"})
+            second = template.source_id
+            outputs = [{"kind": "source", "id": first, "name": "First"},
+                       {"kind": "source", "id": second, "name": "Second"}]
+            for name in ("Correction", "Alternate"):
+                template.dispatch({"action": "save_workflow", "path": str(root / f"{name}.nigiro-workflow"),
+                                   "name": name, "inputs": {"1/source/0": "Data"}, "outputs": outputs})
+
+            with patch.dict("os.environ", {"NIGIRO_SETTINGS_PATH": str(root / "worker" / "settings.json")}):
+                worker = Workspace()
+            worker.settings.run_automatically = True
+            imported = worker.dispatch({"action": "import_workflow", "paths": [
+                str(root / f"{name}.nigiro-workflow") for name in ("Correction", "Alternate")
+            ]})["project"]["saved_workflows"]
+            self.assertEqual({record["name"] for record in imported}, {"Correction", "Alternate"})
+            correction = next(record for record in imported if record["name"] == "Correction")
+            self.assertEqual([port["name"] for port in correction["inputs"]], ["Data"])
+            worker.dispatch({"action": "import_data", "paths": [str(data)]})
+            result = worker.dispatch({"action": "run_saved_workflow", "id": correction["id"], "name": "Run",
+                                      "sources": {"1/source/0": None}, "numbers": {}})["project"]
+            self.assertEqual(result["source_table"]["rows"], (("4.0",), ("8.0",)))
+            worker.dispatch({"action": "edit_item", "item": {"kind": "source", "id": worker.source_id}, "name": "Kept"})
+            ports = worker.dispatch({"action": "workflow_step_ports", "step_id": 2})
+            self.assertIsNone(ports["warning"])
+            self.assertEqual({port["name"]: port["exposed"] for port in ports["inputs"]}, {"Data": True, "R": False})
+            worker.dispatch({"action": "edit_workflow_ports", "step_id": 2,
+                             "inputs": {"1/source/0": {"name": "Data", "exposed": False},
+                                        "2/source/0": {"name": "Resistance", "exposed": True}},
+                             "outputs": [port for port in ports["outputs"] if port["name"] == "Second"]})
+            worker.dispatch({"action": "edit_workflow_run", "step_id": 2, "name": "Adjusted",
+                             "sources": {}, "numbers": {"2/source/0": 3}})
+            replay = worker.dispatch({"action": "run_all"})["project"]
+            self.assertIsNone(replay["workflow"]["error"])
+            self.assertEqual(replay["workflow"]["steps"][1]["label"], "Workflow: Adjusted")
+            self.assertEqual(replay["workflow"]["steps"][1]["workflow_inputs"], ["Resistance"])
+            self.assertEqual([source["name"] for source in replay["sources"]], ["data.csv", "Kept"])
+            self.assertEqual(replay["source_table"]["rows"], (("6.0",), ("12.0",)))
+            self.assertEqual([port["name"] for port in worker.saved_workflows[correction["id"]]["outputs"]], ["First", "Second"])
+
+            project = root / "edited-run.nigiro"
+            worker.dispatch({"action": "save", "path": str(project)})
+            reopened = Workspace()
+            reopened.dispatch({"action": "open", "path": str(project)})
+            replayed = reopened.dispatch({"action": "run_all"})["project"]
+            self.assertIsNone(replayed["workflow"]["error"])
+            self.assertEqual(replayed["source_table"]["rows"], replay["source_table"]["rows"])
+
+            parent = root / "parent.nigiro-workflow"
+            worker.dispatch({"action": "save_workflow", "path": str(parent), "name": "Parent",
+                             "inputs": {"1/source/0": "Data"},
+                             "outputs": [{"kind": "source", "id": worker.source_id, "name": "Nested result"}]})
+            catalog = worker.dispatch({"action": "state"})["project"]["saved_workflows"]
+            parent_id = next(record["id"] for record in catalog if record["name"] == "Parent")
+            nested = worker.dispatch({"action": "run_saved_workflow", "id": parent_id, "name": "Combined",
+                                      "sources": {"1/source/0": None}, "numbers": {}})["project"]
+            self.assertEqual(nested["sources"][-1]["name"], "Combined · Nested result")
+            self.assertEqual(nested["source_table"]["rows"], (("6.0",), ("12.0",)))
+
     def test_plot_paired_arrays_and_replay_export(self):
         import json
         from nigiro.builtin_plugins import BUILTINS

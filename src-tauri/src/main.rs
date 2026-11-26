@@ -25,6 +25,20 @@ enum Action {
         outputs: Value,
     },
     ImportWorkflow,
+    WorkflowStepPorts {
+        step_id: usize,
+    },
+    EditWorkflowPorts {
+        step_id: usize,
+        inputs: Value,
+        outputs: Value,
+    },
+    EditWorkflowRun {
+        step_id: usize,
+        name: String,
+        sources: Value,
+        numbers: Value,
+    },
     RunSavedWorkflow {
         id: String,
         name: String,
@@ -319,13 +333,31 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             json!({ "action": "save_workflow", "path": file["path"], "name": name, "steps": steps, "inputs": inputs, "outputs": outputs })
         }
         Action::ImportWorkflow => {
-            return pick_file(
-                window,
-                "import_workflow",
-                "Import Workflow",
-                "Nigiro Workflow",
-                "nigiro-workflow",
-            );
+            let dialog = window
+                .dialog()
+                .file()
+                .set_parent(window)
+                .set_title("Import Workflows")
+                .add_filter("Nigiro Workflow", &["nigiro-workflow"]);
+            return picked_files("import_workflow", dialog.blocking_pick_files());
+        }
+        Action::WorkflowStepPorts { step_id } => {
+            json!({ "action": "workflow_step_ports", "step_id": step_id })
+        }
+        Action::EditWorkflowPorts {
+            step_id,
+            inputs,
+            outputs,
+        } => {
+            json!({ "action": "edit_workflow_ports", "step_id": step_id, "inputs": inputs, "outputs": outputs })
+        }
+        Action::EditWorkflowRun {
+            step_id,
+            name,
+            sources,
+            numbers,
+        } => {
+            json!({ "action": "edit_workflow_run", "step_id": step_id, "name": name, "sources": sources, "numbers": numbers })
         }
         Action::RunSavedWorkflow {
             id,
@@ -478,16 +510,7 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             if let Some(directory) = dialog_directory(window)? {
                 dialog = dialog.set_directory(directory);
             }
-            let paths = dialog.blocking_pick_files();
-            return paths
-                .map(|paths| {
-                    let paths = paths
-                        .into_iter()
-                        .map(|path| path.into_path().map_err(|err| err.to_string()))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    Ok(json!({ "action": "import_data", "paths": paths }))
-                })
-                .transpose();
+            return picked_files("import_data", dialog.blocking_pick_files());
         }
         Action::Open => return pick_file(window, "open", "Open project", "Nigiro", "nigiro"),
         Action::NewWorkspace => json!({ "action": "new_workspace" }),
@@ -586,6 +609,21 @@ fn pick_file(
         file_request(action, path)
     })
     .transpose()
+}
+
+fn picked_files(
+    action: &str,
+    paths: Option<Vec<tauri_plugin_dialog::FilePath>>,
+) -> Result<Option<Value>, String> {
+    paths
+        .map(|paths| {
+            let paths = paths
+                .into_iter()
+                .map(|path| path.into_path().map_err(|err| err.to_string()))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(json!({ "action": action, "paths": paths }))
+        })
+        .transpose()
 }
 
 fn dialog_directory(window: &WebviewWindow) -> Result<Option<PathBuf>, String> {

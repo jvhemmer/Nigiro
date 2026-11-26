@@ -32,11 +32,11 @@ import { columnFields, InputOptionsDialog, supportsPairedSources } from "./Input
 import { SourcesPanel } from "./SourcesPanel";
 import { ViewTabs, viewTabId } from "./ViewTabs";
 import { statusLabels, WorkflowPanel, WorkflowStepDialog } from "./WorkflowPanel";
-import { RunWorkflowDialog, SaveWorkflowDialog } from "./WorkflowDialogs";
+import { EditWorkflowPortsDialog, EditWorkflowRunDialog, RunWorkflowDialog, SaveWorkflowDialog } from "./WorkflowDialogs";
 import { Worksheet } from "./Worksheet";
 import {
   elementNames, formatNumber, lineDashes, replacesProject, workspace,
-  type FigureElement, type PluginDefinition, type PluginRun, type PluginStepInputs, type Project, type Request, type TraceFillStyle, type TraceLineStyle, type WorkflowStep, type WorkspaceItem,
+  type FigureElement, type PluginDefinition, type PluginRun, type PluginStepInputs, type Project, type Request, type TraceFillStyle, type TraceLineStyle, type WorkflowPorts, type WorkflowStep, type WorkspaceItem,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<boolean>;
@@ -287,7 +287,8 @@ function InspectPanel({ project, inspection, busy, run, onConfigure, onEditStep,
         <dt>Step</dt><dd>{position + 1} of {project.workflow.steps.length}</dd>
         <dt>Status</dt><dd>{statusLabels[step.status]}</dd>
         {step.files?.map((file, index) => <Fragment key={index}><dt>Input file</dt><dd>{file}</dd></Fragment>)}
-        {step.workflow_outputs?.map((name, index) => <Fragment key={index}><dt>Workflow output</dt><dd>{name}</dd></Fragment>)}
+        {step.workflow_inputs?.map((name, index) => <Fragment key={`input-${index}`}><dt>Workflow input</dt><dd>{name}</dd></Fragment>)}
+        {step.workflow_outputs?.map((name, index) => <Fragment key={`output-${index}`}><dt>Workflow output</dt><dd>{name}</dd></Fragment>)}
         {step.options.flatMap((options, index) => Object.entries(options).map(([key, value]) => (
           <Fragment key={`${index}:${key}`}>
             <dt>{step.options.length > 1 && `Input ${index + 1} · `}{step.labels[key] ?? key}</dt>
@@ -484,6 +485,7 @@ export function App() {
   const [arrayDialog, setArrayDialog] = useState(false);
   const [stepDialog, setStepDialog] = useState<WorkflowStep | null>(null);
   const [workflowDialog, setWorkflowDialog] = useState<"save" | "run" | null>(null);
+  const [workflowRunEditor, setWorkflowRunEditor] = useState<{ context: WorkflowPorts; stepId: number; ports: boolean } | null>(null);
   const [settingsDialog, setSettingsDialog] = useState<"appearance" | "updates" | null>(null);
   const [desktopInfo, setDesktopInfo] = useState<DesktopInfo | null>(null);
   const [release, setRelease] = useState<Release | null>(null);
@@ -694,9 +696,9 @@ export function App() {
     }
   }
 
-  async function openStep(step: WorkflowStep) {
+  async function openStep(step: WorkflowStep, ports = false) {
     setError("");
-    if (!step.plugin_step) {
+    if (!step.plugin_step && !step.workflow_outputs) {
       setStepDialog(step);
       return;
     }
@@ -704,10 +706,17 @@ export function App() {
     inFlight.current = true;
     setBusy(true);
     try {
-      const context = await invoke<PluginStepInputs>("workspace", {
-        request: { action: "plugin_step_inputs", step_id: step.id },
-      });
-      setInputDialog({ plugin: context.plugin, edit: { ...context, stepId: step.id } });
+      if (step.workflow_outputs) {
+        const context = await invoke<WorkflowPorts>("workspace", {
+          request: { action: "workflow_step_ports", step_id: step.id },
+        });
+        setWorkflowRunEditor({ context, stepId: step.id, ports });
+      } else {
+        const context = await invoke<PluginStepInputs>("workspace", {
+          request: { action: "plugin_step_inputs", step_id: step.id },
+        });
+        setInputDialog({ plugin: context.plugin, edit: { ...context, stepId: step.id } });
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -727,6 +736,7 @@ export function App() {
     else if (request.action === "choose_scalar") { setError(""); setScalarDialog(true); }
     else if (request.action === "choose_array") { setError(""); setArrayDialog(true); }
     else if (request.action === "choose_step") void openStep(request.step);
+    else if (request.action === "choose_workflow_ports") void openStep(request.step, true);
     else if (request.action === "choose_save_workflow") { setError(""); setWorkflowDialog("save"); }
     else if (request.action === "choose_run_workflow") { setError(""); setWorkflowDialog("run"); }
     else if (request.action === "figure_settings") { setError(""); setFigureDialog("figure"); }
@@ -736,7 +746,9 @@ export function App() {
   }
 
   const menuBusy = busy || scalarDialog || arrayDialog || overlayDialog || stepDialog !== null || workflowDialog !== null
-    || settingsDialog !== null || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null;
+    || settingsDialog !== null || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null
+    || workflowRunEditor !== null;
+  const WorkflowRunEditor = workflowRunEditor?.ports ? EditWorkflowPortsDialog : EditWorkflowRunDialog;
   const newProject: MenuCommand = { label: "New…", keywords: "create project", icon: FilePlus, request: { action: "new" }, shortcut: "N" };
   const openProject: MenuCommand = { label: "Open Project…", icon: FolderOpen, request: { action: "open" }, shortcut: "O" };
   const newWorkspace: MenuCommand = { label: "New Workspace", icon: FolderPlus, keywords: "create", request: { action: "new_workspace" } };
@@ -802,6 +814,7 @@ export function App() {
       label = "Recorded step actions";
       groups = [[
         { label: "Edit Step…", request: step.files?.length || step.parameters ? { action: "choose_step", step } : null },
+        ...(step.workflow_outputs ? [{ label: "Edit Inputs and Outputs…", request: { action: "choose_workflow_ports" as const, step } }] : []),
         { label: "Move Earlier", request: index > 0 ? { action: "move_step", step_id: step.id, direction: -1 } : null },
         { label: "Move Later", request: index < project.workflow.steps.length - 1 ? { action: "move_step", step_id: step.id, direction: 1 } : null },
       ], [{ label: "Delete…", request: { action: "delete_step", step_id: step.id } }]];
@@ -938,6 +951,8 @@ export function App() {
         onClose={() => { setWorkflowDialog(null); setError(""); }} />}
       {project && workflowDialog === "run" && <RunWorkflowDialog {...{ project, busy, error }} onRun={run}
         onClose={() => { setWorkflowDialog(null); setError(""); }} />}
+      {workflowRunEditor && <WorkflowRunEditor context={workflowRunEditor.context} stepId={workflowRunEditor.stepId}
+        {...{ busy, error }} onRun={run} onClose={() => { setWorkflowRunEditor(null); setError(""); }} />}
       {contextMenu && <ContextMenu menu={contextMenu} onClose={closeContextMenu} onRun={runMenu} />}
       {itemDialog && (
         <ItemDialog change={itemDialog} onClose={() => setItemDialog(null)} onApply={(name) => {
@@ -1025,7 +1040,7 @@ export function App() {
           }}
         />
       )}
-      {error && !scalarDialog && !overlayDialog && !stepDialog && !workflowDialog && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
+      {error && !scalarDialog && !overlayDialog && !stepDialog && !workflowDialog && !workflowRunEditor && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
         <ProjectEditor {...{ project, projectKey, busy, run, capture }} notes={notes ?? project.notes ?? ""} onNotesChange={updateNotes}
           onEditStep={(step) => runMenu({ action: "choose_step", step })}
