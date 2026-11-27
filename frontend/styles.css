@@ -594,9 +594,7 @@ td input {
 .page-controls { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .page-controls button { padding: 2px; min-height: 22px; }
 .history { height: 100%; overflow: auto; }
-.history ol { margin: 0; padding: 6px 12px 10px 35px; font-size: .88rem; }
-.history li { padding: 1px 2px; overflow-wrap: anywhere; }
-.history li::marker { color: var(--muted); font-variant-numeric: tabular-nums; }
+.history ol { margin: 0; padding: 3px 6px 6px; list-style: none; }
 
 .chart-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 230px; padding: 4px 4px 0; }
 .chart-panel [role=alert] { color: var(--error); padding: 12px; }
@@ -808,10 +806,11 @@ td input {
 .refresh-fonts { margin-top: 5px; }
 .workflow-step {
   display: flex; justify-content: flex-start; gap: 6px; width: 100%; min-height: 22px; padding: 1px 4px;
-  border-color: transparent; text-align: left; white-space: normal;
+  border-color: transparent; text-align: left; white-space: nowrap;
 }
-.workflow-step-icon { flex: none; }
-.workflow-step-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.workflow-step-number, .workflow-step-icon { flex: none; }
+.workflow-step-number { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.workflow-step-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .workflow-step small { flex: none; color: var(--muted); }
 .workflow-step[aria-current="true"] { color: var(--accent-ink); background: var(--accent-soft); }
 .workflow-step small[data-status="stale"], .workflow-step small[data-status="failed"], .workflow-error { color: var(--error); }

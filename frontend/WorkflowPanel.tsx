@@ -20,6 +20,7 @@ export function WorkflowPanel({ workflow, busy, run, onInspect, selected }: {
   const [action, setAction] = useState<"run_all" | "run_next">("run_all");
   const disabled = busy || (!workflow.needs_replay
     && (!workflow.steps.length || (action === "run_next" && workflow.completed === workflow.steps.length)));
+  const numberWidth = `${String(workflow.steps.length).length + 1}ch`;
   const drag = useListDrag(busy, (from, to) => {
     void run({ action: "move_step", step_id: workflow.steps[from].id, direction: to - from });
   });
@@ -54,13 +55,14 @@ export function WorkflowPanel({ workflow, busy, run, onInspect, selected }: {
     {!workflow.error && workflow.needs_replay
       && <p className="workflow-base muted" role="status">Run the workflow to update its results.</p>}
     {workflow.has_base && <p className="workflow-base muted">Starts from existing project data.</p>}
-    <ol>
+    <ol role="list" aria-label="Recorded steps">
       {workflow.steps.map((step, index) => {
         const Icon = stepIcon(step);
         return <li key={step.id} {...drag(index)}>
           <button className="workflow-step" type="button" disabled={busy} data-workflow-id={step.id}
-            aria-haspopup="menu" aria-current={step.id === selected} title="Inspect step"
+            aria-haspopup="menu" aria-current={step.id === selected} title={step.label}
             onClick={() => { onInspect(step.id); reveal("analysis"); }}>
+            <span className="workflow-step-number" style={{ width: numberWidth }} aria-hidden="true">{index + 1}.</span>
             <Icon className="workflow-step-icon" size={13} aria-hidden="true" />
             <span className="workflow-step-label">{step.label}</span>
             <small data-status={step.status}>{statusLabels[step.status]}</small>
