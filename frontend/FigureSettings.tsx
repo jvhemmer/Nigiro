@@ -5,7 +5,7 @@ import { formatMeasurement, parseMeasurement } from "./units";
 import { invoke } from "@tauri-apps/api/core";
 import { defaultDesktopPreferences, PythonSettings, UpdateSettings, type DesktopInfo, type DesktopPreferences, type UpdateControls } from "./DesktopSettings";
 import type { Appearance, ProjectStorage } from "./workspace";
-import { Save, RotateCcw } from "lucide-react";
+import { Info, Save, RotateCcw } from "lucide-react";
 import type { AxisKey, AxisSettingsKey, AxisStyle, FigureStyle, StyleSection, TextRenderer } from "./figureStyle";
 
 type FigureTab = "figure" | "traces" | "legend" | "text";
@@ -108,8 +108,15 @@ function FigureColorField(props: Parameters<typeof ColorField>[0]) {
   return <Field label={props.label} controlId={id}><ColorField {...props} id={id} /></Field>;
 }
 
-function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
-  return <fieldset className="settings-category"><legend>{title}</legend>
+function SettingsGroup({ title, help, children }: { title: string; help?: string; children: ReactNode }) {
+  const helpId = useId();
+  return <fieldset className="settings-category" aria-label={help ? title : undefined}>
+    <legend>{title}{help && <span className="settings-group-help">
+      <button type="button" aria-label={`${title} information`} aria-describedby={helpId}>
+        <Info size={14} aria-hidden="true" />
+      </button>
+      <span id={helpId} className="settings-group-tooltip" role="tooltip">{help}</span>
+    </span>}</legend>
     <div className="figure-fields">{children}</div>
   </fieldset>;
 }
@@ -848,14 +855,14 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
             <Field label="Run new steps automatically" checkbox>
               <input type="checkbox" checked={automatic} onChange={(event) => setAutomatic(event.target.checked)} />
             </Field>
-          </SettingsGroup><SettingsGroup title="Project storage">
+          </SettingsGroup><SettingsGroup title="Project storage"
+            help="With calculated sources and figures off, select Run all after you open a project to restore its results.">
             {(Object.keys(projectStorageLabels) as (keyof ProjectStorage)[]).map((key) => (
               <Field key={key} label={projectStorageLabels[key]} checkbox>
                 <input type="checkbox" checked={storage[key]}
                   onChange={(event) => setStorage({ ...storage, [key]: event.target.checked })} />
               </Field>
             ))}
-            <p className="muted">With calculated sources and figures off, select Run all after you open a project to restore its results.</p>
           </SettingsGroup></>}
           {page === "appearance" && <SettingsGroup title="Interface">
             <Field label="Theme">

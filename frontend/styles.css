@@ -768,6 +768,16 @@ td input {
 .update-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 .settings-category { min-width: 0; padding: 9px; margin: 0 0 12px; border: 1px solid var(--line); }
 .settings-category legend { padding-inline: 5px; color: var(--muted); font-size: .86rem; font-weight: 600; }
+.settings-group-help { display: inline-flex; position: relative; margin-inline-start: 4px; vertical-align: middle; }
+.settings-group-help > button { min-height: 18px; width: 18px; padding: 0; border: 0; background: transparent; }
+.settings-group-tooltip {
+  position: absolute; z-index: 2; top: 100%; inset-inline-start: 0; width: 225px;
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: 3px;
+  background: var(--panel); color: var(--text); box-shadow: 0 3px 8px var(--menu-shadow);
+  font-weight: 400; visibility: hidden;
+}
+.settings-group-help:hover .settings-group-tooltip,
+.settings-group-help:focus-within .settings-group-tooltip { visibility: visible; }
 .settings-feedback { flex: none; min-height: 24px; padding: 2px 12px; }
 .figure-settings .figure-settings-error { margin: 0; }
 .figure-settings footer { flex: none; margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); }
