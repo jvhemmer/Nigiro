@@ -1,9 +1,10 @@
 import { stepIcon } from "./actionIcons";
 import { CircuitField } from "./CircuitDesigner";
 import { FormulaEditor } from "./FormulaEditor";
-import { ListFilter } from "lucide-react";
+import { ListFilter, Network } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { WorkflowGraph, type WorkflowNodePositions } from "./WorkflowGraph";
 import { useListDrag } from "./useListDrag";
 import { useRevealDockPanel } from "./DockWorkspace";
 import type { PluginOptions, ProjectSource, Request, Workflow, WorkflowStep } from "./workspace";
@@ -97,15 +98,18 @@ function StepFilterMenu({ hidden, onToggle }: {
   </>;
 }
 
-export function WorkflowPanel({ workflow, busy, run, onInspect, selected }: {
+export function WorkflowPanel({ workflow, busy, run, onInspect, onEdit, selected }: {
   workflow: Workflow;
   busy: boolean;
   run: (request: Request) => Promise<boolean>;
   onInspect: (id: number) => void;
+  onEdit: (step: WorkflowStep) => void;
   selected?: number;
 }) {
   const reveal = useRevealDockPanel();
   const modes = useRef<HTMLDetailsElement>(null);
+  const graphPositions = useRef<WorkflowNodePositions>({});
+  const [graphOpen, setGraphOpen] = useState(false);
   const [action, setAction] = useState<"run_all" | "run_next">("run_all");
   const [hiddenFilters, setHiddenFilters] = useState<ReadonlySet<StepFilter>>(() => new Set(["appearance"]));
   const visibleSteps = workflow.steps.flatMap((step, index) => {
@@ -152,6 +156,8 @@ export function WorkflowPanel({ workflow, busy, run, onInspect, selected }: {
           return next;
         });
       }} />
+      <button type="button" className="step-filter" aria-label="View as flowchart" title="View as flowchart"
+        onClick={() => setGraphOpen(true)}><Network size={15} /></button>
     </div>
     {workflow.error && <p className="workflow-error" role="alert">{workflow.error}</p>}
     {!workflow.error && workflow.needs_replay
@@ -173,6 +179,11 @@ export function WorkflowPanel({ workflow, busy, run, onInspect, selected }: {
         </li>;
       })}
     </ol>
+    {graphOpen && createPortal(<WorkflowGraph steps={workflow.steps} statusLabels={statusLabels} busy={busy}
+      initialPositions={graphPositions.current} onClose={(positions) => {
+        graphPositions.current = positions;
+        setGraphOpen(false);
+      }} onEdit={onEdit} onSelect={(step) => onInspect(step.id)} />, document.body)}
   </div>;
 }
 

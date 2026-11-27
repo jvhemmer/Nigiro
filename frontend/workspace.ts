@@ -139,6 +139,12 @@ export interface Appearance {
   accent: string;
 }
 
+export interface WorkflowPort {
+  id: string;
+  label: string;
+  producer?: number;
+}
+
 export interface WorkflowStep {
   id: number;
   action: string;
@@ -154,6 +160,7 @@ export interface WorkflowStep {
   parameters?: Record<string, unknown>;
   plugin_step?: boolean;
   scalar?: boolean;
+  ports?: { inputs: WorkflowPort[]; outputs: WorkflowPort[] };
   workflow_outputs?: string[];
   workflow_inputs?: string[];
 }

@@ -475,7 +475,7 @@ function ProjectEditor({ project, projectKey, busy, run, onConfigure, onEdit, on
         initialHeight: 180, minimumWidth: 150, minimumHeight: 90,
         content: <WorkflowPanel key={projectKey} workflow={project.workflow} busy={busy} run={run}
           selected={inspection?.kind === "step" ? inspection.id : undefined}
-          onInspect={(id) => setInspection({ kind: "step", id })} />,
+          onInspect={(id) => setInspection({ kind: "step", id })} onEdit={onEditStep} />,
       },
       {
         id: "analysis", title: "Inspect", icon: ScanSearch,

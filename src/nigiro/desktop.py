@@ -29,7 +29,7 @@ from nigiro.project import (
     AddFigureLayers, Correction, FigureAppearance, FigureColor, FigureRecord, ItemEdit, LinearFit, OverlayFigure, Plot, PluginStep, Project,
     ResidualFigure, ScaleColumn, Source, TraceAppearance, Worksheet, normalize_comment, valid_plugin_option,
 )
-from nigiro.source_tables import FIT_PLUGINS, SourceTable, output_tables, source_origin
+from nigiro.source_tables import FIT_PLUGINS, TABLE_ONLY_PLUGINS, SourceTable, output_tables, source_origin
 from nigiro.system_fonts import SystemFonts
 from nigiro.text_import import PREVIEW_BYTES, TextImport, guess_import, import_preview
 from nigiro.settings import Appearance, Settings
@@ -401,7 +401,7 @@ class Workspace:
             "file_name": self.path.name if self.path else None,
             "dirty": self.dirty,
             "run_automatically": self.settings.run_automatically,
-            "workflow": self.workflow_snapshot(),
+            "workflow": self.workflow_snapshot(names),
             "saved_workflows": [{"id": key, "name": record["name"], "inputs": record["inputs"], "outputs": record["outputs"],
                                  **({"project_path": path} if path else {})}
                                 for key, record, path in self.available_workflows()],
@@ -753,9 +753,80 @@ class Workspace:
         self.plugin_edit_prefix = None
         self.dirty = True
 
-    def workflow_snapshot(self) -> dict:
+    def recorded_step_ports(self, names: dict[int, str]) -> dict[int, dict]:
+        plan = self.workflow
+        nodes = {step.id: {"inputs": {}, "outputs": {}} for step in plan.steps}
+        bound_figures = {}
+        for output, value in plan.bindings.items():
+            owner, kind, _ = output.split("/")
+            node = nodes.get(int(owner))
+            if node is None:
+                continue
+            if kind == "figure":
+                bound_figures[value] = (node, output)
+                record = self.project.figures.get(value)
+                if record and isinstance(record.recipe, PluginStep) and (
+                    record.recipe.table_only or record.recipe.plugin_id in TABLE_ONLY_PLUGINS
+                ):
+                    continue
+                label = names.get(value, "Figure")
+            else:
+                source = self.project.raw_sources.get(value) or self.sources.get(value)
+                label = self.project.item_names.get(("source", value), source.name if source else "Source")
+            node["outputs"][output] = label
+        for key, table in self.sources.items():
+            if source_origin(key) in bound_figures:
+                node, output = bound_figures[source_origin(key)]
+                node["outputs"][f"{output}:{key.split(':', 1)[1]}"] = table.name
+
+        for step in plan.steps:
+            node = nodes[step.id]
+            for index, source in enumerate(step.sources):
+                node["outputs"].setdefault(f"{step.id}/source/{index}", source.name)
+            if step.request["action"] in ("add_scalar", "add_array") and "expression" not in step.request:
+                node["outputs"].setdefault(f"{step.id}/source/0", step.request["name"])
+            if step.request["action"] == "invoke_workflow":
+                slots = self.workflow_output_slots(step.request)
+                for port in step.request["definition"]["outputs"]:
+                    slot = slots[self.workflow_output_key(port)]
+                    node["outputs"][f"{step.id}/{port['kind']}/{slot}"] = port["name"]
+            if (step.request.get("output_group") or {}).get("mode") == "new":
+                node["outputs"][f"step:{step.id}"] = step.request["output_group"]["name"]
+
+        for step in plan.steps:
+            inputs = nodes[step.id]["inputs"]
+
+            def connect(port, producer, fallback):
+                parent = nodes.get(producer)
+                label = parent["outputs"].setdefault(port, fallback) if parent is not None else fallback
+                inputs[port] = {"id": port, "label": label, "producer": producer}
+
+            def collect(kind, reference):
+                if isinstance(reference, dict):
+                    output = reference["output"]
+                    port = f"{output}:{reference['table']}" if "table" in reference else output
+                    connect(port, int(output.split("/")[0]), reference.get("table", kind.title()))
+                else:
+                    port = f"base:{kind}:{reference}"
+                    name = names.get(reference) if kind == "figure" else None
+                    source = (self.project.raw_sources.get(reference) or self.sources.get(reference)) if kind == "source" else None
+                    inputs[port] = {"id": port, "label": name or (source.name if source else f"Project {kind}")}
+                return reference
+
+            map_references(step.request, collect)
+            for group in command_group_ids(step.request):
+                if group.startswith("step:"):
+                    connect(group, int(group.split(":")[1]), "Source group")
+                else:
+                    inputs[group] = {"id": group, "label": plan.source_groups.get(group, {}).get("name", "Source group")}
+        return {key: {"inputs": list(node["inputs"].values()),
+                      "outputs": [{"id": port, "label": label} for port, label in node["outputs"].items()]}
+                for key, node in nodes.items()}
+
+    def workflow_snapshot(self, names: dict[int, str] | None = None) -> dict:
         plan = self.workflow
         steps = []
+        ports = self.recorded_step_ports(self.figure_names(self.project) if names is None else names)
         for index, step in enumerate(plan.steps):
             if index < plan.completed:
                 status = "done"
@@ -804,7 +875,7 @@ class Workspace:
                 options, labels = [], {}
             steps.append({
                 "id": step.id, "label": self.step_label(step.request, step.label), "status": status,
-                "action": action, "options": options, "labels": labels,
+                "action": action, "options": options, "labels": labels, "ports": ports[step.id],
                 **({"plugin": plugin_info} if plugin_info else {}),
                 **({"editors": editors} if editors else {}),
                 **({"files": [source.original_path or source.name for source in step.sources]} if step.sources else {}),

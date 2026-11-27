@@ -41,6 +41,24 @@ class ColumnFormulaTest(unittest.TestCase):
         self.assertEqual(result["figures"], [])
         self.assertEqual(result["workflow"]["steps"][-1]["label"], "Analysis: Column Formula")
 
+    def test_recorded_ports_connect_sources_and_derived_tables(self):
+        result = self.formula(1, "$Data1:Current - #Data2:Current")
+        step_id = result["workflow"]["steps"][-1]["id"]
+        plot = self.worker.dispatch({
+            "action": "run_plugin", "plugin_id": "nigiro.line", "version": "1", "checksum": None,
+            "source_id": result["source_id"], "options": {"x": 0, "y": 1},
+        })["project"]
+        first, second, formula, line = plot["workflow"]["steps"]
+        self.assertEqual(formula["ports"]["inputs"], [
+            {**first["ports"]["outputs"][0], "producer": first["id"]},
+            {**second["ports"]["outputs"][0], "producer": second["id"]},
+        ])
+        calculated = next(port for port in formula["ports"]["outputs"] if port["id"].endswith(":calculated"))
+        self.assertEqual(line["ports"]["inputs"], [{**calculated, "producer": step_id}])
+        self.worker.dispatch({"action": "delete_step", "step_id": step_id})
+        pending = self.worker.dispatch({"action": "state"})["project"]["workflow"]["steps"][-1]
+        self.assertEqual(pending["ports"]["inputs"][0]["producer"], step_id)
+
     def test_output_column_name_survives_edit_save_and_replay(self):
         project = self.formula(1, "value * 2", column_name="Current (mA)")
         step_id = project["workflow"]["steps"][-1]["id"]
