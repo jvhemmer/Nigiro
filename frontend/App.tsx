@@ -546,6 +546,10 @@ export function App() {
       const projectDirty = replace && hasProjectChanges(projectRef.current, draft);
       const workspaceDirty = replacesWorkspace && !!projectRef.current?.workspace?.dirty;
       if ((projectDirty || workspaceDirty) && !await confirmDiscard(projectDirty, workspaceDirty)) return false;
+      if (request.action === "import_workflow" && !await confirm(
+        "Nigiro will deprecate standalone workflow files soon. Save reusable workflows as Nigiro projects. To choose inputs and outputs, use File → Configure Project Workflow.",
+        { title: "Import Workflow File", kind: "warning", okLabel: "Choose files", cancelLabel: "Cancel" },
+      )) return false;
       if (request.action === "delete_step" && !await confirm("Delete this recorded step? Later steps that use its outputs may fail when rerun.", {
         title: "Delete recorded step",
         kind: "warning",
