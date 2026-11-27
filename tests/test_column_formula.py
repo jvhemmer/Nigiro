@@ -11,6 +11,7 @@ from nigiro.column_formula import REFERENCE_FORMULA_PLUGINS
 from nigiro.desktop import Workspace
 from nigiro.project import PluginStep, Project, Source
 from nigiro.source_tables import output_tables
+from nigiro.settings import ProjectStorage
 
 
 class ColumnFormulaTest(unittest.TestCase):
@@ -161,6 +162,7 @@ class ColumnFormulaTest(unittest.TestCase):
             "output": "overlay", "runs": [{"source_id": derived["source_id"], "options": {"x": 2, "y": 1}}],
         })
         archive = self.root / "scalar-formula.nigiro"
+        self.worker.settings.project_storage = ProjectStorage(embed_calculated_sources=True)
         self.worker.dispatch({"action": "save", "path": str(archive)})
         reopened = Workspace()
         result = reopened.dispatch({"action": "open", "path": str(archive)})["project"]

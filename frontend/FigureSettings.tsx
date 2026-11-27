@@ -4,7 +4,7 @@ import { Fragment, createContext, useContext, useEffect, useId, useRef, useState
 import { formatMeasurement, parseMeasurement } from "./units";
 import { invoke } from "@tauri-apps/api/core";
 import { defaultDesktopPreferences, PythonSettings, UpdateSettings, type DesktopInfo, type DesktopPreferences, type UpdateControls } from "./DesktopSettings";
-import type { Appearance } from "./workspace";
+import type { Appearance, ProjectStorage } from "./workspace";
 import { Save, RotateCcw } from "lucide-react";
 import type { AxisKey, AxisSettingsKey, AxisStyle, FigureStyle, StyleSection, TextRenderer } from "./figureStyle";
 
@@ -14,6 +14,12 @@ const textRenderers = [["auto", "Auto"], ["plain", "Plain text"], ["inline", "In
 export type SettingsSection = "figure" | AxisSettingsKey;
 
 const defaultAppearance: Appearance = { theme: "system", accent: "#245883" };
+const defaultProjectStorage: ProjectStorage = { embed_files: false, embed_calculated_sources: false, embed_figures: false };
+const projectStorageLabels = {
+  embed_files: "Embed files in the project file",
+  embed_calculated_sources: "Embed calculated sources in the project file",
+  embed_figures: "Embed figures in the project file",
+} satisfies Record<keyof ProjectStorage, string>;
 
 const sectionNames: Record<SettingsTab, string> = {
   figure: "Figure", traces: "Traces", legend: "Legend", text: "Text", axes: "Axes",
@@ -561,10 +567,11 @@ function figureError(style: FigureStyle) {
   return null;
 }
 
-export function FigureSettings({ initial, defaults, initialSection, labels, availableAxes = ["x", "y"], categoricalX, bar, markers, line, onClose, onApply, global = false, appearance, runAutomatically = true, busy = false, saveError = "", onSaveGlobal, desktop }: {
+export function FigureSettings({ initial, defaults, initialSection, labels, availableAxes = ["x", "y"], categoricalX, bar, markers, line, onClose, onApply, global = false, appearance, runAutomatically = true, projectStorage = defaultProjectStorage, busy = false, saveError = "", onSaveGlobal, desktop }: {
   global?: boolean;
   appearance?: Appearance;
   runAutomatically?: boolean;
+  projectStorage?: ProjectStorage;
   busy?: boolean;
   saveError?: string;
   desktop?: { info: DesktopInfo | null; update: UpdateControls; pythonVersion: string; initialPage: "appearance" | "updates" };
@@ -579,7 +586,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
   markers: boolean;
   line: boolean;
   onClose: () => void;
-  onApply: (style: FigureStyle, appearance?: Appearance, runAutomatically?: boolean, desktop?: DesktopPreferences) => void;
+  onApply: (style: FigureStyle, appearance?: Appearance, runAutomatically?: boolean, desktop?: DesktopPreferences, projectStorage?: ProjectStorage) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -596,6 +603,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
   const [desktopChanges, setDesktopDraft] = useState<DesktopPreferences | null>(null);
   const desktopDraft = desktopChanges ?? desktop?.info?.preferences ?? defaultDesktopPreferences;
   const [automatic, setAutomatic] = useState(runAutomatically);
+  const [storage, setStorage] = useState(projectStorage);
   const [expanded, setExpanded] = useState(true);
   const [appearanceDraft, setAppearanceDraft] = useState<Appearance>(appearance ?? defaultAppearance);
   const [tab, setTab] = useState<SettingsTab>(initialSection === "figure" || !availableAxes.length ? "figure" : "axes");
@@ -653,7 +661,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
       return;
     }
     onApply({ ...style, font_family: style.font_family.trim() }, global ? appearanceDraft : undefined,
-      global ? automatic : undefined, desktop?.info ? desktopDraft : undefined);
+      global ? automatic : undefined, desktop?.info ? desktopDraft : undefined, global ? storage : undefined);
   }
 
   async function saveField(section: SettingsSection, key: string) {
@@ -692,7 +700,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
   function resetSection() {
     if (page === "updates") { setDesktopDraft({ ...desktopDraft, check_updates: defaultDesktopPreferences.check_updates }); return; }
     if (page === "python") { setDesktopDraft({ ...desktopDraft, python: defaultDesktopPreferences.python }); return; }
-    if (page === "workflow") { setAutomatic(true); return; }
+    if (page === "workflow") { setAutomatic(true); setStorage(defaultProjectStorage); return; }
     if (page === "appearance") {
       setAppearanceDraft(defaultAppearance);
       return;
@@ -715,6 +723,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
     setStyle(defaults);
     setAppearanceDraft(defaultAppearance);
     setAutomatic(true);
+    setStorage(defaultProjectStorage);
     setDesktopDraft(defaultDesktopPreferences);
     setInvalidMeasurements({});
     setError("");
@@ -835,11 +844,19 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
             onChange={setDesktopDraft} update={desktop.update} />}
           {desktop && page === "python" && <PythonSettings info={desktop.info} draft={desktopDraft}
             onChange={setDesktopDraft} version={desktop.pythonVersion} />}
-          {page === "workflow" && <SettingsGroup title="Execution">
+          {page === "workflow" && <><SettingsGroup title="Execution">
             <Field label="Run new steps automatically" checkbox>
               <input type="checkbox" checked={automatic} onChange={(event) => setAutomatic(event.target.checked)} />
             </Field>
-          </SettingsGroup>}
+          </SettingsGroup><SettingsGroup title="Project storage">
+            {(Object.keys(projectStorageLabels) as (keyof ProjectStorage)[]).map((key) => (
+              <Field key={key} label={projectStorageLabels[key]} checkbox>
+                <input type="checkbox" checked={storage[key]}
+                  onChange={(event) => setStorage({ ...storage, [key]: event.target.checked })} />
+              </Field>
+            ))}
+            <p className="muted">With calculated sources and figures off, select Run all after you open a project to restore its results.</p>
+          </SettingsGroup></>}
           {page === "appearance" && <SettingsGroup title="Interface">
             <Field label="Theme">
               <select aria-label="Theme" value={appearanceDraft.theme} onChange={(event) => setAppearanceDraft({

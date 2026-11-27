@@ -139,6 +139,12 @@ export interface Appearance {
   accent: string;
 }
 
+export interface ProjectStorage {
+  embed_files: boolean;
+  embed_calculated_sources: boolean;
+  embed_figures: boolean;
+}
+
 export interface WorkflowPort {
   id: string;
   label: string;
@@ -242,6 +248,7 @@ export interface Project {
   dirty: boolean;
   workflow: Workflow;
   run_automatically: boolean;
+  project_storage: ProjectStorage;
   columns: string[];
   rows: string[][];
   original_rows: string[][];
@@ -348,7 +355,7 @@ export type Request =
   | { action: "overlay_figures"; figure_ids: number[] }
   | { action: "edit_item"; item: WorkspaceItem; name: string | null }
   | { action: "inspect_style"; figure_id: number; trace: number; changes: InspectStyleChange[] }
-  | { action: "set_preferences"; style: FigureStyle; appearance: Appearance; run_automatically?: boolean }
+  | { action: "set_preferences"; style: FigureStyle; appearance: Appearance; run_automatically?: boolean; project_storage?: ProjectStorage }
   | { action: "set_global_style"; style: FigureStyle }
   | { action: "figure_style"; style: FigureStyle; figure_id: number }
   | { action: "save_as"; name: string; notes?: string };

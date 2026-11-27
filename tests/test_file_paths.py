@@ -53,6 +53,7 @@ class FilePathsTest(unittest.TestCase):
                 self.assertEqual(worker.path, paths["save"])
                 self.assertEqual(worker.dialog_directory("open"), str(paths["open"].parent))
 
+                worker.dispatch({"action": "run_all"})
                 run("save_workflow", name="Table", steps=[1], inputs={"1/source/0": "Input data"},
                     outputs=[{"kind": "source", "id": None, "name": "Table"}])
                 paths["import_workflow"].write_bytes(paths["save_workflow"].read_bytes())

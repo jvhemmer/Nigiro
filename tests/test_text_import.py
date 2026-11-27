@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from nigiro.desktop import Workspace
 from nigiro.text_import import TextImport, decode_table, guess_import, import_preview, text_table
+from nigiro.settings import ProjectStorage
 
 
 class TextImportTests(unittest.TestCase):
@@ -61,6 +62,7 @@ class TextImportTests(unittest.TestCase):
             result = worker.dispatch({**request, "settings": [review["settings"][0], settings]})["project"]
             self.assertEqual([source["name"] for source in result["sources"]], ["numbers.txt", "instrument.dat"])
             path = root / "project.nigiro"
+            worker.settings.project_storage = ProjectStorage(embed_files=True)
             worker.dispatch({"action": "save", "path": str(path)})
             manual.unlink()
             reopened = Workspace()

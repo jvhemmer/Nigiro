@@ -12,6 +12,7 @@ from nigiro.builtin_plugins import BUILTINS, linear_fit_view
 from nigiro.desktop import Workspace
 from nigiro.project import PluginStep
 from nigiro.source_tables import output_tables
+from nigiro.settings import ProjectStorage
 
 
 class WorkflowTest(unittest.TestCase):
@@ -254,6 +255,7 @@ class WorkflowTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "peak.nigiro"
+            worker.settings.project_storage = ProjectStorage(embed_calculated_sources=True)
             worker.dispatch({"action": "save", "path": str(path)})
             reopened = Workspace()
             for request in ({"action": "open", "path": str(path)}, {"action": "run_all"}):
@@ -311,6 +313,7 @@ class WorkflowTest(unittest.TestCase):
             path = Path(directory) / "overlay.nigiro"
             combined = worker.dispatch({"action": "overlay_figures", "figure_ids": [overlay["figure_id"], first]})["project"]
             self.assertEqual(combined["figure"]["series_cycle"], [0, 1, 2])
+            worker.settings.project_storage = ProjectStorage(embed_calculated_sources=True)
             worker.dispatch({"action": "save", "path": str(path)})
             reopened = Workspace()
             self.assertEqual(reopened.dispatch({"action": "open", "path": str(path)})["project"]["figure"], combined["figure"])
@@ -343,6 +346,7 @@ class WorkflowTest(unittest.TestCase):
             style = {"color": "#3548a0", "width": 2.5, "dash": "dashdot"}
             command = {"action": "trace_style", "figure_id": first, "trace": 1, "style": style}
             self.assertEqual(worker.dispatch(command)["project"]["trace_styles"], {1: style})
+            worker.settings.project_storage = ProjectStorage(embed_calculated_sources=True)
             worker.dispatch({"action": "save", "path": str(path)})
             reopened = Workspace()
             self.assertEqual(reopened.dispatch({"action": "open", "path": str(path)})["project"]["trace_styles"], {1: style})
@@ -372,6 +376,7 @@ class WorkflowTest(unittest.TestCase):
             worker.dispatch({"action": "add_array", "name": "Drop", "expression": "$Current:Value * $R",
                              "comment": "Calculated in V\nUses measured current"})
             worker.dispatch({"action": "add_scalar", "name": "Blank", "value": 1, "comment": "  "})
+            worker.settings.project_storage = ProjectStorage(embed_calculated_sources=True)
             worker.dispatch({"action": "save", "path": str(path)})
             reopened = Workspace()
             expected = {"R": "Solution resistance", "Current": "Measured in A",
@@ -796,6 +801,7 @@ class WorkflowTest(unittest.TestCase):
             pending = worker.dispatch({"action": "import_data", "paths": [str(csv)]})["project"]
             self.assertFalse(pending["sources"])
             self.assertEqual(pending["workflow"]["steps"][0]["status"], "pending")
+            worker.settings.project_storage = ProjectStorage(embed_files=True)
             worker.dispatch({"action": "save", "path": str(path)})
             csv.unlink()
             other = Workspace()

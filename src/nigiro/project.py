@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import csv
 import io
+import hashlib
 import math
 import re
 from dataclasses import dataclass, field, replace
 from functools import cached_property
+from pathlib import Path
 from typing import Literal
 
 from .column_formula import run_scalar_formula
@@ -83,6 +85,39 @@ class Source:
         if not rows:
             raise ValueError("The CSV needs at least one data row.")
         return Worksheet(tuple(header), tuple(rows))
+
+
+class LinkedSourceError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class LinkedSource:
+    source: Source
+    path: Path
+    checksum: str
+
+    @property
+    def name(self) -> str:
+        return self.source.name
+
+    @property
+    def original_path(self) -> str:
+        return str(self.path)
+
+    def load(self) -> Source:
+        changed = False
+        for path in dict.fromkeys((self.path, Path(self.source.original_path or self.path))):
+            try:
+                content = path.read_bytes()
+            except OSError:
+                continue
+            if hashlib.sha256(content).hexdigest() == self.checksum:
+                return replace(self.source, content=content, original_path=str(path))
+            changed = True
+        if changed:
+            raise LinkedSourceError(f"The linked file changed: {self.path}. Replace the file in the import step.")
+        raise LinkedSourceError(f"The linked file is unavailable: {self.path}. Replace the file in the import step.")
 
 
 @dataclass(frozen=True)
@@ -426,6 +461,8 @@ class Project:
     additional_sources: tuple[Source, ...] = ()
     last_import_path: str | None = None
     notes: str = ""
+    saved_source_names: dict[str, str] = field(default_factory=dict)
+    saved_figures: dict[int, dict] = field(default_factory=dict)
 
     def apply(self, operation: Operation) -> Project:
         updated = replace(self, operations=(*self.operations, operation))

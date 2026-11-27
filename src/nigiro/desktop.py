@@ -26,13 +26,13 @@ from nigiro.figure_style import AxisStyle, FigureStyle
 from nigiro.plotting import draw_fit, draw_plot
 from nigiro.plugin_registry import PluginRegistry, plugin_step
 from nigiro.project import (
-    AddFigureLayers, Correction, FigureAppearance, FigureColor, FigureRecord, ItemEdit, LinearFit, OverlayFigure, Plot, PluginStep, Project,
+    AddFigureLayers, Correction, FigureAppearance, FigureColor, FigureRecord, ItemEdit, LinearFit, LinkedSource, OverlayFigure, Plot, PluginStep, Project,
     ResidualFigure, ScaleColumn, Source, TraceAppearance, Worksheet, normalize_comment, valid_plugin_option,
 )
 from nigiro.source_tables import FIT_PLUGINS, TABLE_ONLY_PLUGINS, SourceTable, output_tables, source_origin
 from nigiro.system_fonts import SystemFonts
 from nigiro.text_import import PREVIEW_BYTES, TextImport, guess_import, import_preview
-from nigiro.settings import Appearance, Settings
+from nigiro.settings import Appearance, ProjectStorage, Settings
 from nigiro.storage import load_project_session, operation_record, save_project
 from nigiro.workflow import Step, Workflow, map_references
 from nigiro.workflow_file import (
@@ -93,7 +93,7 @@ class Workspace:
 
     def set_project(self, project: Project, path: Path | None) -> None:
         project.validate()
-        self.render(project, fallback=project.saved_sources)
+        self.render(project, fallback=project.saved_sources, saved_figures=project.saved_figures)
         self.project = project
         self.workflow = Workflow(project)
         self.figure_id = project.last_figure_id
@@ -103,7 +103,7 @@ class Workspace:
         self.dirty = path is None and project.source is not None
 
     def open_project(self, path: Path, *, browsed: bool = False) -> None:
-        project, workflow = load_project_session(path)
+        project, workflow = load_project_session(path, defer_replay=True)
         self.set_project(project, path)
         self.workflow = workflow
         imported = project.last_import_path
@@ -178,6 +178,7 @@ class Workspace:
     def render(
         self, project: Project, *, changed: set[int] | None = None,
         fallback: dict[str, SourceTable] | None = None, destinations: set[int] | None = None,
+        saved_figures: dict[int, dict] | None = None,
     ) -> None:
         results = {}
         sources = {}
@@ -193,6 +194,7 @@ class Workspace:
             step = plugin_step(record.recipe)
             inputs = (step.source_id, *(reference.source_id for reference in step.references.values()))
             upstream = {source_origin(source_id) for source_id in inputs if source_id is not None}
+            cached = (saved_figures or {}).get(figure_id)
             if changed is None or strict or not upstream.isdisjoint(refreshed):
                 try:
                     result = self.execute(project, record, sources)
@@ -204,6 +206,8 @@ class Workspace:
                         if source_origin(key) == figure_id
                     }
                     result = Execution(None, None, saved, str(exc))
+                if cached is not None:
+                    result = replace(result, **cached, error=None)
                 refreshed.add(figure_id)
             else:
                 result = self.results[figure_id]
@@ -401,6 +405,7 @@ class Workspace:
             "file_name": self.path.name if self.path else None,
             "dirty": self.dirty,
             "run_automatically": self.settings.run_automatically,
+            "project_storage": asdict(self.settings.project_storage),
             "workflow": self.workflow_snapshot(names),
             "saved_workflows": [{"id": key, "name": record["name"], "inputs": record["inputs"], "outputs": record["outputs"],
                                  **({"project_path": path} if path else {})}
@@ -923,7 +928,9 @@ class Workspace:
             for slot, kind, value in self.invoke_saved_workflow(request):
                 plan.bindings[f"{step.id}/{kind}/{slot}"] = value
         elif step.sources:
-            self.import_sources(step.sources, import_path=request.get("import_path"), remember=False)
+            sources = tuple(source.load() if isinstance(source, LinkedSource) else source for source in step.sources)
+            imported = sources[-1].original_path if isinstance(step.sources[-1], LinkedSource) else request.get("import_path")
+            self.import_sources(sources, import_path=imported, remember=False)
         else:
             self.apply(request)
         if request["action"] != "invoke_workflow":
@@ -960,7 +967,10 @@ class Workspace:
             raise ValueError("The source project changed. Open the import dialog again.")
         local = copy(self)
         local.project, local.workflow, local.path = project, workflow, path
-        local.sources = project.saved_sources
+        local.sources = {
+            **{key: SourceTable(name, (), ()) for key, name in project.saved_source_names.items()},
+            **project.saved_sources,
+        }
         if workflow.completed == 0:
             raise ValueError("Run and save at least one recorded step in the source project.")
         return local, current_revision
@@ -1012,7 +1022,7 @@ class Workspace:
             for index, source in enumerate(step.sources):
                 key = f"{step.id}/source/{index}"
                 if fixed_imports and key not in ports:
-                    fixed[key] = fixed_source_record(source)
+                    fixed[key] = fixed_source_record(source.load() if isinstance(source, LinkedSource) else source)
                 else:
                     inputs.append({"output": key, "kind": "csv", "name": ports.get(key, "").strip()})
             key = f"{step.id}/source/0"
@@ -1454,7 +1464,11 @@ class Workspace:
                     raise ValueError("Choose a valid worksheet page.")
                 self.row_offset = (offset // 100) * 100
             case "set_preferences":
-                self.settings.save_preferences(FigureStyle(**request["style"]), Appearance(**request["appearance"]), request.get("run_automatically"))
+                storage = request.get("project_storage")
+                self.settings.save_preferences(
+                    FigureStyle(**request["style"]), Appearance(**request["appearance"]), request.get("run_automatically"),
+                    ProjectStorage(**storage) if storage is not None else None,
+                )
             case "set_global_style":
                 self.settings.save(FigureStyle(**request["style"]))
             case "run_all":
@@ -1933,7 +1947,15 @@ class Workspace:
                 if path is None or path.suffix.lower() != ".nigiro":
                     raise ValueError("Choose a file name with the .nigiro extension.")
                 updated = replace(project, notes=project.notes if request.get("notes") is None else request["notes"])
-                save_project(path, replace(updated, saved_sources=self.sources), self.workflow)
+                options = self.settings.project_storage
+                figures = {
+                    key: {"figure": result.figure, "legacy": result.legacy, "residual": result.residual,
+                          "dependencies": result.dependencies}
+                    for key, result in self.results.items()
+                    if result.figure is not None and updated.figures[key].fit_id is None
+                } if options.embed_figures else {}
+                save_project(path, replace(updated, saved_sources=self.sources, saved_figures=figures), self.workflow,
+                             options=options)
                 self.project = updated
                 self.path = path
                 if self.collection is not None:

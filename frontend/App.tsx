@@ -1085,16 +1085,17 @@ export function App() {
         />
       )}
       {project && settingsDialog && (
-        <FigureSettings global runAutomatically={project.run_automatically} appearance={project.appearance} initial={project.global_figure_style} defaults={project.factory_figure_style}
+        <FigureSettings global runAutomatically={project.run_automatically} projectStorage={project.project_storage}
+          appearance={project.appearance} initial={project.global_figure_style} defaults={project.factory_figure_style}
           initialSection="figure" labels={{ x: "", y: "" }}
           categoricalX={false} bar markers line busy={busy} saveError={error}
           desktop={{ info: desktopInfo, initialPage: settingsDialog, pythonVersion: project.versions.python,
             update: { release, checking: updateChecking, installing: updateInstalling, checked: updateChecked,
               error: updateError, check: checkUpdates, install: installUpdate } }}
           onClose={() => { setSettingsDialog(null); setError(""); }}
-          onApply={async (style, appearance, run_automatically, desktop) => {
+          onApply={async (style, appearance, run_automatically, desktop, project_storage) => {
             if (appearance && await saveDesktopPreferences(desktop)
-              && await run({ action: "set_preferences", style, appearance, run_automatically })) setSettingsDialog(null);
+              && await run({ action: "set_preferences", style, appearance, run_automatically, project_storage })) setSettingsDialog(null);
           }} />
       )}
       {project && figure && project.figure_id !== null && figureDialog && (

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .project import Project, Source
+from .project import LinkedSource, Project, Source
 from .source_tables import source_origin
 
 
@@ -14,7 +14,7 @@ class Step:
     id: int
     label: str
     request: dict
-    sources: tuple[Source, ...] = ()
+    sources: tuple[Source | LinkedSource, ...] = ()
 
 
 @dataclass

@@ -12,7 +12,9 @@ from importlib.metadata import version
 from pathlib import Path
 from zipfile import ZipFile
 
+from nigiro.figure_style import FigureStyle
 from nigiro.script_export import PAYLOAD_MARKER, write_script
+from nigiro.settings import Appearance, ProjectStorage, Settings
 from nigiro.storage import load_project
 
 
@@ -20,6 +22,13 @@ CSV = "Time,Signal µ\r\n0,1\r\n1,4\r\n2,5\r\n3,7\r\n".encode()
 
 
 class DesktopWorkerTest(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.settings_path = Path(directory.name) / "settings.json"
+        Settings(self.settings_path).save_preferences(
+            FigureStyle(), Appearance(), project_storage=ProjectStorage(embed_files=True, embed_calculated_sources=True),
+        )
     def run_worker(self, *requests: dict, plugins: Path | None = None) -> list[dict]:
         engine = os.environ.get("NIGIRO_TEST_ENGINE")
         command = [engine] if engine else [sys.executable, "-m", "nigiro.desktop"]
@@ -29,7 +38,8 @@ class DesktopWorkerTest(unittest.TestCase):
             capture_output=True,
             encoding="utf-8",
             timeout=45,
-            env={**os.environ, "NIGIRO_PLUGIN_DIR": str(plugins)} if plugins else None,
+            env={**os.environ, "NIGIRO_SETTINGS_PATH": str(self.settings_path),
+                 **({"NIGIRO_PLUGIN_DIR": str(plugins)} if plugins else {})},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         replies = [json.loads(line) for line in result.stdout.splitlines()]
@@ -450,6 +460,7 @@ class DesktopWorkerTest(unittest.TestCase):
             "NIGIRO_SETTINGS_PATH": str(Path(directory) / "settings.json"),
         }):
             worker = Workspace()
+            worker.settings.project_storage = ProjectStorage(embed_calculated_sources=True)
             defaults = worker.snapshot()["project"]["global_figure_style"]
             style = {**defaults, "label_size": 18, "line_width": 2.5,
                      "x": {**defaults["x"], "grid": True}}

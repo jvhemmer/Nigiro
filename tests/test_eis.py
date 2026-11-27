@@ -10,6 +10,7 @@ import numpy as np
 
 from nigiro.builtin_plugins import BUILTINS
 from nigiro.desktop import Workspace
+from nigiro.settings import ProjectStorage
 
 
 class EISPluginTest(unittest.TestCase):
@@ -41,6 +42,7 @@ class EISPluginTest(unittest.TestCase):
                 step = state["workflow"]["steps"][-1]
                 self.assertEqual(step["editors"], {"circuit": "eis_circuit"})
                 saved = folder / "fit.nigiro"
+                workspace.settings.project_storage = ProjectStorage(embed_calculated_sources=True)
                 workspace.dispatch({"action": "save", "path": str(saved)})
                 reopened = Workspace()
                 state = reopened.dispatch({"action": "open", "path": str(saved)})["project"]

@@ -126,6 +126,7 @@ enum Action {
         style: Value,
         appearance: Value,
         run_automatically: Option<bool>,
+        project_storage: Option<Value>,
     },
     SetGlobalStyle {
         style: Value,
@@ -341,8 +342,10 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             style,
             appearance,
             run_automatically,
+            project_storage,
         } => json!({
-            "action": "set_preferences", "style": style, "appearance": appearance, "run_automatically": run_automatically
+            "action": "set_preferences", "style": style, "appearance": appearance, "run_automatically": run_automatically,
+            "project_storage": project_storage
         }),
         Action::SetGlobalStyle { style } => json!({ "action": "set_global_style", "style": style }),
         Action::RunAll => json!({ "action": "run_all" }),
