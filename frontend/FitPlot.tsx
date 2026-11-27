@@ -186,29 +186,51 @@ function tracePresentation(trace: Data, index: number, data: PluginFigure, style
 function axisLinesForDrawOrder(layout: Partial<Layout>, traces: Data[]): Partial<Shape>[] {
   const orders = new Set(traces.map((trace) => "zorder" in trace ? trace.zorder ?? 0 : 0));
   if (orders.size < 2) return [];
-  // Plotly reuses the native axis paths for each draw order and clears the original paths.
-  // Draw the lines as layout shapes so the preview and exported figures keep the same axes.
-  return Object.entries(layout).flatMap(([key, value]) => {
+  // With mixed draw orders Plotly clears the native axis paths, but still positions ticks at their edges.
+  // Draw the same outward stroke in pixels so the ticks meet it at any plot size.
+  const axes = Object.entries(layout).flatMap(([key, value]) => {
     const match = /^([xy])axis(\d*)$/.exec(key);
     if (!match || !isRecord(value)) return [];
-    const [, direction, suffix] = match;
     const axis = value as Partial<LayoutAxis>;
     if (!axis.showline || axis.visible === false) return [];
+    const [, direction, suffix] = match;
     const horizontal = direction === "x";
-    const counterpart = axis.anchor ?? (horizontal ? "y" : "x");
-    const domain = `${direction}${suffix} domain`;
-    const crossDomain = counterpart === "free" ? "paper" : `${counterpart} domain`;
+    const id = `${direction}${suffix}`;
+    const anchor = axis.anchor ?? (horizontal ? "y" : "x");
     const side = axis.side === "top" || axis.side === "right" ? 1 : 0;
-    const position = counterpart === "free" ? axis.position ?? 0 : side;
-    const positions = axis.mirror && counterpart !== "free" ? [position, 1 - position] : [position];
-    return positions.map((edge): Partial<Shape> => ({
-      type: "line", layer: "above",
-      line: { color: typeof axis.linecolor === "string" ? axis.linecolor : undefined, width: axis.linewidth },
-      xref: (horizontal ? domain : crossDomain) as Shape["xref"],
-      yref: (horizontal ? crossDomain : domain) as Shape["yref"],
-      x0: horizontal ? 0 : edge, x1: horizontal ? 1 : edge,
-      y0: horizontal ? edge : 0, y1: horizontal ? edge : 1,
-    }));
+    const position = anchor === "free" ? axis.position ?? 0 : side;
+    return [{
+      id, anchor, horizontal,
+      edges: axis.mirror && anchor !== "free" ? [position, 1 - position] : [position],
+      color: typeof axis.linecolor === "string" ? axis.linecolor : undefined,
+      width: Math.max(1, Math.round(axis.linewidth ?? 1)),
+    }];
+  });
+  const outward = (edge: number, width: number) => edge === 0 ? -width : width;
+  return axes.flatMap(({ id, anchor, horizontal, edges, color, width }): Partial<Shape>[] => {
+    const domain = `${id} domain`;
+    const anchored = anchor !== "free";
+    const crossDomain = anchored ? `${anchor} domain` : "paper";
+    const xref = (horizontal ? domain : crossDomain) as Shape["xref"];
+    const yref = (horizontal ? crossDomain : domain) as Shape["yref"];
+    const sides = edges.map((edge): Partial<Shape> => {
+      const offset = anchored ? outward(edge, width) / 2 : 0;
+      return {
+        type: "line", layer: "above", line: { color, width }, xref, yref,
+        ...(horizontal
+          ? { x0: 0, x1: 1, ysizemode: "pixel", yanchor: edge, y0: offset, y1: offset }
+          : { xsizemode: "pixel", xanchor: edge, x0: offset, x1: offset, y0: 0, y1: 1 }),
+      };
+    });
+    const perpendicular = horizontal && axes.find((other) => other.id === anchor && other.anchor === id);
+    if (!perpendicular) return sides;
+    // Extend the horizontal stroke through the corners, as Plotly does for native axes.
+    const corners = edges.flatMap((edge) => perpendicular.edges.map((end): Partial<Shape> => ({
+      type: "rect", layer: "above", line: { width: 0 }, fillcolor: color ?? "#444",
+      xref, yref, xsizemode: "pixel", xanchor: end, x0: 0, x1: outward(end, perpendicular.width),
+      ysizemode: "pixel", yanchor: edge, y0: 0, y1: outward(edge, width),
+    })));
+    return [...sides, ...corners];
   });
 }
 
