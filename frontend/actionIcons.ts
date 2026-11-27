@@ -39,9 +39,44 @@ export function pluginIcon(id: string, menu?: PluginDefinition["menu"]) {
   return pluginIcons[id] ?? (menu === "plot" ? ChartNoAxesCombined : SquareFunction);
 }
 
-export function stepIcon({ action, plugin, parameters }: WorkflowStep): LucideIcon {
-  if (plugin) return pluginIcon(plugin.id, plugin.menu);
-  if (action === "plot") return pluginIcon(`nigiro.${parameters?.plot_type}`, "plot");
-  if (action === "edit_item") return parameters?.name === null ? Trash2 : Pencil;
-  return (actionIcons as Record<string, LucideIcon>)[action] ?? History;
+export function stepPresentation({ action, plugin, parameters, files, label }: WorkflowStep): {
+  Icon: LucideIcon;
+  text: string;
+} {
+  if (plugin || action === "plot" || action === "overlay_figures" || action === "fit" || action === "apply_formula") {
+    const plot = plugin?.menu === "plot" || action === "plot" || action === "overlay_figures" || label.startsWith("Plot: ");
+    return { Icon: plot ? ChartLine : SquareFunction, text: label.replace(/^(Plot|Analysis): /, "") };
+  }
+
+  const name = typeof parameters?.name === "string" ? parameters.name : undefined;
+  switch (action) {
+    case "import_data":
+      return { Icon: FileInput, text: files?.map((file) => file.split(/[/\\]/).at(-1)).join(", ") || label.replace(/^Import /, "") };
+    case "add_scalar":
+      return { Icon: Variable, text: name ?? label.replace(/^Add variable /, "") };
+    case "add_array":
+      return { Icon: Brackets, text: name ?? label.replace(/^Add array /, "") };
+    case "invoke_workflow":
+      return { Icon: WorkflowIcon, text: name ?? label.replace(/^Workflow: /, "") };
+    case "edit_item": {
+      const item = parameters?.item as { kind?: unknown } | undefined;
+      if (parameters?.name !== null) return { Icon: Pencil, text: name ?? label };
+      return { Icon: Trash2, text: item?.kind === "figure" ? "Figure" : "Source" };
+    }
+    case "correct":
+      return { Icon: Pencil, text: "Worksheet cell" };
+    case "color":
+      return { Icon: Settings2, text: "Trace color" };
+    case "figure_style":
+      return { Icon: Settings2, text: "Figure settings" };
+    case "trace_style":
+      return { Icon: Settings2, text: parameters?.kind === "fill" ? "Area fill"
+        : parameters?.kind === "order" ? "Draw order" : "Line style" };
+    case "inspect_style":
+      return { Icon: Settings2, text: "Trace appearance" };
+    case "run_batch":
+      return { Icon: SquareFunction, text: "Batch" };
+    default:
+      return { Icon: (actionIcons as Record<string, LucideIcon>)[action] ?? History, text: label };
+  }
 }

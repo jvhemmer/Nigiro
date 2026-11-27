@@ -1,4 +1,4 @@
-import { stepIcon } from "./actionIcons";
+import { stepPresentation } from "./actionIcons";
 import { CircuitField } from "./CircuitDesigner";
 import { FormulaEditor } from "./FormulaEditor";
 import { Network } from "lucide-react";
@@ -80,15 +80,16 @@ export function WorkflowPanel({ workflow, busy, run, onInspect, onEdit, selected
     {!!workflow.steps.length && !visibleSteps.length && <p className="workflow-base muted">No steps match the filters.</p>}
     <ol role="list" aria-label="Recorded steps">
       {visibleSteps.map(({ step, index }) => {
-        const Icon = stepIcon(step);
+        const { Icon, text } = stepPresentation(step);
         return <li key={step.id} {...drag(index)}>
           <button className="workflow-step" type="button" disabled={busy} data-workflow-id={step.id}
             data-failed={step.status === "failed" || undefined}
             aria-haspopup="menu" aria-current={step.id === selected} title={step.label}
+            aria-label={`${step.label} · ${statusLabels[step.status]}`}
             onClick={() => { onInspect(step.id); reveal("analysis"); }}>
             <span className="workflow-step-number" style={{ width: numberWidth }} aria-hidden="true">{index + 1}.</span>
             <Icon className="workflow-step-icon" size={13} aria-hidden="true" />
-            <span className="workflow-step-label">{step.label}</span>
+            <span className="workflow-step-label">{text}</span>
             <small data-status={step.status}>{statusLabels[step.status]}</small>
           </button>
         </li>;

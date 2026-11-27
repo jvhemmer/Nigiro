@@ -1,6 +1,6 @@
 import { Maximize, Minus, Plus, RotateCcw, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { stepIcon } from "./actionIcons";
+import { stepPresentation } from "./actionIcons";
 import { StepFilterMenu, visibleWorkflowSteps, type StepFilter } from "./StepFilterMenu";
 import type { WorkflowPort, WorkflowStep } from "./workspace";
 
@@ -164,16 +164,17 @@ export function WorkflowGraph({ steps, statusLabels, busy, hiddenFilters, onTogg
             </svg>
             {nodes.map((node) => {
               const { step, x, y, index, inputs, outputs } = node;
-              const Icon = stepIcon(step);
+              const { Icon, text } = stepPresentation(step);
               return <section key={step.id} className="workflow-node" data-selected={step.id === selected || undefined}
                 data-failed={step.status === "failed" || undefined}
                 style={{ left: x, top: y, width: nodeWidth, height: node.height }}>
                 <button type="button" className="workflow-node-title" aria-pressed={step.id === selected}
+                  aria-label={`${index + 1}. ${step.label} · ${statusLabels[step.status]}`}
                   title={step.label} onClick={() => select(step)}
                   onDoubleClick={() => { if (!busy && editable(step)) onEdit(step); }}
                   onPointerDown={(event) => start(event, node)} onLostPointerCapture={stop}>
                   <Icon size={15} aria-hidden="true" />
-                  <span>{index + 1}. {step.label}</span>
+                  <span>{index + 1}. {text}</span>
                   <small data-status={step.status}>{statusLabels[step.status]}</small>
                 </button>
                 <div className="workflow-node-ports">
