@@ -406,6 +406,7 @@ class Workspace:
             "dirty": self.dirty,
             "run_automatically": self.settings.run_automatically,
             "project_storage": asdict(self.settings.project_storage),
+            "project_storage_overrides": self.workflow.project_storage_overrides,
             "workflow": self.workflow_snapshot(names),
             "saved_workflows": [{"id": key, "name": record["name"], "inputs": record["inputs"], "outputs": record["outputs"],
                                  **({"project_path": path} if path else {})}
@@ -1469,6 +1470,12 @@ class Workspace:
                     FigureStyle(**request["style"]), Appearance(**request["appearance"]), request.get("run_automatically"),
                     ProjectStorage(**storage) if storage is not None else None,
                 )
+            case "set_project_storage":
+                overrides = request["overrides"]
+                self.settings.project_storage.with_overrides(overrides)
+                if overrides != self.workflow.project_storage_overrides:
+                    self.workflow.project_storage_overrides = overrides.copy()
+                    self.dirty = True
             case "set_global_style":
                 self.settings.save(FigureStyle(**request["style"]))
             case "run_all":
@@ -1947,7 +1954,7 @@ class Workspace:
                 if path is None or path.suffix.lower() != ".nigiro":
                     raise ValueError("Choose a file name with the .nigiro extension.")
                 updated = replace(project, notes=project.notes if request.get("notes") is None else request["notes"])
-                options = self.settings.project_storage
+                options = self.settings.project_storage.with_overrides(self.workflow.project_storage_overrides)
                 figures = {
                     key: {"figure": result.figure, "legacy": result.legacy, "residual": result.residual,
                           "dependencies": result.dependencies}

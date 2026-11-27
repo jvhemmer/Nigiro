@@ -39,6 +39,11 @@ class ProjectStorage:
         if not all(type(value) is bool for value in asdict(self).values()):
             raise ValueError("Choose whether to embed each type of project data.")
 
+    def with_overrides(self, overrides: dict[str, bool]) -> "ProjectStorage":
+        if not isinstance(overrides, dict) or not overrides.keys() <= vars(self).keys():
+            raise ValueError("Choose valid project storage options.")
+        return replace(self, **overrides)
+
 
 class Settings:
     def __init__(self, path: Path):

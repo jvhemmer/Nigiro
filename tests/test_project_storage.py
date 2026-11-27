@@ -81,6 +81,39 @@ class ProjectStorageTest(unittest.TestCase):
         result = reopened.dispatch({"action": "run_all"})["project"]
         self.assertEqual(result["figure"]["traces"][0]["y"], [3.0, 6.0])
 
+    def test_project_overrides_persist_and_follow_the_project(self):
+        worker, _ = self.make_project()
+        defaults = ProjectStorage(embed_files=True)
+        worker.settings.save_preferences(worker.settings.figure_style, worker.settings.appearance,
+                                         project_storage=defaults)
+        overrides = {"embed_files": False, "embed_figures": True}
+        changed = worker.dispatch({"action": "set_project_storage", "overrides": overrides})["project"]
+        self.assertTrue(changed["dirty"])
+        self.assertTrue(changed["project_storage"]["embed_files"])
+        path = self.save(worker, "with overrides")
+        with ZipFile(path) as archive:
+            self.assertFalse(any(entry.startswith("sources/") for entry in archive.namelist()))
+            self.assertTrue(any(entry.startswith("figures/") for entry in archive.namelist()))
+
+        reopened = Workspace()
+        opened = reopened.dispatch({"action": "open", "path": str(path)})["project"]
+        self.assertEqual(opened["project_storage_overrides"], overrides)
+        replayed = reopened.dispatch({"action": "run_all"})["project"]
+        self.assertEqual(replayed["project_storage_overrides"], overrides)
+        self.assertEqual(reopened.settings.project_storage, defaults)
+
+        reopened.dispatch({"action": "set_project_storage", "overrides": {}})
+        path = self.save(reopened, "using defaults")
+        with ZipFile(path) as archive:
+            self.assertTrue(any(entry.startswith("sources/") for entry in archive.namelist()))
+            self.assertFalse(any(entry.startswith("figures/") for entry in archive.namelist()))
+        reopened.dispatch({"action": "open", "path": str(path)})
+        self.assertEqual(reopened.workflow.project_storage_overrides, {})
+        reopened.dispatch({"action": "open", "path": str(self.root / "with overrides.nigiro")})
+        self.assertEqual(reopened.workflow.project_storage_overrides, overrides)
+        fresh = reopened.dispatch({"action": "new"})["project"]
+        self.assertEqual(fresh["project_storage_overrides"], {})
+
     def test_calculated_sources_and_figures_can_each_be_embedded(self):
         worker, derived = self.make_project()
         for options, entry_prefix in (

@@ -249,6 +249,7 @@ export interface Project {
   workflow: Workflow;
   run_automatically: boolean;
   project_storage: ProjectStorage;
+  project_storage_overrides?: Partial<ProjectStorage>;
   columns: string[];
   rows: string[][];
   original_rows: string[][];
@@ -356,6 +357,7 @@ export type Request =
   | { action: "edit_item"; item: WorkspaceItem; name: string | null }
   | { action: "inspect_style"; figure_id: number; trace: number; changes: InspectStyleChange[] }
   | { action: "set_preferences"; style: FigureStyle; appearance: Appearance; run_automatically?: boolean; project_storage?: ProjectStorage }
+  | { action: "set_project_storage"; overrides: Partial<ProjectStorage> }
   | { action: "set_global_style"; style: FigureStyle }
   | { action: "figure_style"; style: FigureStyle; figure_id: number }
   | { action: "save_as"; name: string; notes?: string };

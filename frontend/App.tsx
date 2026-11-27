@@ -27,6 +27,7 @@ import { ArraySourceDialog } from "./ArraySourceDialog";
 import { ScalarSourceDialog } from "./ScalarSourceDialog";
 import { ImportDataDialog } from "./ImportDataDialog";
 import { FigureSettings } from "./FigureSettings";
+import { defaultProjectStorage, ProjectProperties } from "./ProjectStorageSettings";
 import type { DesktopInfo, DesktopPreferences, Release } from "./DesktopSettings";
 import { axisSettings, cycleColor, type StyleSection } from "./figureStyle";
 import { FigurePlot, fillAppearance, hasEditableLine, hasTraceFill, traceAppearance, traceOrderIndex, type CaptureFigure } from "./FitPlot";
@@ -515,6 +516,7 @@ export function App() {
     | null>(null);
   const [workflowRunEditor, setWorkflowRunEditor] = useState<{ context: WorkflowPorts; stepId: number; ports: boolean } | null>(null);
   const [settingsDialog, setSettingsDialog] = useState<"appearance" | "updates" | null>(null);
+  const [projectPropertiesOpen, setProjectPropertiesOpen] = useState(false);
   const [desktopInfo, setDesktopInfo] = useState<DesktopInfo | null>(null);
   const [release, setRelease] = useState<Release | null>(null);
   const [updateChecking, setUpdateChecking] = useState(false);
@@ -798,6 +800,7 @@ export function App() {
       setInputDialog({ plugin: request.plugin });
     }
     else if (request.action === "settings") { setError(""); setSettingsDialog("appearance"); }
+    else if (request.action === "project_properties") { setError(""); setProjectPropertiesOpen(true); }
     else if (request.action === "choose_overlay") { setError(""); setOverlayDialog(true); }
     else if (request.action === "choose_scalar") { setError(""); setScalarDialog(true); }
     else if (request.action === "choose_array") { setError(""); setArrayDialog(true); }
@@ -814,7 +817,7 @@ export function App() {
 
   const menuBusy = busy || scalarDialog || arrayDialog || overlayDialog || stepDialog !== null || workflowDialog !== null
     || settingsDialog !== null || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null
-    || workflowRunEditor !== null || importReview !== null || projectWorkflow !== null;
+    || workflowRunEditor !== null || importReview !== null || projectWorkflow !== null || projectPropertiesOpen;
   const WorkflowRunEditor = workflowRunEditor?.ports ? EditWorkflowPortsDialog : EditWorkflowRunDialog;
   const newProject: MenuCommand = { label: "New…", keywords: "create project", icon: FilePlus, request: { action: "new" }, shortcut: "N" };
   const openProject: MenuCommand = { label: "Open Project…", icon: FolderOpen, request: { action: "open" }, shortcut: "O" };
@@ -968,7 +971,10 @@ export function App() {
     {
       label: "Edit",
       groups: [
-        [{ label: "Settings…", icon: Settings2, request: { action: "settings" } }],
+        [
+          { label: "Settings…", icon: Settings2, request: { action: "settings" } },
+          { label: "Project properties…", icon: Settings2, request: project ? { action: "project_properties" } : null },
+        ],
         [{ label: "Install Python Plugin…", icon: PackagePlus, request: { action: "install_plugin" } }],
       ],
     },
@@ -1084,6 +1090,10 @@ export function App() {
           }}
         />
       )}
+      {project && projectPropertiesOpen && <ProjectProperties
+        global={project.project_storage ?? defaultProjectStorage} initial={project.project_storage_overrides ?? {}}
+        busy={busy} error={error} onSave={(overrides) => run({ action: "set_project_storage", overrides })}
+        onClose={() => { setProjectPropertiesOpen(false); setError(""); }} />}
       {project && settingsDialog && (
         <FigureSettings global runAutomatically={project.run_automatically} projectStorage={project.project_storage}
           appearance={project.appearance} initial={project.global_figure_style} defaults={project.factory_figure_style}
@@ -1127,7 +1137,7 @@ export function App() {
           }}
         />
       )}
-      {error && !scalarDialog && !overlayDialog && !stepDialog && !workflowDialog && !projectWorkflow && !workflowRunEditor && !importReview && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
+      {error && !scalarDialog && !overlayDialog && !stepDialog && !workflowDialog && !projectWorkflow && !workflowRunEditor && !importReview && !inputDialog && !settingsDialog && !projectPropertiesOpen && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
         <ProjectEditor {...{ project, projectKey, busy, run, capture }} notes={notes ?? project.notes ?? ""} onNotesChange={updateNotes}
           onEditStep={(step) => runMenu({ action: "choose_step", step })}

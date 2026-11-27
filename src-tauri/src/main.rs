@@ -131,6 +131,9 @@ enum Action {
     SetGlobalStyle {
         style: Value,
     },
+    SetProjectStorage {
+        overrides: Value,
+    },
     WorksheetPage {
         offset: usize,
     },
@@ -348,6 +351,9 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             "project_storage": project_storage
         }),
         Action::SetGlobalStyle { style } => json!({ "action": "set_global_style", "style": style }),
+        Action::SetProjectStorage { overrides } => {
+            json!({ "action": "set_project_storage", "overrides": overrides })
+        }
         Action::RunAll => json!({ "action": "run_all" }),
         Action::RunNext => json!({ "action": "run_next" }),
         Action::ExportRecipe => json!({ "action": "export_recipe" }),

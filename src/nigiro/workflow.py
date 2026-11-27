@@ -32,6 +32,7 @@ class Workflow:
     source_memberships: dict[str, str | None] = field(default_factory=dict)
     interface: dict | None = None
     imported_workflows: dict[str, dict] = field(default_factory=dict)
+    project_storage_overrides: dict[str, bool] = field(default_factory=dict)
 
     def reference(self, kind: str, value):
         for output, bound in self.bindings.items():

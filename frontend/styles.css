@@ -27,6 +27,8 @@
   --surface-hover: #eef4fa;
   --error: #903822;
   --error-bg: #fff0ec;
+  --warning: #805600;
+  --warning-bg: #fff4d8;
   --panel: #ffffff;
   --line: #ccd3db;
   --muted: #526172;
@@ -50,6 +52,8 @@
   --muted: #bdbdbd;
   --error: #ffb4a8;
   --error-bg: #4c292b;
+  --warning: #f1c677;
+  --warning-bg: #3d3020;
   --menu-shadow: #00000066;
   --dialog-backdrop: #00000066;
 }
@@ -778,6 +782,14 @@ td input {
 }
 .settings-group-help:hover .settings-group-tooltip,
 .settings-group-help:focus-within .settings-group-tooltip { visibility: visible; }
+.settings-override-help > button { color: var(--warning); }
+.settings-override-help .settings-group-tooltip { inset-inline: auto 0; }
+.project-storage-option { display: flex; align-items: center; }
+.project-properties { width: min(500px, calc(100% - 32px)); }
+.project-storage-warning {
+  margin: 0 0 12px; padding: 6px 8px; color: var(--warning); background: var(--warning-bg); border-radius: 3px;
+}
+.project-storage-reset { margin-inline-end: auto; }
 .settings-feedback { flex: none; min-height: 24px; padding: 2px 12px; }
 .figure-settings .figure-settings-error { margin: 0; }
 .figure-settings footer { flex: none; margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); }
