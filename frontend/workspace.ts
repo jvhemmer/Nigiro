@@ -169,6 +169,7 @@ export interface Workflow {
 export interface SavedWorkflow {
   id: string;
   name: string;
+  project_path?: string;
   inputs: { output: string; kind: "csv" | "number"; name: string; default?: number }[];
   outputs: { kind: "source" | "figure"; name: string }[];
 }
@@ -188,10 +189,29 @@ export interface WorkflowPorts {
   numbers: Record<string, number>;
 }
 
-export interface WorkflowOutput {
+export interface ProjectWorkflowOutput {
   kind: "source" | "figure";
-  id: string | number | null;
+  reference: { output: string; table?: string };
   name: string;
+}
+
+export interface ProjectWorkflowConfiguration {
+  name: string;
+  steps: number[];
+  inputs: Record<string, string>;
+  outputs: ProjectWorkflowOutput[];
+}
+
+export interface ProjectWorkflowContext {
+  name: string;
+  steps: WorkflowStep[];
+  outputs: ProjectWorkflowOutput[];
+  configuration: ProjectWorkflowConfiguration | null;
+}
+
+export interface ProjectWorkflowPreview extends ProjectWorkflowContext {
+  path: string;
+  revision: string;
 }
 
 export interface SavedPath {
@@ -295,7 +315,8 @@ export type Request =
   | { action: "save_workspace"; name: string; choose_path: boolean }
   | { action: "save"; notes?: string }
   | { action: "move_step"; step_id: number; direction: number }
-  | { action: "save_workflow"; name: string; steps: number[]; inputs: Record<string, string>; outputs: WorkflowOutput[] }
+  | { action: "configure_project_workflow"; configuration: ProjectWorkflowConfiguration }
+  | { action: "import_project_workflow"; path: string; revision: string; configuration: ProjectWorkflowConfiguration; refresh_id?: string }
   | { action: "import_workflow" }
   | { action: "edit_workflow_ports"; step_id: number;
       inputs: Record<string, { exposed: boolean; name: string }>; outputs: WorkflowPorts["outputs"] }

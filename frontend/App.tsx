@@ -37,11 +37,11 @@ import { columnFields, InputOptionsDialog, supportsPairedSources } from "./Input
 import { SourcesPanel } from "./SourcesPanel";
 import { ViewTabs, viewTabId } from "./ViewTabs";
 import { statusLabels, WorkflowPanel, WorkflowStepDialog } from "./WorkflowPanel";
-import { EditWorkflowPortsDialog, EditWorkflowRunDialog, RunWorkflowDialog, SaveWorkflowDialog } from "./WorkflowDialogs";
+import { EditWorkflowPortsDialog, EditWorkflowRunDialog, ProjectWorkflowDialog, RunWorkflowDialog } from "./WorkflowDialogs";
 import { Worksheet } from "./Worksheet";
 import {
   elementNames, formatNumber, lineDashes, replacesProject, workspace,
-  type FigureElement, type ImportReview, type InspectStyleChange, type PluginDefinition, type PluginRun, type PluginStepInputs, type Project, type Request, type TraceFillStyle, type TraceLegendStyle, type TraceLineStyle, type TraceStyle, type WorkflowPorts, type WorkflowStep, type WorkspaceItem,
+  type FigureElement, type ImportReview, type InspectStyleChange, type PluginDefinition, type PluginRun, type PluginStepInputs, type Project, type ProjectWorkflowContext, type ProjectWorkflowPreview, type Request, type SavedWorkflow, type TraceFillStyle, type TraceLegendStyle, type TraceLineStyle, type TraceStyle, type WorkflowPorts, type WorkflowStep, type WorkspaceItem,
 } from "./workspace";
 
 type Run = (request: Request) => Promise<boolean>;
@@ -508,7 +508,11 @@ export function App() {
   const [arrayDialog, setArrayDialog] = useState(false);
   const [stepDialog, setStepDialog] = useState<WorkflowStep | null>(null);
   const [importReview, setImportReview] = useState<ImportReview | null>(null);
-  const [workflowDialog, setWorkflowDialog] = useState<"save" | "run" | null>(null);
+  const [workflowDialog, setWorkflowDialog] = useState<"run" | null>(null);
+  const [projectWorkflow, setProjectWorkflow] = useState<
+    { mode: "configure"; context: ProjectWorkflowContext }
+    | { mode: "import" | "refresh"; context: ProjectWorkflowPreview; refreshId?: string }
+    | null>(null);
   const [workflowRunEditor, setWorkflowRunEditor] = useState<{ context: WorkflowPorts; stepId: number; ports: boolean } | null>(null);
   const [settingsDialog, setSettingsDialog] = useState<"appearance" | "updates" | null>(null);
   const [desktopInfo, setDesktopInfo] = useState<DesktopInfo | null>(null);
@@ -751,6 +755,32 @@ export function App() {
     }
   }
 
+  async function openProjectWorkflow(mode: "configure" | "import" | "refresh", refresh?: SavedWorkflow) {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      if (mode === "configure") {
+        const context = await invoke<ProjectWorkflowContext>("workspace", { request: { action: "project_workflow_context" } });
+        setProjectWorkflow({ mode, context });
+      } else {
+        const context = await invoke<ProjectWorkflowPreview | null>("workspace", {
+          request: { action: "inspect_project_workflow", refresh_id: refresh?.id, project_path: refresh?.project_path },
+        });
+        if (context) {
+          setWorkflowDialog(null);
+          setProjectWorkflow({ mode, context, refreshId: refresh?.id });
+        }
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+
   function runMenu(request: MenuRequest) {
     closeContextMenu();
     if (request.action === "choose_plugin") {
@@ -763,7 +793,8 @@ export function App() {
     else if (request.action === "choose_array") { setError(""); setArrayDialog(true); }
     else if (request.action === "choose_step") void openStep(request.step);
     else if (request.action === "choose_workflow_ports") void openStep(request.step, true);
-    else if (request.action === "choose_save_workflow") { setError(""); setWorkflowDialog("save"); }
+    else if (request.action === "choose_configure_project_workflow") void openProjectWorkflow("configure");
+    else if (request.action === "choose_import_project_workflow") void openProjectWorkflow("import");
     else if (request.action === "choose_run_workflow") { setError(""); setWorkflowDialog("run"); }
     else if (request.action === "figure_settings") { setError(""); setFigureDialog("figure"); }
     else if (request.action === "choose_export") setExportDialog(request.target);
@@ -773,7 +804,7 @@ export function App() {
 
   const menuBusy = busy || scalarDialog || arrayDialog || overlayDialog || stepDialog !== null || workflowDialog !== null
     || settingsDialog !== null || inputDialog !== null || exportDialog !== null || figureDialog !== null || itemDialog !== null
-    || workflowRunEditor !== null || importReview !== null;
+    || workflowRunEditor !== null || importReview !== null || projectWorkflow !== null;
   const WorkflowRunEditor = workflowRunEditor?.ports ? EditWorkflowPortsDialog : EditWorkflowRunDialog;
   const newProject: MenuCommand = { label: "New…", keywords: "create project", icon: FilePlus, request: { action: "new" }, shortcut: "N" };
   const openProject: MenuCommand = { label: "Open Project…", icon: FolderOpen, request: { action: "open" }, shortcut: "O" };
@@ -916,8 +947,9 @@ export function App() {
           openWorkspace,
         ],
         [
-          { label: "Save as Workflow…", icon: WorkflowIcon, request: project?.workflow.completed ? { action: "choose_save_workflow" } : null },
-          { label: "Import Workflow…", icon: FileInput, request: { action: "import_workflow" } },
+          { label: "Configure Project Workflow…", icon: WorkflowIcon, request: project?.workflow.completed ? { action: "choose_configure_project_workflow" } : null },
+          { label: "Import Project as Workflow…", icon: FileInput, request: { action: "choose_import_project_workflow" } },
+          { label: "Import Workflow File…", icon: FileInput, request: { action: "import_workflow" } },
           { label: "Run Workflow…", icon: Play, request: project?.saved_workflows?.length ? { action: "choose_run_workflow" } : null },
         ],
         exportCommands,
@@ -986,10 +1018,14 @@ export function App() {
             if (request.replacement) setStepDialog(null);
           }
         }} />}
-      {project && workflowDialog === "save" && <SaveWorkflowDialog {...{ project, busy, error }} onRun={run}
-        onClose={() => { setWorkflowDialog(null); setError(""); }} />}
+      {projectWorkflow && <ProjectWorkflowDialog context={projectWorkflow.context} mode={projectWorkflow.mode}
+        {...{ busy, error }} onSave={(configuration) => run(projectWorkflow.mode === "configure"
+          ? { action: "configure_project_workflow", configuration }
+          : { action: "import_project_workflow", configuration, path: projectWorkflow.context.path,
+              revision: projectWorkflow.context.revision, refresh_id: projectWorkflow.refreshId })}
+        onClose={() => { setProjectWorkflow(null); setError(""); }} />}
       {project && workflowDialog === "run" && <RunWorkflowDialog {...{ project, busy, error }} onRun={run}
-        onClose={() => { setWorkflowDialog(null); setError(""); }} />}
+        onRefresh={(workflow) => void openProjectWorkflow("refresh", workflow)} onClose={() => { setWorkflowDialog(null); setError(""); }} />}
       {workflowRunEditor && <WorkflowRunEditor context={workflowRunEditor.context} stepId={workflowRunEditor.stepId}
         {...{ busy, error }} onRun={run} onClose={() => { setWorkflowRunEditor(null); setError(""); }} />}
       {contextMenu && <ContextMenu menu={contextMenu} onClose={closeContextMenu} onRun={runMenu} />}
@@ -1080,7 +1116,7 @@ export function App() {
           }}
         />
       )}
-      {error && !scalarDialog && !overlayDialog && !stepDialog && !workflowDialog && !workflowRunEditor && !importReview && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
+      {error && !scalarDialog && !overlayDialog && !stepDialog && !workflowDialog && !projectWorkflow && !workflowRunEditor && !importReview && !inputDialog && !settingsDialog && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
       {project ? (
         <ProjectEditor {...{ project, projectKey, busy, run, capture }} notes={notes ?? project.notes ?? ""} onNotesChange={updateNotes}
           onEditStep={(step) => runMenu({ action: "choose_step", step })}

@@ -18,13 +18,21 @@ enum Action {
     RunAll,
     RunNext,
     ExportRecipe,
-    SaveWorkflow {
-        name: String,
-        steps: Vec<usize>,
-        inputs: Value,
-        outputs: Value,
-    },
     ImportWorkflow,
+    ProjectWorkflowContext,
+    InspectProjectWorkflow {
+        refresh_id: Option<String>,
+        project_path: Option<String>,
+    },
+    ConfigureProjectWorkflow {
+        configuration: Value,
+    },
+    ImportProjectWorkflow {
+        path: String,
+        revision: String,
+        configuration: Value,
+        refresh_id: Option<String>,
+    },
     WorkflowStepPorts {
         step_id: usize,
     },
@@ -340,29 +348,46 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         Action::RunAll => json!({ "action": "run_all" }),
         Action::RunNext => json!({ "action": "run_next" }),
         Action::ExportRecipe => json!({ "action": "export_recipe" }),
-        Action::SaveWorkflow {
-            name,
-            steps,
-            inputs,
-            outputs,
-        } => {
-            let Some(file) = save_file(
-                window,
-                "save_workflow",
-                "Save as Workflow",
-                "Nigiro Workflow",
-                &name,
-                "nigiro-workflow",
-            )?
-            else {
-                return Ok(None);
-            };
-            json!({ "action": "save_workflow", "path": file["path"], "name": name, "steps": steps, "inputs": inputs, "outputs": outputs })
-        }
         Action::ImportWorkflow => {
             let dialog = file_dialog(window, "import_workflow", "Import Workflows")?
                 .add_filter("Nigiro Workflow", &["nigiro-workflow"]);
             return picked_files("import_workflow", dialog.blocking_pick_files());
+        }
+        Action::ProjectWorkflowContext => json!({ "action": "project_workflow_context" }),
+        Action::InspectProjectWorkflow {
+            refresh_id,
+            project_path,
+        } => {
+            let mut dialog = file_dialog(
+                window,
+                "inspect_project_workflow",
+                "Import Project as Workflow",
+            )?
+            .add_filter("Nigiro", &["nigiro"]);
+            if let Some(parent) = project_path
+                .as_deref()
+                .and_then(|path| std::path::Path::new(path).parent())
+                .filter(|parent| parent.is_dir())
+            {
+                dialog = dialog.set_directory(parent);
+            }
+            let Some(path) = dialog.blocking_pick_file() else {
+                return Ok(None);
+            };
+            let path = path.into_path().map_err(|err| err.to_string())?;
+            json!({ "action": "inspect_project_workflow", "path": path, "refresh_id": refresh_id })
+        }
+        Action::ConfigureProjectWorkflow { configuration } => {
+            json!({ "action": "configure_project_workflow", "configuration": configuration })
+        }
+        Action::ImportProjectWorkflow {
+            path,
+            revision,
+            configuration,
+            refresh_id,
+        } => {
+            json!({ "action": "import_project_workflow", "path": path, "revision": revision,
+                    "configuration": configuration, "refresh_id": refresh_id })
         }
         Action::WorkflowStepPorts { step_id } => {
             json!({ "action": "workflow_step_ports", "step_id": step_id })

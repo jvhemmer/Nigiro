@@ -35,7 +35,10 @@ from nigiro.text_import import PREVIEW_BYTES, TextImport, guess_import, import_p
 from nigiro.settings import Appearance, Settings
 from nigiro.storage import load_project_session, operation_record, save_project
 from nigiro.workflow import Step, Workflow, map_references
-from nigiro.workflow_file import command_group_ids, read_workflow, register_workflow, validate_workflow, workflow_catalog, write_workflow
+from nigiro.workflow_file import (
+    command_group_ids, fixed_source_record, read_fixed_source, read_workflow, register_workflow,
+    validate_project_workflow_configuration, validate_workflow, workflow_catalog, write_workflow,
+)
 from nigiro.workspace_file import ProjectCollection
 
 
@@ -399,8 +402,9 @@ class Workspace:
             "dirty": self.dirty,
             "run_automatically": self.settings.run_automatically,
             "workflow": self.workflow_snapshot(),
-            "saved_workflows": [{"id": key, "name": record["name"], "inputs": record["inputs"], "outputs": record["outputs"]}
-                                for key, record in self.saved_workflows.items()],
+            "saved_workflows": [{"id": key, "name": record["name"], "inputs": record["inputs"], "outputs": record["outputs"],
+                                 **({"project_path": path} if path else {})}
+                                for key, record, path in self.available_workflows()],
             "columns": project.worksheet.columns,
             "rows": rows[offset:end] if paged else project.worksheet.rows,
             "original_rows": (original[offset:end] if original is not None else ()) if paged else (project.source.worksheet.rows if project.source else ()),
@@ -856,7 +860,71 @@ class Workspace:
         plan.completed += 1
         plan.executed.add(step.id)
 
-    def save_workflow_definition(self, request: dict) -> None:
+    def project_workflow_context(self) -> dict:
+        plan = self.workflow
+        names = self.figure_names(self.project)
+        items = [
+            ("source", key, self.source_name(self.project, key, self.sources, names)) for key in self.ordered_sources()
+        ] + [("figure", key, names[key]) for key in self.project.visible_figures]
+        completed = {str(step.id) for step in plan.steps[:plan.completed]}
+        outputs = []
+        for kind, key, name in items:
+            ref = plan.reference(kind, key)
+            if isinstance(ref, dict) and ref["output"].split("/")[0] in completed:
+                outputs.append({"kind": kind, "name": name, "reference": ref})
+        return {
+            "name": self.path.stem if self.path else "Untitled project",
+            "steps": self.workflow_snapshot()["steps"], "outputs": outputs,
+            "configuration": plan.interface,
+        }
+
+    def workflow_project(self, path: Path, revision: str | None = None):
+        stat = path.stat()
+        current_revision = f"{stat.st_size}:{stat.st_mtime_ns}"
+        if revision is not None and current_revision != revision:
+            raise ValueError("The source project changed. Open the import dialog again.")
+        project, workflow = load_project_session(path)
+        after = path.stat()
+        if (after.st_size, after.st_mtime_ns) != (stat.st_size, stat.st_mtime_ns):
+            raise ValueError("The source project changed. Open the import dialog again.")
+        local = copy(self)
+        local.project, local.workflow, local.path = project, workflow, path
+        local.sources = project.saved_sources
+        if workflow.completed == 0:
+            raise ValueError("Run and save at least one recorded step in the source project.")
+        return local, current_revision
+
+    def project_workflow_entry(self, key: str | None) -> dict | None:
+        if key is None:
+            return None
+        entry = self.workflow.imported_workflows.get(key)
+        if entry is None:
+            raise ValueError("Choose an imported project workflow.")
+        return entry
+
+    def preview_project_workflow(self, request: dict) -> dict:
+        path = Path(request["path"]).resolve()
+        previous = self.project_workflow_entry(request.get("refresh_id"))
+        local, revision = self.workflow_project(path)
+        context = local.project_workflow_context()
+        if previous and context["configuration"] is None:
+            context["configuration"] = previous["configuration"]
+        return {**context, "path": str(path), "revision": revision}
+
+    def import_project_workflow(self, request: dict) -> None:
+        path = Path(request["path"]).resolve()
+        refresh_id = request.get("refresh_id")
+        self.project_workflow_entry(refresh_id)
+        local, _ = self.workflow_project(path, request["revision"])
+        configuration = validate_project_workflow_configuration(request["configuration"])
+        definition = local.build_workflow_definition(configuration, fixed_imports=True)
+        self.workflow.imported_workflows[refresh_id or f"project:{uuid4().hex}"] = {
+            "path": str(path), "configuration": configuration, "definition": definition,
+        }
+        self.remember_dialog("inspect_project_workflow", path)
+        self.dirty = True
+
+    def build_workflow_definition(self, request: dict, *, fixed_imports: bool = False) -> dict:
         plan = self.workflow
         selected = set(request.get("steps", (step.id for step in plan.steps[:plan.completed])))
         steps = [step for step in plan.steps[:plan.completed] if step.id in selected]
@@ -865,24 +933,32 @@ class Workspace:
         ports = request["inputs"]
         inputs = []
         commands = []
+        fixed = {}
         for step in steps:
             action = step.request["action"]
             command = step.request if action != "import_data" else {"action": "import_data"}
             commands.append({"id": step.id, "label": step.label, "request": command})
-            for index, _ in enumerate(step.sources):
+            for index, source in enumerate(step.sources):
                 key = f"{step.id}/source/{index}"
-                inputs.append({"output": key, "kind": "csv", "name": ports.get(key, "").strip()})
+                if fixed_imports and key not in ports:
+                    fixed[key] = fixed_source_record(source)
+                else:
+                    inputs.append({"output": key, "kind": "csv", "name": ports.get(key, "").strip()})
             key = f"{step.id}/source/0"
             if action == "add_scalar" and "value" in step.request and key in ports:
                 inputs.append({"output": key, "kind": "number", "name": ports[key].strip(), "default": step.request["value"]})
         outputs = []
+        available = {"source": self.ordered_sources(), "figure": self.project.visible_figures}
         for output in request["outputs"]:
-            kind, value = output["kind"], output["id"]
-            if (kind == "source" and value not in self.ordered_sources()) or (
-                kind == "figure" and value not in self.project.visible_figures
-            ):
+            kind = output["kind"]
+            ref = output.get("reference")
+            value = plan.resolve(kind, ref) if ref is not None else output["id"]
+            if kind not in available or value not in available[kind]:
                 raise ValueError("Choose an available source or figure for each output.")
-            outputs.append({"kind": kind, "name": output["name"].strip(), "reference": plan.reference(kind, value)})
+            reference = plan.reference(kind, value)
+            if ref is not None and reference != ref:
+                raise ValueError("Choose a recorded source or figure for each output.")
+            outputs.append({"kind": kind, "name": output["name"].strip(), "reference": reference})
         group_ids = {group_id for step in steps for group_id in command_group_ids(step.request)}
         groups = {key: settings for key, settings in plan.source_groups.items()
                   if key in group_ids and key.startswith("manual:") and not settings.get("deleted")}
@@ -894,13 +970,21 @@ class Workspace:
                     memberships[key] = group_id
                 elif group_id in groups:
                     raise ValueError("Include the steps that produce all members of the workflow's source groups.")
-        definition = validate_workflow({
+        return validate_workflow({
             "version": 1, "name": request["name"].strip(), "steps": commands, "inputs": inputs, "outputs": outputs,
+            **({"fixed_sources": fixed} if fixed else {}),
             **({"source_groups": groups} if groups else {}),
             **({"source_memberships": memberships} if memberships else {}),
         })
+
+    def save_workflow_definition(self, request: dict) -> None:
+        definition = self.build_workflow_definition(request)
         write_workflow(Path(request["path"]), definition)
         self.add_saved_workflow(definition)
+
+    def available_workflows(self):
+        yield from ((key, definition, None) for key, definition in self.saved_workflows.items())
+        yield from ((key, entry["definition"], entry["path"]) for key, entry in self.workflow.imported_workflows.items())
 
     def add_saved_workflow(self, definition: dict) -> None:
         key = register_workflow(self.workflow_directory, definition)
@@ -1036,13 +1120,19 @@ class Workspace:
         local.workflow = Workflow(base, steps=steps, source_groups=definition.get("source_groups", {}),
                                   source_memberships=definition.get("source_memberships", {}))
         inputs = {port["output"]: port for port in definition["inputs"]}
+        fixed = definition.get("fixed_sources", {})
         for step in steps:
             prefix = f"{step.id}/source/"
             if step.request["action"] == "import_data":
-                ports = sorted((key for key in inputs if key.startswith(prefix)), key=lambda key: int(key.rsplit("/", 1)[1]))
+                ports = sorted((key for key in (*inputs, *fixed) if key.startswith(prefix)), key=lambda key: int(key.rsplit("/", 1)[1]))
                 sources = []
                 for key in ports:
-                    source_id = request["references"][key]["source_id"]
+                    if key in fixed:
+                        sources.append(read_fixed_source(fixed[key]))
+                        continue
+                    source_id = request["references"].get(key, {}).get("source_id")
+                    if key not in request["references"]:
+                        raise ValueError(f"Choose an imported source for {inputs[key]['name']}.")
                     source = base.raw_sources.get(source_id)
                     if source is None or source.scalar_value is not None or base.item_deleted("source", source_id):
                         raise ValueError(f"Choose an imported source for {inputs[key]['name']}.")
@@ -1082,8 +1172,8 @@ class Workspace:
             edits.append(ItemEdit(kind, value, f"{request['name']} · {port['name']}"))
         exposed = {(kind, value) for _, kind, value in outputs}
         for value in local.ordered_sources():
-            if value is not None and value not in base.raw_sources and value not in self.sources and ("source", value) not in exposed:
-                edits.append(ItemEdit("source", value, None))
+            if value not in base.raw_sources and value not in self.sources and ("source", value) not in exposed:
+                edits.append(ItemEdit("source", value, None, internal=value is None))
         for value in local.project.visible_figures.keys() - base.visible_figures.keys():
             if ("figure", value) not in exposed:
                 edits.append(ItemEdit("figure", value, None))
@@ -1232,6 +1322,17 @@ class Workspace:
                 return self.export_recipe()
             case "plugin_step_inputs":
                 return self.plugin_step_inputs(request["step_id"])
+            case "project_workflow_context":
+                return self.project_workflow_context()
+            case "inspect_project_workflow":
+                return self.preview_project_workflow(request)
+            case "configure_project_workflow":
+                configuration = validate_project_workflow_configuration(request["configuration"])
+                self.build_workflow_definition(configuration, fixed_imports=True)
+                self.workflow.interface = configuration
+                self.dirty = True
+            case "import_project_workflow":
+                self.import_project_workflow(request)
             case "workflow_step_ports":
                 return self.workflow_step_ports(request["step_id"])
             case "system_fonts":
@@ -1354,7 +1455,9 @@ class Workspace:
             case "edit_workflow_run":
                 self.edit_workflow_run(request)
             case "run_saved_workflow":
-                recipe = self.saved_workflows.get(request["id"])
+                key = request["id"]
+                entry = self.workflow.imported_workflows.get(key)
+                recipe = entry["definition"] if entry is not None else self.saved_workflows.get(key)
                 if recipe is None:
                     raise ValueError("Import the workflow before running it.")
                 name = request["name"].strip()

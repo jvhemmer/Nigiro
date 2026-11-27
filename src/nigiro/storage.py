@@ -18,6 +18,7 @@ from .project import (
 from .source_tables import SourceTable
 from .text_import import TextImport
 from .workflow import Step, Workflow
+from .workflow_file import fixed_source_record, read_fixed_source, validate_project_workflow_configuration, validate_workflow
 
 
 OPERATION_TYPES = {
@@ -47,6 +48,8 @@ def operation_record(operation: Operation) -> dict:
             del record["references"]
         if operation.comment is None:
             del record["comment"]
+    if isinstance(operation, ItemEdit) and not operation.internal:
+        del record["internal"]
     return record
 
 
@@ -119,11 +122,30 @@ def read_project(archive: ZipFile, record: dict, files: dict[str, bytes]) -> Pro
     return project
 
 
+def map_workflow_definition_sources(definition: dict, transform) -> dict:
+    updated = definition.copy()
+    if "fixed_sources" in definition:
+        updated["fixed_sources"] = {key: transform(source) for key, source in definition["fixed_sources"].items()}
+    updated["steps"] = [
+        {**step, "request": map_workflow_command_sources(step["request"], transform)} for step in definition["steps"]
+    ]
+    return updated
+
+
+def map_workflow_command_sources(command: dict, transform) -> dict:
+    if command["action"] != "invoke_workflow":
+        return command
+    return {**command, "definition": map_workflow_definition_sources(command["definition"], transform)}
+
+
 def workflow_record(archive: ZipFile, workflow: Workflow, files: dict[bytes, str]) -> dict:
+    def store_fixed(source):
+        return write_source(archive, read_fixed_source(source), files)
+
     return {
         "base": project_record(archive, workflow.base, files),
         "steps": [
-            {"id": step.id, "label": step.label, "request": step.request,
+            {"id": step.id, "label": step.label, "request": map_workflow_command_sources(step.request, store_fixed),
              "inputs": [write_source(archive, source, files) for source in step.sources]}
             for step in workflow.steps
         ],
@@ -136,12 +158,20 @@ def workflow_record(archive: ZipFile, workflow: Workflow, files: dict[bytes, str
         "source_groups": workflow.source_groups,
         "source_memberships": workflow.source_memberships,
         "next_step_id": workflow.next_step_id,
+        "interface": workflow.interface,
+        "imported_workflows": {
+            key: {**entry, "definition": map_workflow_definition_sources(entry["definition"], store_fixed)}
+            for key, entry in workflow.imported_workflows.items()
+        },
     }
 
 
 def read_workflow(archive: ZipFile, record: dict, files: dict[str, bytes]) -> Workflow:
+    def restore_fixed(source):
+        return fixed_source_record(read_source(archive, source, files))
+
     steps = [
-        Step(step["id"], step["label"], step["request"],
+        Step(step["id"], step["label"], map_workflow_command_sources(step["request"], restore_fixed),
              tuple(read_source(archive, source, files) for source in step["inputs"]))
         for step in record["steps"]
     ]
@@ -155,12 +185,25 @@ def read_workflow(archive: ZipFile, record: dict, files: dict[str, bytes]) -> Wo
         or len(ids) != len(steps) or type(next_step_id) is not int
         or next_step_id <= max(ids, default=0)):
         raise ValueError("Invalid recorded step IDs or commands.")
+    imported = {
+        key: {**entry, "definition": map_workflow_definition_sources(entry["definition"], restore_fixed)}
+        for key, entry in record.get("imported_workflows", {}).items()
+    }
+    interface = record.get("interface")
+    if interface is not None:
+        validate_project_workflow_configuration(interface)
+    for entry in imported.values():
+        if not isinstance(entry.get("path"), str):
+            raise ValueError("Invalid workflow project path.")
+        validate_project_workflow_configuration(entry["configuration"])
+        validate_workflow(entry["definition"])
     return Workflow(
         base=read_project(archive, record["base"], files),
         steps=steps, completed=completed, executed=set(record["executed"]), bindings=record["bindings"],
         needs_replay=record["needs_replay"], error=record["error"], source_order=record["source_order"],
         next_step_id=next_step_id,
         source_groups=record.get("source_groups", {}), source_memberships=record.get("source_memberships", {}),
+        interface=interface, imported_workflows=imported,
     )
 
 

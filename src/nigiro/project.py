@@ -335,15 +335,18 @@ class ItemEdit:
     target: Literal["source", "figure"]
     item_id: str | int | None
     name: str | None
+    internal: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.internal) is not bool or (self.internal and (self.target, self.item_id, self.name) != ("source", None, None)):
+            raise ValueError("Invalid internal source edit.")
         if self.target == "figure":
             if type(self.item_id) is not int or self.item_id < 0:
                 raise ValueError("Invalid figure reference.")
         elif self.target == "source":
             if self.item_id is not None:
                 source_origin(self.item_id)
-            elif self.name is None:
+            elif self.name is None and not self.internal:
                 raise ValueError("The imported source is required for this project.")
         else:
             raise ValueError("Invalid project item type.")

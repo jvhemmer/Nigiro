@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import json
 import re
+from base64 import b64decode, b64encode
+from dataclasses import asdict
 from hashlib import sha256
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+from .project import Source
+from .text_import import TextImport
 from .workflow import map_references
 
 ACTIONS = {
@@ -24,6 +28,39 @@ def command_group_ids(command):
         yield group["id"]
     if (group := command.get("output_group")) and group["mode"] == "existing":
         yield group["id"]
+
+
+def fixed_source_record(source: Source) -> dict:
+    return {
+        "name": source.name, "content": b64encode(source.content).decode("ascii"),
+        "encoding": source.encoding, "delimiter": source.delimiter,
+        "comment": source.comment, "text_import": asdict(source.text_import) if source.text_import else None,
+    }
+
+
+def read_fixed_source(record: dict) -> Source:
+    metadata = record["text_import"]
+    return Source(record["name"], b64decode(record["content"], validate=True), record["encoding"],
+                  record["delimiter"], comment=record["comment"],
+                  text_import=TextImport(**metadata) if metadata is not None else None)
+
+
+def validate_project_workflow_configuration(configuration: dict) -> dict:
+    if not isinstance(configuration, dict):
+        raise ValueError("Invalid project workflow configuration.")
+    name = configuration.get("name")
+    steps, inputs, outputs = (configuration.get(field) for field in ("steps", "inputs", "outputs"))
+    if (not isinstance(name, str) or not name.strip()
+        or not isinstance(steps, list) or not steps or not all(type(step) is int and step > 0 for step in steps)
+        or not isinstance(inputs, dict) or not all(isinstance(key, str) and isinstance(label, str) for key, label in inputs.items())
+        or not isinstance(outputs, list) or not outputs):
+        raise ValueError("Choose a workflow name, completed steps, and at least one output.")
+    for output in outputs:
+        if (not isinstance(output, dict) or output.get("kind") not in ("source", "figure")
+            or not isinstance(output.get("name"), str) or not isinstance(output.get("reference"), dict)
+            or not OUTPUT_KEY.fullmatch(str(output["reference"].get("output", "")))):
+            raise ValueError("Choose a recorded source or figure for each workflow output.")
+    return configuration
 
 
 def validate_workflow(record: dict) -> dict:
@@ -83,6 +120,15 @@ def validate_workflow(record: dict) -> dict:
         require((port.get("kind") == "csv" and producer["action"] == "import_data")
                 or (port.get("kind") == "number" and producer["action"] == "add_scalar"
                     and "value" in producer and index == "0"))
+        ports.add(output)
+    fixed = record.get("fixed_sources", {})
+    require(isinstance(fixed, dict))
+    for output, source in fixed.items():
+        ref = check_reference("source", {"output": output})
+        producer, _, _ = ref["output"].split("/")
+        require(output not in ports and available[int(producer)]["action"] == "import_data"
+                and isinstance(source, dict) and isinstance(source.get("content"), str),
+                "Choose a valid fixed data input.")
         ports.add(output)
     for step_id, command in available.items():
         if command["action"] == "import_data":

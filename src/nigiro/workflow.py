@@ -30,6 +30,8 @@ class Workflow:
     next_step_id: int = 1
     source_groups: dict[str, dict] = field(default_factory=dict)
     source_memberships: dict[str, str | None] = field(default_factory=dict)
+    interface: dict | None = None
+    imported_workflows: dict[str, dict] = field(default_factory=dict)
 
     def reference(self, kind: str, value):
         for output, bound in self.bindings.items():

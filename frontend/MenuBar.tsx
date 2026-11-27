@@ -12,7 +12,8 @@ export type MenuRequest = Request
   | { action: "settings" }
   | { action: "choose_scalar" }
   | { action: "choose_array" }
-  | { action: "choose_save_workflow" }
+  | { action: "choose_configure_project_workflow" }
+  | { action: "choose_import_project_workflow" }
   | { action: "choose_run_workflow" }
   | { action: "choose_step"; step: WorkflowStep }
   | { action: "choose_workflow_ports"; step: WorkflowStep }
