@@ -55,6 +55,7 @@ class Settings:
         self.last_import_path: str | None = None
         self.last_project_path: str | None = None
         self.dialog_folders: dict[str, str] = {}
+        self.recent_projects: list[str] = []
         self.recent_workspaces: list[str] = []
         if path.exists():
             record = json.loads(path.read_text(encoding="utf-8"))
@@ -71,9 +72,11 @@ class Settings:
                 folders = record.get("dialog_folders", {})
                 if isinstance(folders, dict):
                     self.dialog_folders = {key: value for key, value in folders.items() if isinstance(value, str)}
-                recent = record.get("recent_workspaces", [])
-                if isinstance(recent, list):
-                    self.recent_workspaces = list(dict.fromkeys(path for path in recent if isinstance(path, str)))[:10]
+                for key, default in (("recent_projects", [self.last_project_path] if self.last_project_path else []),
+                                     ("recent_workspaces", [])):
+                    recent = record.get(key, default)
+                    if isinstance(recent, list):
+                        setattr(self, key, list(dict.fromkeys(path for path in recent if isinstance(path, str)))[:10])
 
     def save(self, style: FigureStyle) -> None:
         style = shared_figure_axes(style)
@@ -94,11 +97,14 @@ class Settings:
             self.project_storage = project_storage
 
     def remember(self, *, import_path: str | None = None, project_path: str | None = None,
+                 recent_project_path: str | None = None,
                  workspace_path: str | None = None, dialog_folder: tuple[str, str] | None = None) -> None:
         if import_path is not None:
             self.last_import_path = import_path
         if project_path is not None:
             self.last_project_path = project_path
+        if recent_project_path is not None:
+            self.recent_projects = [recent_project_path, *(path for path in self.recent_projects if path != recent_project_path)][:10]
         if workspace_path is not None:
             self.recent_workspaces = [workspace_path, *(path for path in self.recent_workspaces if path != workspace_path)][:10]
         if dialog_folder is not None:
@@ -120,6 +126,7 @@ class Settings:
                     "last_import_path": self.last_import_path,
                     "last_project_path": self.last_project_path,
                     "dialog_folders": self.dialog_folders,
+                    "recent_projects": self.recent_projects,
                     "recent_workspaces": self.recent_workspaces,
                 }, file, indent=2, allow_nan=False)
             except BaseException:

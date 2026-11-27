@@ -27,6 +27,7 @@ import { ArraySourceDialog } from "./ArraySourceDialog";
 import { ScalarSourceDialog } from "./ScalarSourceDialog";
 import { ImportDataDialog } from "./ImportDataDialog";
 import { FigureSettings } from "./FigureSettings";
+import { Welcome } from "./Welcome";
 import { defaultProjectStorage, ProjectProperties } from "./ProjectStorageSettings";
 import type { DesktopInfo, DesktopPreferences, Release } from "./DesktopSettings";
 import { axisSettings, cycleColor, type StyleSection } from "./figureStyle";
@@ -493,6 +494,7 @@ function ProjectEditor({ project, projectKey, busy, run, onConfigure, onEdit, on
 
 export function App() {
   const [project, setProject] = useState<Project | null>(null);
+  const [enteredProject, setEnteredProject] = useState(false);
   const [projectKey, setProjectKey] = useState(0);
   const [notes, setNotes] = useState<string | null>(null);
   const notesDraft = useRef<string | null>(null);
@@ -574,6 +576,8 @@ export function App() {
         setPlugins(response.plugins);
         projectRef.current = response.project;
         setProject(response.project);
+        if (replace || response.project.file_name || response.project.workflow.steps.length || response.project.sources.length
+          || response.project.figures.length || response.project.dirty) setEnteredProject(true);
         if (replace || (saving && notesDraft.current === draft)) updateNotes(null);
         if (replace) setProjectKey((key) => key + 1);
       }
@@ -1092,7 +1096,8 @@ export function App() {
       )}
       {project && projectPropertiesOpen && <ProjectProperties
         global={project.project_storage ?? defaultProjectStorage} initial={project.project_storage_overrides ?? {}}
-        busy={busy} error={error} onSave={(overrides) => run({ action: "set_project_storage", overrides })}
+        runOnOpen={project.run_on_open ?? true} busy={busy} error={error}
+        onSave={(overrides, run_on_open) => run({ action: "set_project_properties", overrides, run_on_open })}
         onClose={() => { setProjectPropertiesOpen(false); setError(""); }} />}
       {project && settingsDialog && (
         <FigureSettings global runAutomatically={project.run_automatically} projectStorage={project.project_storage}
@@ -1138,20 +1143,16 @@ export function App() {
         />
       )}
       {error && !scalarDialog && !overlayDialog && !stepDialog && !workflowDialog && !projectWorkflow && !workflowRunEditor && !importReview && !inputDialog && !settingsDialog && !projectPropertiesOpen && !figureDialog && <div className="error-banner" role="alert">{error}</div>}
-      {project ? (
+      {project && enteredProject ? (
         <ProjectEditor {...{ project, projectKey, busy, run, capture }} notes={notes ?? project.notes ?? ""} onNotesChange={updateNotes}
           onEditStep={(step) => runMenu({ action: "choose_step", step })}
           onConfigure={figure && !figure.overlay_inputs && figure.definition.input_mode !== "joint" && project.figure_id !== null
             ? () => { setError(""); setInputDialog({ plugin: figure.definition, figureId: project.figure_id ?? undefined }); }
             : undefined} onEdit={setFigureDialog} />
       ) : (
-        <main className="welcome">
-          <div className="welcome-card">
-            <div className="welcome-mark"><ChartNoAxesCombined size={35} strokeWidth={1.7} /></div>
-            <h1>Start an analysis</h1>
-            <p>Open <strong>Data</strong> to import a data file or try sample data.</p>
-          </div>
-        </main>
+        <Welcome recent={project?.recent_projects ?? []} busy={menuBusy || !project}
+          onNew={() => runMenu({ action: "new" })} onOpen={() => runMenu({ action: "open" })}
+          onRecent={(path) => runMenu({ action: "open_recent_project", path })} />
       )}
       <footer className="app-status">
         {desktopInfo && <span>v{desktopInfo.version}</span>}

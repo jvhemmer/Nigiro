@@ -236,6 +236,7 @@ export interface Project {
   notes: string;
   workspace: { name: string; path: string | null; dirty: boolean; active_project: string | null; projects: SavedPath[] } | null;
   recent_workspaces: SavedPath[];
+  recent_projects: SavedPath[];
   trace_styles: Record<number, TraceStyle>;
   saved_workflows: SavedWorkflow[];
   appearance: Appearance;
@@ -250,6 +251,7 @@ export interface Project {
   run_automatically: boolean;
   project_storage: ProjectStorage;
   project_storage_overrides?: Partial<ProjectStorage>;
+  run_on_open: boolean;
   columns: string[];
   rows: string[][];
   original_rows: string[][];
@@ -326,7 +328,7 @@ export interface ImportReview {
 
 export type Request =
   | { action: "state" | "run_all" | "run_next" | "new" | "sample" | "import_data" | "open" | "install_plugin" | "new_workspace" | "open_workspace" }
-  | { action: "open_recent_workspace" | "switch_workspace_project"; path: string }
+  | { action: "open_recent_project" | "open_recent_workspace" | "switch_workspace_project"; path: string }
   | { action: "save_workspace"; name: string; choose_path: boolean }
   | { action: "save"; notes?: string }
   | { action: "move_step"; step_id: number; direction: number }
@@ -357,7 +359,7 @@ export type Request =
   | { action: "edit_item"; item: WorkspaceItem; name: string | null }
   | { action: "inspect_style"; figure_id: number; trace: number; changes: InspectStyleChange[] }
   | { action: "set_preferences"; style: FigureStyle; appearance: Appearance; run_automatically?: boolean; project_storage?: ProjectStorage }
-  | { action: "set_project_storage"; overrides: Partial<ProjectStorage> }
+  | { action: "set_project_properties"; overrides: Partial<ProjectStorage>; run_on_open: boolean }
   | { action: "set_global_style"; style: FigureStyle }
   | { action: "figure_style"; style: FigureStyle; figure_id: number }
   | { action: "save_as"; name: string; notes?: string };
@@ -368,7 +370,7 @@ export const elementNames: Record<FigureElement, string> = {
 };
 
 export function replacesProject(request: Request): boolean {
-  return ["new", "open", "open_workspace", "open_recent_workspace", "switch_workspace_project"].includes(request.action);
+  return ["new", "open", "open_recent_project", "open_workspace", "open_recent_workspace", "switch_workspace_project"].includes(request.action);
 }
 
 const figureCache = new Map<number, { token: string; figure: PluginFigure }>();

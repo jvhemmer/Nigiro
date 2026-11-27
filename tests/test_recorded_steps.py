@@ -802,6 +802,7 @@ class WorkflowTest(unittest.TestCase):
             self.assertFalse(pending["sources"])
             self.assertEqual(pending["workflow"]["steps"][0]["status"], "pending")
             worker.settings.project_storage = ProjectStorage(embed_files=True)
+            worker.dispatch({"action": "set_project_properties", "overrides": {}, "run_on_open": False})
             worker.dispatch({"action": "save", "path": str(path)})
             csv.unlink()
             other = Workspace()

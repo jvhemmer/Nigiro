@@ -18,7 +18,7 @@ export function ProjectStorageSettings({ value, global, onChange }: {
   onChange: (key: keyof ProjectStorage, checked: boolean) => void;
 }) {
   return <SettingsGroup title="Project storage"
-    help="With calculated sources and figures off, select Run all after you open a project to restore its results.">
+    help="If the project opens without results, select Run all to restore them.">
     {(Object.keys(storageLabels) as (keyof ProjectStorage)[]).map((key) => <div className="project-storage-option" key={key}>
       <label className="figure-field figure-checkbox">
         <input type="checkbox" checked={value[key]} onChange={(event) => onChange(key, event.target.checked)} />
@@ -31,26 +31,34 @@ export function ProjectStorageSettings({ value, global, onChange }: {
   </SettingsGroup>;
 }
 
-export function ProjectProperties({ global, initial, busy, error, onClose, onSave }: {
+export function ProjectProperties({ global, initial, runOnOpen, busy, error, onClose, onSave }: {
   global: ProjectStorage;
   initial: Partial<ProjectStorage>;
+  runOnOpen: boolean;
   busy: boolean;
   error: string;
   onClose: () => void;
-  onSave: (overrides: Partial<ProjectStorage>) => Promise<boolean>;
+  onSave: (overrides: Partial<ProjectStorage>, automatic: boolean) => Promise<boolean>;
 }) {
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   const [overrides, setOverrides] = useState(initial);
+  const [automatic, setAutomatic] = useState(runOnOpen);
   useEffect(() => { dialog.current?.showModal(); }, []);
 
   return <dialog ref={dialog} className="settings-dialog project-properties" aria-labelledby={id}
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <form onSubmit={async (event) => {
       event.preventDefault();
-      if (!busy && await onSave(overrides)) onClose();
+      if (!busy && await onSave(overrides, automatic)) onClose();
     }}>
       <h2 id={id}>Project properties</h2>
+      <SettingsGroup title="Opening the project">
+        <label className="figure-field figure-checkbox">
+          <input type="checkbox" checked={automatic} onChange={(event) => setAutomatic(event.target.checked)} />
+          <span>Run all steps when opening this project</span>
+        </label>
+      </SettingsGroup>
       <p className="project-storage-warning" role="note">Project settings override global settings for this project.</p>
       <ProjectStorageSettings value={{ ...global, ...overrides }} global={global} onChange={(key, checked) => {
         const updated = { ...overrides, [key]: checked };

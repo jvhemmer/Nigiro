@@ -36,7 +36,7 @@ from nigiro.settings import Appearance, ProjectStorage, Settings
 from nigiro.storage import load_project_session, operation_record, save_project
 from nigiro.workflow import Step, Workflow, map_references
 from nigiro.workflow_file import (
-    command_group_ids, fixed_source_record, read_fixed_source, read_workflow, register_workflow,
+    ACTIONS as WORKFLOW_ACTIONS, command_group_ids, fixed_source_record, read_fixed_source, read_workflow, register_workflow,
     validate_project_workflow_configuration, validate_workflow, workflow_catalog, write_workflow,
 )
 from nigiro.workspace_file import ProjectCollection
@@ -91,9 +91,9 @@ class Workspace:
         self.figure_tokens: dict[int, str] = {}
         self.plugin_edit_prefix: tuple[int, Workspace] | None = None
 
-    def set_project(self, project: Project, path: Path | None) -> None:
+    def set_project(self, project: Project, path: Path | None, *, restore_only: bool = False) -> None:
         project.validate()
-        self.render(project, fallback=project.saved_sources, saved_figures=project.saved_figures)
+        self.render(project, fallback=project.saved_sources, saved_figures=project.saved_figures, restore_only=restore_only)
         self.project = project
         self.workflow = Workflow(project)
         self.figure_id = project.last_figure_id
@@ -104,13 +104,30 @@ class Workspace:
 
     def open_project(self, path: Path, *, browsed: bool = False) -> None:
         project, workflow = load_project_session(path, defer_replay=True)
-        self.set_project(project, path)
-        self.workflow = workflow
+        if workflow.steps and workflow.run_on_open:
+            base = replace(workflow.base, notes=project.notes)
+            self.set_project(base, path)
+            self.workflow = workflow
+            self.run_workflow(restart=True)
+            if project.last_figure_id in self.project.visible_figures:
+                self.figure_id = project.last_figure_id
+            if workflow.error and (project.saved_sources or project.saved_figures):
+                self.set_project(project, path, restore_only=True)
+                self.workflow = workflow
+                workflow.needs_replay = True
+            self.dirty = False
+        else:
+            self.set_project(project, path, restore_only=bool(workflow.steps))
+            self.workflow = workflow
+            if workflow.steps and (project.saved_source_names or any(
+                (self.combined.get(key) or self.results[key]).figure is None for key in project.visible_figures
+            )):
+                workflow.needs_replay = True
         imported = project.last_import_path
         if imported and not Path(imported).parent.is_dir():
             imported = None
-        if imported or browsed:
-            self.remember_paths(import_path=imported, project_path=str(path) if browsed else None)
+        self.remember_paths(import_path=imported, project_path=str(path) if browsed else None,
+                            recent_project_path=str(path))
 
     def open_workspace(self, path: Path, *, browsed: bool = False) -> None:
         collection = ProjectCollection.open(path)
@@ -179,6 +196,7 @@ class Workspace:
         self, project: Project, *, changed: set[int] | None = None,
         fallback: dict[str, SourceTable] | None = None, destinations: set[int] | None = None,
         saved_figures: dict[int, dict] | None = None,
+        restore_only: bool = False,
     ) -> None:
         results = {}
         sources = {}
@@ -195,7 +213,13 @@ class Workspace:
             inputs = (step.source_id, *(reference.source_id for reference in step.references.values()))
             upstream = {source_origin(source_id) for source_id in inputs if source_id is not None}
             cached = (saved_figures or {}).get(figure_id)
-            if changed is None or strict or not upstream.isdisjoint(refreshed):
+            if restore_only:
+                saved = {key.split(":", 1)[1]: table for key, table in (fallback or {}).items()
+                         if source_origin(key) == figure_id}
+                result = Execution(None, None, saved, "Select Run all to restore this figure.")
+                if cached is not None:
+                    result = replace(result, **cached, error=None)
+            elif changed is None or strict or not upstream.isdisjoint(refreshed):
                 try:
                     result = self.execute(project, record, sources)
                 except ValueError as exc:
@@ -401,12 +425,14 @@ class Workspace:
                 "projects": [{"name": path.stem, "path": str(path)} for path in self.collection.projects],
             } if self.collection else None,
             "recent_workspaces": [{"name": Path(path).stem, "path": path} for path in self.settings.recent_workspaces],
+            "recent_projects": [{"name": Path(path).stem, "path": path} for path in self.settings.recent_projects],
             "source_name": project.source.name if project.source else None,
             "file_name": self.path.name if self.path else None,
             "dirty": self.dirty,
             "run_automatically": self.settings.run_automatically,
             "project_storage": asdict(self.settings.project_storage),
             "project_storage_overrides": self.workflow.project_storage_overrides,
+            "run_on_open": self.workflow.run_on_open,
             "workflow": self.workflow_snapshot(names),
             "saved_workflows": [{"id": key, "name": record["name"], "inputs": record["inputs"], "outputs": record["outputs"],
                                  **({"project_path": path} if path else {})}
@@ -923,6 +949,8 @@ class Workspace:
 
     def execute_step(self, step: Step) -> None:
         plan = self.workflow
+        if step.request["action"] not in WORKFLOW_ACTIONS and step.request["action"] not in ("fit", "plot"):
+            raise ValueError("This command cannot run as a recorded step.")
         request = map_references(step.request, plan.resolve)
         before = self.project
         if request["action"] == "invoke_workflow":
@@ -1395,7 +1423,7 @@ class Workspace:
     def dispatch(self, request: dict) -> dict:
         if request["action"] not in ("edit_plugin_step", "plugin_step_inputs", "workflow_step_ports", "edit_workflow_run"):
             self.plugin_edit_prefix = None
-        if request["action"] in ("new", "open", "select_source"):
+        if request["action"] in ("new", "open", "open_recent_project", "select_source"):
             self.row_offset = 0
         match request["action"]:
             case "import_preview":
@@ -1470,11 +1498,15 @@ class Workspace:
                     FigureStyle(**request["style"]), Appearance(**request["appearance"]), request.get("run_automatically"),
                     ProjectStorage(**storage) if storage is not None else None,
                 )
-            case "set_project_storage":
+            case "set_project_properties" | "set_project_storage":
                 overrides = request["overrides"]
                 self.settings.project_storage.with_overrides(overrides)
-                if overrides != self.workflow.project_storage_overrides:
+                run_on_open = request.get("run_on_open", self.workflow.run_on_open)
+                if type(run_on_open) is not bool:
+                    raise ValueError("Choose whether to run the project when it opens.")
+                if overrides != self.workflow.project_storage_overrides or run_on_open != self.workflow.run_on_open:
                     self.workflow.project_storage_overrides = overrides.copy()
+                    self.workflow.run_on_open = run_on_open
                     self.dirty = True
             case "set_global_style":
                 self.settings.save(FigureStyle(**request["style"]))
@@ -1534,9 +1566,12 @@ class Workspace:
                     self.enqueue({"action": "import_data", "import_path": str(paths[-1])},
                                  "Import " + ", ".join(path.name for path in paths), result)
                     self.remember_paths(import_path=str(paths[-1]))
-            case "open":
+            case "open" | "open_recent_project":
                 path = Path(request["path"]).resolve()
-                self.open_project(path, browsed=True)
+                browsed = request["action"] == "open"
+                if not browsed and (str(path) not in self.settings.recent_projects or not path.is_file()):
+                    raise ValueError(f"The recent project is unavailable at {path}.")
+                self.open_project(path, browsed=browsed)
                 if self.collection is not None:
                     self.collection = self.collection.select(path)
             case "install_plugin":
@@ -1969,7 +2004,7 @@ class Workspace:
                     self.collection = self.collection.select(path)
                 self.dirty = False
                 if "path" in request:
-                    self.remember_dialog("save", path)
+                    self.remember_paths(recent_project_path=str(path), dialog_folder=("save", str(path.parent)))
             case "export":
                 self.export(Path(request["path"]))
             case _:

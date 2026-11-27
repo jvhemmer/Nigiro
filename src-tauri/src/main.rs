@@ -131,8 +131,9 @@ enum Action {
     SetGlobalStyle {
         style: Value,
     },
-    SetProjectStorage {
+    SetProjectProperties {
         overrides: Value,
+        run_on_open: bool,
     },
     WorksheetPage {
         offset: usize,
@@ -141,6 +142,9 @@ enum Action {
     Sample,
     ImportData,
     Open,
+    OpenRecentProject {
+        path: String,
+    },
     NewWorkspace,
     SaveWorkspace {
         name: String,
@@ -351,8 +355,11 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             "project_storage": project_storage
         }),
         Action::SetGlobalStyle { style } => json!({ "action": "set_global_style", "style": style }),
-        Action::SetProjectStorage { overrides } => {
-            json!({ "action": "set_project_storage", "overrides": overrides })
+        Action::SetProjectProperties {
+            overrides,
+            run_on_open,
+        } => {
+            json!({ "action": "set_project_properties", "overrides": overrides, "run_on_open": run_on_open })
         }
         Action::RunAll => json!({ "action": "run_all" }),
         Action::RunNext => json!({ "action": "run_next" }),
@@ -589,6 +596,9 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             );
         }
         Action::Open => return pick_file(window, "open", "Open project", "Nigiro", "nigiro"),
+        Action::OpenRecentProject { path } => {
+            json!({ "action": "open_recent_project", "path": path })
+        }
         Action::NewWorkspace => json!({ "action": "new_workspace" }),
         Action::SaveWorkspace { name, choose_path } => {
             if choose_path {

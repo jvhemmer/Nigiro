@@ -15,6 +15,36 @@ from nigiro.storage import load_project, save_project
 
 
 class FilePathsTest(unittest.TestCase):
+    def test_recent_projects_reopen_and_respect_each_projects_replay_setting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            automatic, manual = root / "Automatic.nigiro", root / "Manual.nigiro"
+            source = root / "data.csv"
+            source.write_text("X,Y\n0,1\n1,2\n")
+            with patch.dict(os.environ, {"NIGIRO_SETTINGS_PATH": str(root / "settings.json")}):
+                worker = Workspace()
+                worker.dispatch({"action": "import_data", "paths": [str(source)]})
+                worker.dispatch({"action": "save", "path": str(automatic)})
+                worker.dispatch({"action": "set_project_properties", "overrides": {}, "run_on_open": False})
+                worker.dispatch({"action": "save", "path": str(manual)})
+                reopened = Workspace()
+                state = reopened.dispatch({"action": "state"})["project"]
+                self.assertEqual([entry["name"] for entry in state["recent_projects"]], ["Manual", "Automatic"])
+                state = reopened.dispatch({"action": "open_recent_project", "path": str(automatic)})["project"]
+                self.assertTrue(state["run_on_open"])
+                self.assertEqual(state["workflow"]["completed"], 1)
+                self.assertFalse(state["dirty"])
+                self.assertEqual([entry["name"] for entry in state["recent_projects"]], ["Automatic", "Manual"])
+                with patch.object(type(source), "read_bytes", side_effect=AssertionError("Input read on open")):
+                    state = reopened.dispatch({"action": "open_recent_project", "path": str(manual)})["project"]
+                self.assertFalse(state["run_on_open"])
+                self.assertEqual(state["workflow"]["completed"], 0)
+                self.assertEqual(reopened.dispatch({"action": "run_all"})["project"]["workflow"]["completed"], 1)
+                automatic.unlink()
+                with self.assertRaisesRegex(ValueError, "recent project is unavailable"):
+                    reopened.dispatch({"action": "open_recent_project", "path": str(automatic)})
+                self.assertEqual(reopened.path, manual)
+
     def test_dialogs_keep_independent_folders_across_sessions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

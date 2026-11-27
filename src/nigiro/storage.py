@@ -216,6 +216,7 @@ def workflow_record(archive: ZipFile, workflow: Workflow, files: dict[bytes, str
         "next_step_id": workflow.next_step_id,
         "interface": workflow.interface,
         "project_storage_overrides": workflow.project_storage_overrides,
+        "run_on_open": workflow.run_on_open,
         "imported_workflows": {
             key: {**entry, "definition": map_workflow_definition_sources(entry["definition"], store_fixed)}
             for key, entry in workflow.imported_workflows.items()
@@ -249,6 +250,9 @@ def read_workflow(archive: ZipFile, record: dict, files: dict[str, bytes]) -> Wo
     interface = record.get("interface")
     overrides = record.get("project_storage_overrides", {})
     ProjectStorage().with_overrides(overrides)
+    run_on_open = record.get("run_on_open", True)
+    if type(run_on_open) is not bool:
+        raise ValueError("Invalid project run-on-open setting.")
     if interface is not None:
         validate_project_workflow_configuration(interface)
     for entry in imported.values():
@@ -262,7 +266,7 @@ def read_workflow(archive: ZipFile, record: dict, files: dict[str, bytes]) -> Wo
         needs_replay=record["needs_replay"], error=record["error"], source_order=record["source_order"],
         next_step_id=next_step_id,
         source_groups=record.get("source_groups", {}), source_memberships=record.get("source_memberships", {}),
-        interface=interface, imported_workflows=imported, project_storage_overrides=overrides,
+        interface=interface, imported_workflows=imported, project_storage_overrides=overrides, run_on_open=run_on_open,
     )
 
 

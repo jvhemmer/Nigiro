@@ -85,7 +85,7 @@ class DesktopWorkerTest(unittest.TestCase):
 
             opened, = self.run_worker({"action": "open", "path": str(saved)}, plugins=root / "empty")
             self.assertIsNone(opened["state"]["project"]["figure"])
-            self.assertIn("Install the original example.scaled_xy", opened["state"]["project"]["figure_error"])
+            self.assertIn("Install the original example.scaled_xy", opened["state"]["project"]["workflow"]["error"])
             self.assertFalse(marker.exists())
             with ZipFile(saved) as archive:
                 manifest = json.loads(archive.read("manifest.json"))

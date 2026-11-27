@@ -41,9 +41,10 @@ class ProjectStorageTest(unittest.TestCase):
         worker.dispatch({"action": "save", "path": str(path), "notes": "Experiment notes"})
         return path
 
-    def test_default_archive_defers_linked_data_and_replays_on_request(self):
+    def test_default_archive_links_data_and_can_defer_replay(self):
         worker, derived = self.make_project()
         self.assertEqual(worker.settings.project_storage, ProjectStorage())
+        worker.dispatch({"action": "set_project_properties", "overrides": {}, "run_on_open": False})
         path = self.save(worker, "linked")
         with ZipFile(path) as archive:
             self.assertEqual(archive.namelist(), ["manifest.json"])
@@ -74,6 +75,7 @@ class ProjectStorageTest(unittest.TestCase):
     def test_embedded_files_still_wait_for_replay_without_processed_data(self):
         worker, _ = self.make_project()
         worker.settings.project_storage = ProjectStorage(embed_files=True)
+        worker.dispatch({"action": "set_project_properties", "overrides": {}, "run_on_open": False})
         path = self.save(worker, "embedded input")
         self.csv.unlink()
         reopened = Workspace()
