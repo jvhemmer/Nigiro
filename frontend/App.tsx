@@ -448,11 +448,11 @@ function ProjectEditor({ project, projectKey, busy, run, onConfigure, onEdit, on
   return (
     <DockWorkspace panels={[
       {
-        id: "figure", title: "Figure", icon: ChartNoAxesCombined, minimumWidth: 210,
+        id: "figure", title: "Figures", icon: ChartNoAxesCombined, minimumWidth: 210,
         content: <FigurePanel key={projectKey} project={project} onSelect={inspectTrace} onInspect={inspectFigure} onEdit={onEdit} busy={busy} capture={capture} run={run} />,
       },
       {
-        id: "worksheet", title: "Worksheet", icon: Table2,
+        id: "worksheet", title: "Sheets", icon: Table2,
         position: { referencePanel: "figure", direction: "within" },
         minimumWidth: 170, minimumHeight: 150,
         content: <WorksheetPanel key={projectKey} project={project} busy={busy} run={run} onInspect={inspectSource} />,
