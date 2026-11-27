@@ -81,7 +81,7 @@ class AxisStyle:
     line: bool = True
     line_width: float = "1.5 pt"
     mirror: bool = True
-    opposite_ticks: bool | None = None
+    opposite_ticks: bool | None = False
     grid: bool = False
     zero_line: bool = False
     hover_ruler: bool = False

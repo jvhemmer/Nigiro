@@ -181,7 +181,7 @@ function axisLayout(style: FigureStyle, axis: AxisStyle, label: string, revision
     showline: axis.line,
     linewidth: axis.line_width,
     linecolor: plotlyColor(style.text_color),
-    mirror: axis.line && axis.mirror ? (axis.opposite_ticks ?? true) ? "ticks" : true : false,
+    mirror: axis.line && axis.mirror ? axis.opposite_ticks ? "ticks" : true : false,
     showgrid: axis.grid,
     gridcolor: "#e0e0e0",
     zeroline: axis.zero_line,

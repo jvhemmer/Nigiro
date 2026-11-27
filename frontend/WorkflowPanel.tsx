@@ -107,7 +107,7 @@ export function WorkflowPanel({ workflow, busy, run, onInspect, selected }: {
   const reveal = useRevealDockPanel();
   const modes = useRef<HTMLDetailsElement>(null);
   const [action, setAction] = useState<"run_all" | "run_next">("run_all");
-  const [hiddenFilters, setHiddenFilters] = useState<ReadonlySet<StepFilter>>(() => new Set());
+  const [hiddenFilters, setHiddenFilters] = useState<ReadonlySet<StepFilter>>(() => new Set(["appearance"]));
   const visibleSteps = workflow.steps.flatMap((step, index) => {
     const filter = stepFilter(step);
     return filter && hiddenFilters.has(filter) ? [] : [{ step, index }];

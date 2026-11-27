@@ -372,7 +372,7 @@ function AxisFields({ axes, inheritedFamily, global, withControls }: {
           </Field>)}</Fragment>
       ))}
       {row("Opposite ticks", (axis) => <Field label="Opposite ticks" checkbox>
-        <input type="checkbox" checked={axis.style.opposite_ticks ?? axis.style.mirror}
+        <input type="checkbox" checked={axis.style.opposite_ticks ?? false}
           disabled={!axis.style.mirror || !axis.style.line} onChange={(event) => set(axis, "opposite_ticks", event.target.checked)} />
       </Field>)}
     </SettingsGroup>
@@ -723,7 +723,7 @@ export function FigureSettings({ initial, defaults, initialSection, labels, avai
   function describeDefault(section: SettingsSection, key: string) {
     const defaultsForSection = section === "figure" ? defaults : defaultAxis;
     const value = key === "opposite_ticks" && section !== "figure"
-      ? defaultAxis.opposite_ticks ?? defaultAxis.mirror
+      ? defaultAxis.opposite_ticks ?? false
       : defaultsForSection[key as keyof typeof defaultsForSection] as unknown;
     if (typeof value === "boolean") return value ? "On" : "Off";
     if (value == null) return "Auto";
