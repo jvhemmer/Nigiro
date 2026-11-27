@@ -141,6 +141,8 @@ export interface Appearance {
 
 export interface WorkflowStep {
   id: number;
+  action: string;
+  plugin?: { id: string; menu?: PluginDefinition["menu"] };
   formula?: boolean;
   array?: boolean;
   label: string;

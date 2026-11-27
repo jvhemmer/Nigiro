@@ -759,12 +759,16 @@ class Workspace:
                 status = "stale" if step.id in plan.executed else "pending"
             action = step.request["action"]
             editors = {}
+            plugin_info = None
             if action in ("execute_plugin", "run_plugin"):
                 options = ([run["options"] for run in step.request["runs"]] if action == "execute_plugin"
                            else [step.request["options"]])
                 if group := step.request.get("input_group"):
                     options = [group["options"]]
                 plugin = self.plugins.plugins.get((step.request["plugin_id"], step.request["version"], step.request["checksum"]))
+                plugin_info = {"id": step.request["plugin_id"]}
+                if plugin:
+                    plugin_info["menu"] = plugin.manifest["menu"]
                 labels = {field["key"]: field["label"] for field in plugin.manifest["fields"]} if plugin else {}
                 if plugin:
                     editors = {field["key"]: field["editor"] for field in plugin.manifest["fields"] if field.get("editor")}
@@ -791,7 +795,8 @@ class Workspace:
                 options, labels = [], {}
             steps.append({
                 "id": step.id, "label": self.step_label(step.request, step.label), "status": status,
-                "options": options, "labels": labels,
+                "action": action, "options": options, "labels": labels,
+                **({"plugin": plugin_info} if plugin_info else {}),
                 **({"editors": editors} if editors else {}),
                 **({"files": [source.original_path or source.name for source in step.sources]} if step.sources else {}),
                 **({"parameters": self.editable_step_parameters(step.request)} if action != "import_data" else {}),

@@ -1,3 +1,4 @@
+import { actionIcons, pluginIcon } from "./actionIcons";
 import { decodePlotText } from "./plotText.mjs";
 import { ColorField, isHexColor, plotlyColor } from "./ColorField";
 import { InspectField, InspectNumber } from "./InspectField";
@@ -8,9 +9,9 @@ import { invoke } from "@tauri-apps/api/core";
 import appLogo from "../proposed-logos/data-matrix.svg";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
-  Brackets, Calculator, ChartColumn, ChartLine, ChartNoAxesCombined, ChartScatter, Database, FileCode2, FileInput,
-  FileOutput, FilePlus, Filter, FlaskConical, FolderOpen, FolderPlus, History, Info, Layers, ListFilter, PackagePlus, Play,
-  NotebookPen, Save, SaveAll, ScanSearch, Settings2, SquareFunction, Table2, Variable, Workflow as WorkflowIcon,
+  Calculator, ChartLine, ChartNoAxesCombined, Database, FileCode2, FileInput,
+  FileOutput, FilePlus, FlaskConical, FolderOpen, FolderPlus, History, Info, PackagePlus, Play,
+  NotebookPen, Save, SaveAll, ScanSearch, Settings2, Table2, Workflow as WorkflowIcon,
 } from "lucide-react";
 import { DockWorkspace, useRevealDockPanel } from "./DockWorkspace";
 import { CommandSearch } from "./CommandSearch";
@@ -697,9 +698,7 @@ export function App() {
       const required = plugin.distinct_columns && plugin.input_mode !== "joint" ? columns : Math.min(columns, 1);
       return {
         label: `${plugin.name}…`,
-        icon: plugin.id === "nigiro.scatter" ? ChartScatter : plugin.id === "nigiro.bar" ? ChartColumn
-          : plugin.id === "nigiro.line" || plugin.id === "nigiro.linear_fit" ? ChartLine
-          : menu === "plot" ? ChartNoAxesCombined : SquareFunction,
+        icon: pluginIcon(plugin.id, menu),
         request: (project?.sources.some(({ columns }) => columns.length >= required)
           || (supportsPairedSources(plugin) && (project?.sources.filter(({ columns }) => columns.length > 0).length ?? 0) >= 2))
           ? { action: "choose_plugin", plugin } as const : null,
@@ -781,10 +780,10 @@ export function App() {
   const newWorkspace: MenuCommand = { label: "New Workspace", icon: FolderPlus, keywords: "create", request: { action: "new_workspace" } };
   const openWorkspace: MenuCommand = { label: "Open Workspace…", icon: FolderOpen, request: { action: "open_workspace" } };
   const dataGroups: MenuCommand[][] = [
-    [{ label: "Import Raw Data…", keywords: "csv txt tsv text open load", icon: FileInput, request: { action: "import_data" } }],
+    [{ label: "Import Raw Data…", keywords: "csv txt tsv text open load", icon: actionIcons.import_data, request: { action: "import_data" } }],
     [
-      { label: "Add Variable/Constant…", keywords: "create variables constants scalar", icon: Variable, request: { action: "choose_scalar" } },
-      { label: "Add Array…", keywords: "create arrays formula", icon: Brackets, request: { action: "choose_array" } },
+      { label: "Add Variable/Constant…", keywords: "create variables constants scalar", icon: actionIcons.add_scalar, request: { action: "choose_scalar" } },
+      { label: "Add Array…", keywords: "create arrays formula", icon: actionIcons.add_array, request: { action: "choose_array" } },
     ],
     [{ label: "Try Sample Data", icon: FlaskConical, request: { action: "sample" } }],
   ];
@@ -798,21 +797,21 @@ export function App() {
   const plotCommands = pluginCommands("plot");
   const overlayFigures = project?.figures.filter((figure) => figure.overlayable) ?? [];
   const filterPlugin = plugins.find((plugin) => plugin.id === "nigiro.filter");
-  const filterCommand: MenuCommand = { label: "Filter…", icon: Filter, request: filterPlugin && project?.sources.length
+  const filterCommand: MenuCommand = { label: "Filter…", icon: pluginIcon("nigiro.filter"), request: filterPlugin && project?.sources.length
     ? { action: "choose_plugin", plugin: filterPlugin } : null };
   const filterColumns = plugins.find((plugin) => plugin.id === "nigiro.filter_columns");
-  const filterColumnsCommand: MenuCommand = { label: "Filter Columns…", icon: Filter,
+  const filterColumnsCommand: MenuCommand = { label: "Filter Columns…", icon: pluginIcon("nigiro.filter_columns"),
     request: filterColumns && project?.sources.some(({ columns }) => columns.length > 0)
       ? { action: "choose_plugin", plugin: filterColumns } : null };
   const filterRows = plugins.find((plugin) => plugin.id === "nigiro.filter_rows");
-  const filterRowsCommand: MenuCommand = { label: "Filter Rows…", icon: Filter,
+  const filterRowsCommand: MenuCommand = { label: "Filter Rows…", icon: pluginIcon("nigiro.filter_rows"),
     request: filterRows && project?.sources.some(({ row_count }) => row_count > 0)
       ? { action: "choose_plugin", plugin: filterRows } : null };
   const filterSegments = plugins.find((plugin) => plugin.id === "nigiro.filter_segments");
-  const filterSegmentsCommand: MenuCommand = { label: "Filter Segments…", icon: ListFilter, request: filterSegments && project?.sources.length
+  const filterSegmentsCommand: MenuCommand = { label: "Filter Segments…", icon: pluginIcon("nigiro.filter_segments"), request: filterSegments && project?.sources.length
     ? { action: "choose_plugin", plugin: filterSegments } : null };
   const formula = plugins.find((plugin) => plugin.id === columnFormulaId);
-  const formulaCommand: MenuCommand = { label: "Column Formula…", icon: SquareFunction, request: formula && project?.sources.length
+  const formulaCommand: MenuCommand = { label: "Column Formula…", icon: actionIcons.apply_formula, request: formula && project?.sources.length
     ? { action: "choose_plugin", plugin: formula } : null };
   const analysisCommands = pluginCommands("analysis");
 
@@ -938,7 +937,7 @@ export function App() {
     {
       label: "Plot",
       groups: [plotCommands, [{
-        label: "Overlay…", icon: Layers, keywords: "combine figures shared axes",
+        label: "Overlay…", icon: actionIcons.overlay_figures, keywords: "combine figures shared axes",
         request: overlayFigures.length >= 2 ? { action: "choose_overlay" } : null,
       }]],
     },

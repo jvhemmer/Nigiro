@@ -1,3 +1,4 @@
+import { stepIcon } from "./actionIcons";
 import { CircuitField } from "./CircuitDesigner";
 import { FormulaEditor } from "./FormulaEditor";
 import { useEffect, useRef, useState } from "react";
@@ -54,13 +55,18 @@ export function WorkflowPanel({ workflow, busy, run, onInspect, selected }: {
       && <p className="workflow-base muted" role="status">Run the workflow to update its results.</p>}
     {workflow.has_base && <p className="workflow-base muted">Starts from existing project data.</p>}
     <ol>
-      {workflow.steps.map((step, index) => <li key={step.id} {...drag(index)}>
-        <button className="workflow-step" type="button" disabled={busy} data-workflow-id={step.id}
-          aria-haspopup="menu" aria-current={step.id === selected} title="Inspect step"
-          onClick={() => { onInspect(step.id); reveal("analysis"); }}>
-          <span>{step.label}</span><small data-status={step.status}>{statusLabels[step.status]}</small>
-        </button>
-      </li>)}
+      {workflow.steps.map((step, index) => {
+        const Icon = stepIcon(step);
+        return <li key={step.id} {...drag(index)}>
+          <button className="workflow-step" type="button" disabled={busy} data-workflow-id={step.id}
+            aria-haspopup="menu" aria-current={step.id === selected} title="Inspect step"
+            onClick={() => { onInspect(step.id); reveal("analysis"); }}>
+            <Icon className="workflow-step-icon" size={13} aria-hidden="true" />
+            <span className="workflow-step-label">{step.label}</span>
+            <small data-status={step.status}>{statusLabels[step.status]}</small>
+          </button>
+        </li>;
+      })}
     </ol>
   </div>;
 }

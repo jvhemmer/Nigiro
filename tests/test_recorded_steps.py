@@ -627,8 +627,15 @@ class WorkflowTest(unittest.TestCase):
             result = worker.dispatch({
                 "action": "edit_item", "item": {"kind": "figure", "id": figure_id}, "name": name,
             })["project"]
-        self.assertEqual([step["label"] for step in result["workflow"]["steps"][1:]],
+        steps = result["workflow"]["steps"][1:]
+        self.assertEqual([step["label"] for step in steps],
                          ["Plot: Scatter", "Analysis: Linear Fit", "Rename item", "Remove item"])
+        self.assertEqual(steps[0]["plugin"], {"id": "nigiro.scatter", "menu": "plot"})
+        self.assertEqual(steps[1]["plugin"], {"id": "nigiro.linear_fit", "menu": "analysis"})
+        self.assertEqual(steps[3]["action"], "edit_item")
+        project = worker.dispatch({"action": "add_scalar", "name": "Resistance", "value": 3})["project"]
+        step = project["workflow"]["steps"][-1]
+        self.assertEqual((step["action"], step["label"]), ("add_scalar", "Add variable Resistance"))
 
     def test_python_script_references_original_paths_or_copied_csvs(self):
         with tempfile.TemporaryDirectory() as directory:
