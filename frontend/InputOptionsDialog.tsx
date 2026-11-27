@@ -119,7 +119,7 @@ function matchColumn(source: SourceChoice, reference: SourceChoice, index: numbe
   return matches.length === 1 ? matches[0] : -1;
 }
 
-function storedColumn(columns: string[], value: PluginOptions[string]): number {
+function storedColumn(columns: string[], value: PluginOptions[string] | null): number {
   if (typeof value === "number") return value >= 0 && value < columns.length ? value : -1;
   return typeof value === "string" && columns.indexOf(value) === columns.lastIndexOf(value)
     ? columns.indexOf(value) : -1;
@@ -167,7 +167,8 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
   const sourceGroups = project.source_groups ?? [];
   const formula = plugin.id === columnFormulaId;
   const groupOutputs = plugin.menu === "analysis" && !formula && !configuring;
-  const canUseGroup = groupOutputs && plugin.input_mode !== "joint";
+  const combine = plugin.input_mode === "combine";
+  const canUseGroup = groupOutputs && plugin.input_mode !== "joint" && !combine;
   const [groupId, setGroupId] = useState(initial?.input_group?.id ?? "");
   const initialOutputGroup = initial?.output_group;
   const [outputGroup, setOutputGroup] = useState(initialOutputGroup?.mode === "existing"
@@ -214,6 +215,13 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
   const preferredSegmentColumn = cvInputColumn(initialSource?.columns ?? [], savedOptions?.mode ?? defaultSegmentMode);
   const [tab, setTab] = useState<(typeof tabs)[number]>("Inputs");
   const [changedOptions, setChangedOptions] = useState(new Set<string>());
+  const [combinedSources, setCombinedSources] = useState(() => new Set<SourceId>(
+    initial ? Object.entries(initial.runs[0]?.references ?? {})
+      .sort(([a], [b]) => Number(a.slice(7)) - Number(b.slice(7)))
+      .map(([, ref]) => ref.source_id)
+      .filter((id) => axisSources.some((source) => source.id === id))
+      : [],
+  ));
   const [picked, setPicked] = useState(() => new Set(initial
     ? initial.runs.filter((run) => sources.some(({ id }) => id === run.source_id)).map(({ source_id }) => source_id)
     : initialSource ? [initialSource.id] : []));
@@ -317,7 +325,8 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
         && (!plugin.distinct_columns || new Set(values).size === values.length),
     };
   }) : [];
-  const inputError = pair
+  const inputError = combine ? combinedSources.size < 2 ? "Select at least two sources in the order to append them." : ""
+    : pair
     ? !xSource || !ySource ? "Select a source for each axis."
       : xInput.column < 0 || yInput.column < 0 ? "Choose a column for each axis."
       : xSource.id === ySource.id && xInput.column === yInput.column ? "Choose different columns for X and Y."
@@ -399,7 +408,12 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
           ...(groupId && { input_group: { id: groupId, options: groupOptions } }),
           ...(groupOutputs && outputGroup && { output_group: outputGroup === "new" ? { mode: "new", name: groupName.trim() }
             : outputGroup === "ungrouped" ? { mode: "ungrouped" } : { mode: "existing", id: outputGroup.slice(9) } }),
-          runs: groupId ? [] : pair ? [{
+          runs: groupId ? [] : combine ? [{
+            source_id: [...combinedSources][0], options: submittedOptions, target_id: null,
+            references: Object.fromEntries(Array.from(combinedSources, (source_id, index) => [
+              `source_${index}`, { source_id, column: null },
+            ])),
+          }] : pair ? [{
             source_id: xInput.id, options: { ...submittedOptions, x: 0, y: 1 }, target_id: null,
             references: { x: { source_id: xInput.id, column: xInput.column }, y: { source_id: yInput.id, column: yInput.column } },
           }] : joint ? [{
@@ -427,7 +441,10 @@ export function InputOptionsDialog({ target, project, previous, initial, warning
           ))}
         </div>
         <section role="tabpanel" id={`${id}-panel-Inputs`} aria-labelledby={`${id}-tab-Inputs`} hidden={tab !== "Inputs"}>
-          {joint ? <div className="fit-settings plugin-fields">
+          {combine ? <>
+            <p className="muted">Select sources in the order you want to append them.</p>
+            <SourceChecklist sources={axisSources} picked={combinedSources} ordered disabled={busy} onChange={setCombinedSources} />
+          </> : joint ? <div className="fit-settings plugin-fields">
             {fields.map((field) => {
               const input = jointInputs[field.key];
               const source = axisSources.find(({ id }) => id === input.source_id);

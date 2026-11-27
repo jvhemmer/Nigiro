@@ -284,12 +284,12 @@ class TraceAppearance:
 @dataclass(frozen=True)
 class ColumnReference:
     source_id: str | None
-    column: int | str
+    column: int | str | None
 
     def __post_init__(self) -> None:
         if self.source_id is not None:
             source_origin(self.source_id)
-        if not (type(self.column) is int and self.column >= 0) and not (
+        if self.column is not None and not (type(self.column) is int and self.column >= 0) and not (
             isinstance(self.column, str) and self.column.strip()
         ):
             raise ValueError("Invalid column reference.")
@@ -695,7 +695,7 @@ class Project:
 
     def recipe_references(self, step: PluginStep, tables: dict[str, SourceTable]) -> dict:
         return {
-            token: (worksheet, worksheet.column_index(reference.column))
+            token: (worksheet, None if reference.column is None else worksheet.column_index(reference.column))
             for token, reference in step.references.items()
             for worksheet in (self.recipe_input(reference.source_id, step, tables),)
         }

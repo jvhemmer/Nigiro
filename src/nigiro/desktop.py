@@ -663,7 +663,7 @@ class Workspace:
             result = {**run, "options": options}
             if references:
                 result["references"] = {
-                    key: {**ref, "column": self.input_worksheet(
+                    key: {**ref, "column": None if ref["column"] is None else self.input_worksheet(
                         self.project, ref["source_id"], self.sources,
                     ).column_selection(ref["column"])}
                     for key, ref in references.items()
@@ -2084,7 +2084,7 @@ class Workspace:
                 raise ValueError("Select at least one source.")
             return request["runs"]
         plugin = self.plugins.resolve(PluginStep(request["plugin_id"], request["version"], request["checksum"], {}))
-        if request["runs"] or plugin.manifest["menu"] != "analysis" or plugin.manifest.get("input_mode") == "joint":
+        if request["runs"] or plugin.manifest["menu"] != "analysis" or plugin.manifest.get("input_mode", "batch") != "batch":
             raise ValueError("Choose a group only for an analysis that runs on each source independently.")
         runs = []
         for source_id in self.group_sources(group["id"]):
@@ -2126,8 +2126,8 @@ class Workspace:
                 raise ValueError("Select at least one source.")
             plugin = self.plugins.resolve(PluginStep(step["plugin_id"], step["version"], step["checksum"], {}))
             table_only = plugin.table_only
-            if plugin.manifest.get("input_mode") == "joint" and len(runs) != 1:
-                raise ValueError("Submit all joint inputs as one plugin run.")
+            if plugin.manifest.get("input_mode") in ("joint", "combine") and len(runs) != 1:
+                raise ValueError("Submit all combined inputs as one plugin run.")
             ids, residuals, seen, targets = [], [], set(), set()
             for run in runs:
                 source_id = run["source_id"]
@@ -2137,6 +2137,12 @@ class Workspace:
                 seen.add(source_id)
                 recipe = PluginStep(step["plugin_id"], step["version"], step["checksum"], run["options"],
                                     source_id=source_id, references=run.get("references", {}), table_only=table_only)
+                if plugin.manifest.get("input_mode") == "combine" and (
+                    len({ref.source_id for ref in recipe.references.values()}) != len(recipe.references)
+                    or recipe.references.get("source_0") is None
+                    or recipe.references["source_0"].source_id != source_id
+                ):
+                    raise ValueError("Select different available sources in order.")
                 if any(project.item_deleted("source", reference.source_id) for reference in recipe.references.values()):
                     raise ValueError("Choose available sources for each input.")
                 figure_id = len(operations)

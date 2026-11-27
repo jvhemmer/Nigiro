@@ -99,8 +99,11 @@ def read_plugin(content: bytes) -> Plugin:
 
     if type(manifest.get("table_only", False)) is not bool:
         raise ValueError("Set table_only to true or false.")
-    if manifest.get("input_mode", "batch") not in ("batch", "joint"):
-        raise ValueError("Set input_mode to batch or joint.")
+    input_mode = manifest.get("input_mode", "batch")
+    if input_mode not in ("batch", "joint", "combine"):
+        raise ValueError("Set input_mode to batch, joint, or combine.")
+    if input_mode == "combine" and (manifest["menu"] != "analysis" or not manifest.get("table_only")):
+        raise ValueError("Use combine for an analysis that returns source tables.")
     if manifest.get("input_mode") == "joint" and not any(
         isinstance(field, dict) and field.get("type") == "column" for field in manifest["fields"]
     ):
@@ -118,6 +121,8 @@ def read_plugin(content: bytes) -> Plugin:
         keys.add(key)
         if field["type"] == "columns" and manifest.get("input_mode") == "joint":
             raise ValueError("Use individual column controls for joint inputs.")
+        if input_mode == "combine" and field["type"] in ("column", "columns"):
+            raise ValueError("Combined inputs use whole sources.")
         if field["type"] == "choice":
             choices = field.get("choices")
             if not isinstance(choices, list) or not choices or not all(
@@ -193,8 +198,12 @@ class PluginRegistry:
                     for field in fields if field.get("optional")}
         options = {**defaults, **step.options}
         joint = plugin.manifest.get("input_mode") == "joint"
+        combine = plugin.manifest.get("input_mode") == "combine"
         if joint and references.keys() != {field["key"] for field in fields if field["type"] == "column"}:
             raise ValueError("Choose a source and column for each input.")
+        if combine and (len(references) < 2 or references.keys() != {f"source_{i}" for i in range(len(references))}
+                        or any(column is not None for _, column in references.values())):
+            raise ValueError("Select at least two whole sources.")
         if options.keys() != {field["key"] for field in fields}:
             raise ValueError("The plugin options do not match its controls.")
         columns = []
@@ -221,7 +230,7 @@ class PluginRegistry:
             dependencies = installed_requirements(plugin.manifest.get("dependencies", []))
             with redirect_stdout(sys.stderr):
                 args = worksheet.columns, worksheet.rows, options.copy()
-                if joint:
+                if joint or combine:
                     args = (*args, Project.joint_inputs(references))
                 if plugin.run is None:
                     result = run_plugin_source(plugin.source, step.plugin_id, *args)

@@ -50,6 +50,7 @@ def replay_plugin(plugin, worksheet, references):
                         else worksheet.column_index(value))
     if plugin.get("input_mode") == "joint":
         args[2].update({key: column for key, (_, column) in references.items()})
+    if plugin.get("input_mode") in ("joint", "combine"):
         args = (*args, Project.joint_inputs(references))
     if plugin["source"] is None:
         manifest, runner = BUILTINS[plugin["plugin_id"]]

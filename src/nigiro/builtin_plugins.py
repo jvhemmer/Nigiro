@@ -242,6 +242,65 @@ Row numbers start at 1 and both ends are included.
 }, filter_row_range)
 
 
+def append_rows(columns, rows, options, inputs):
+    combined = list(rows)
+    for i in range(1, len(inputs)):
+        source = inputs[f"source_{i}"]
+        names = source["columns"]
+        if names == columns:
+            combined.extend(source["rows"])
+        else:
+            if len(set(columns)) != len(columns) or len(names) != len(columns) or set(names) != set(columns):
+                raise ValueError(f"Source {i + 1} must have the same column names as the first source. "
+                                 "If column names repeat, their order must match too.")
+            indices = [names.index(name) for name in columns]
+            combined.extend([row[index] for index in indices] for row in source["rows"])
+    return {"sources": {"appended": {"name": "Appended rows", "columns": columns, "rows": combined}}}
+
+
+def append_columns(columns, rows, options, inputs):
+    tables = [inputs[f"source_{i}"] for i in range(len(inputs))]
+    for i, source in enumerate(tables, start=1):
+        if len(source["rows"]) != len(rows):
+            raise ValueError(f"Source {i} has {len(source['rows'])} rows. Expected {len(rows)} to match the first source.")
+    headers = [name for source in tables for name in source["columns"]]
+    reserved = set(headers)
+    used = set()
+    next_suffix = {}
+    unique_headers = []
+    for name in headers:
+        unique = name
+        if name in used:
+            suffix = next_suffix.get(name, 2)
+            unique = f"{name} ({suffix})"
+            while unique in reserved:
+                suffix += 1
+                unique = f"{name} ({suffix})"
+            next_suffix[name] = suffix + 1
+        used.add(unique)
+        unique_headers.append(unique)
+    combined = [[value for row in parts for value in row] for parts in zip(*(source["rows"] for source in tables))]
+    return {"sources": {"appended": {"name": "Appended columns", "columns": unique_headers, "rows": combined}}}
+
+
+BUILTINS["nigiro.append_rows"] = ({
+    "api": 1, "id": "nigiro.append_rows", "version": "1", "name": "Append Rows", "menu": "analysis",
+    "category": "operations", "input_mode": "combine", "table_only": True, "outputs": ["Worksheet with stacked rows"],
+    "description": """Stack the rows from two or more sources in the order you select them. The sources must use the
+same column names. The result follows the first source's column order. If column names repeat, the column order must
+match across sources.""",
+    "fields": [],
+}, append_rows)
+
+BUILTINS["nigiro.append_columns"] = ({
+    "api": 1, "id": "nigiro.append_columns", "version": "1", "name": "Append Columns", "menu": "analysis",
+    "category": "operations", "input_mode": "combine", "table_only": True, "outputs": ["Worksheet with columns side by side"],
+    "description": """Place columns side by side in the order you select the sources. Rows match by position, so all
+sources must have the same number of rows. Repeated column names get a numbered suffix.""",
+    "fields": [],
+}, append_columns)
+
+
 BUILTINS[COLUMN_FORMULA_PLUGIN] = ({
     "api": 1, "id": COLUMN_FORMULA_PLUGIN, "version": "1", "name": "Column Formula", "menu": "analysis",
     "outputs": ["Calculated worksheet"],

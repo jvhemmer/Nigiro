@@ -1,6 +1,6 @@
 import {
-  Brackets, Calculator, ChartColumn, ChartLine, ChartNoAxesCombined, ChartScatter, FileInput,
-  Filter, History, Layers, ListFilter, Pencil, Settings2, SquareFunction, Trash2, Variable,
+  Brackets, Calculator, ChartColumn, ChartLine, ChartNoAxesCombined, ChartScatter, Columns3, FileInput,
+  Filter, History, Layers, ListFilter, ListPlus, Pencil, Settings2, SquareFunction, Trash2, Variable,
   Workflow as WorkflowIcon, type LucideIcon,
 } from "lucide-react";
 import type { PluginDefinition, WorkflowStep } from "./workspace";
@@ -30,6 +30,8 @@ const pluginIcons: Record<string, LucideIcon> = {
   "nigiro.filter": Filter,
   "nigiro.filter_columns": Filter,
   "nigiro.filter_rows": Filter,
+  "nigiro.append_rows": ListPlus,
+  "nigiro.append_columns": Columns3,
   "nigiro.filter_segments": ListFilter,
 };
 

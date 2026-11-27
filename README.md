@@ -149,6 +149,8 @@ Set `"table_only": True` in the plugin manifest to create Sources. Return a `sou
 
 Set `"input_mode": "joint"` to receive named inputs together. Each column field lets the user select a source and a column. Define `run(columns, rows, options, inputs)` for this mode. The `inputs` dictionary uses each column field key. Each entry contains `columns`, `rows`, and the selected zero-based `column` index. In this mode, use those bindings to access the data. For example, use `inputs["reference_x"]` for the source and column bound to `reference_x`. In batch mode, the three-argument plugin runs separately for each selected source.
 
+Set `"input_mode": "combine"` for a table-only analysis that uses two or more whole sources. The four-argument runner receives entries keyed by `source_0`, `source_1`, and so on, in selection order. Each entry contains `columns`, `rows`, and `column` set to `None`. The runner's first two arguments contain the first source's columns and rows.
+
 ## Analysis tools
 
 - Use **Align / Resample XY** to put two traces on a shared X grid. Select the X and Y columns for each trace. The result covers their shared X range.

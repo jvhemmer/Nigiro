@@ -42,8 +42,8 @@ export interface PluginDefinition {
   fields: PluginField[];
   distinct_columns?: boolean;
   table_only?: boolean;
-  input_mode?: "batch" | "joint";
-  category?: "electrochemistry" | "signal";
+  input_mode?: "batch" | "joint" | "combine";
+  category?: "electrochemistry" | "signal" | "operations";
   model_parameters?: Record<string, string[]>;
   outputs?: string[];
 }
@@ -54,7 +54,7 @@ export interface PluginRun {
   checksum: string | null;
   options: PluginOptions;
   source_id?: string | null;
-  references?: Record<string, { source_id: string | null; column: number | string }>;
+  references?: Record<string, { source_id: string | null; column: number | string | null }>;
 }
 
 export interface PluginSubmission {

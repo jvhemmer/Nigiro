@@ -712,16 +712,17 @@ export function App() {
     ? figure.recipe.options : previous?.kind === "plugin" ? previous.options : undefined;
 
   function pluginCommands(menu: PluginDefinition["menu"], category?: PluginDefinition["category"]) {
+    const sourceCount = project?.sources.filter(({ columns }) => columns.length > 0).length ?? 0;
     return plugins.filter((plugin) => plugin.menu === menu && plugin.category === category && plugin.id !== "nigiro.filter" && plugin.id !== "nigiro.filter_columns" && plugin.id !== "nigiro.filter_rows" && plugin.id !== "nigiro.filter_segments" && plugin.id !== columnFormulaId
       && plugin.id !== arrayFormulaId && plugin.id !== "example.scaled_xy").map((plugin) => {
       const columns = columnFields(plugin).length;
       const required = plugin.distinct_columns && plugin.input_mode !== "joint" ? columns : Math.min(columns, 1);
+      const available = plugin.input_mode === "combine" ? sourceCount >= 2
+        : project?.sources.some(({ columns }) => columns.length >= required) || (supportsPairedSources(plugin) && sourceCount >= 2);
       return {
         label: `${plugin.name}…`,
         icon: pluginIcon(plugin.id, menu),
-        request: (project?.sources.some(({ columns }) => columns.length >= required)
-          || (supportsPairedSources(plugin) && (project?.sources.filter(({ columns }) => columns.length > 0).length ?? 0) >= 2))
-          ? { action: "choose_plugin", plugin } as const : null,
+        request: available ? { action: "choose_plugin", plugin } as const : null,
       };
     });
   }
@@ -862,6 +863,7 @@ export function App() {
   const formulaCommand: MenuCommand = { label: "Column Formula…", icon: actionIcons.apply_formula, request: formula && project?.sources.length
     ? { action: "choose_plugin", plugin: formula } : null };
   const analysisCommands = pluginCommands("analysis");
+  const operationCommands = pluginCommands("analysis", "operations");
 
   function itemCommands(item: WorkspaceItem, name: string): MenuCommand[] {
     const imported = item.kind === "source" && item.id === null;
@@ -996,7 +998,7 @@ export function App() {
     {
       label: "Analysis",
       groups: [analysisCommands, [
-        { label: "Operations", icon: Calculator, request: null, submenu: [formulaCommand, filterCommand, filterRowsCommand, filterColumnsCommand] },
+        { label: "Operations", icon: Calculator, request: null, submenu: [formulaCommand, filterCommand, filterRowsCommand, filterColumnsCommand, ...operationCommands] },
         { label: "Signal Processing", icon: ChartLine, request: null, submenu: pluginCommands("analysis", "signal") },
         { label: "Electrochemistry", icon: FlaskConical, request: null, submenu: [...pluginCommands("analysis", "electrochemistry"), filterSegmentsCommand] },
       ]],

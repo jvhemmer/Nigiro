@@ -2,6 +2,7 @@
 
 import json
 import os
+import runpy
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,8 @@ from scipy.special import expit
 
 from nigiro.builtin_plugins import BUILTINS
 from nigiro.desktop import Workspace
+from nigiro.project import PluginStep, Project
+from nigiro.source_tables import output_tables
 
 
 def plugin_options(name, **changes):
@@ -78,6 +81,72 @@ class NumericalPluginsTest(unittest.TestCase):
 
 
 class PluginContractTest(unittest.TestCase):
+    def test_append_whole_sources_in_selection_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worker = Workspace()
+            for filename, content in (
+                ("first.csv", "X,Y\n1,10\n2,20\n"),
+                ("second.csv", "Y,X\n30,3\n40,4\n"),
+                ("third.csv", "X,Y\n5,50\n6,60\n"),
+                ("short.csv", "X,Z\n7,70\n"),
+            ):
+                path = root / filename
+                path.write_text(content)
+                worker.dispatch({"action": "import_data", "paths": [str(path)]})
+            ids = {Path(source["original_path"]).stem: source["id"] for source in worker.snapshot()["project"]["sources"]}
+
+            def submission(*names):
+                return {"output": "separate", "target_id": None, "runs": [{
+                    "source_id": ids[names[0]], "options": {}, "target_id": None,
+                    "references": {f"source_{index}": {"source_id": ids[name], "column": None}
+                                   for index, name in enumerate(names)},
+                }]}
+
+            def append(axis, *names):
+                return worker.dispatch({"action": "execute_plugin", "plugin_id": f"nigiro.append_{axis}",
+                                        "version": "1", "checksum": None, **submission(*names)})["project"]
+
+            appended_rows = append("rows", "second", "first", "third")
+            rows = worker.sources[appended_rows["source_id"]]
+            self.assertEqual(rows.columns, ("Y", "X"))
+            self.assertEqual(rows.rows, (("30", "3"), ("40", "4"), ("10", "1"), ("20", "2"), ("50", "5"), ("60", "6")))
+            appended_columns = append("columns", "third", "second", "first")
+            columns = worker.sources[appended_columns["source_id"]]
+            self.assertEqual(columns.columns, ("X", "Y", "Y (2)", "X (2)", "X (3)", "Y (3)"))
+            self.assertEqual(columns.rows[0], ("5", "50", "30", "3", "1", "10"))
+            self.assertEqual(appended_columns["figures"], [])
+
+            path = root / "append.nigiro"
+            worker.dispatch({"action": "save", "path": str(path)})
+            worker = Workspace()
+            worker.dispatch({"action": "open", "path": str(path)})
+            replay = worker.dispatch({"action": "run_all"})["project"]
+            self.assertEqual(worker.sources[appended_columns["source_id"]], columns)
+            step_id = replay["workflow"]["steps"][-1]["id"]
+            edit = worker.dispatch({"action": "plugin_step_inputs", "step_id": step_id})
+            self.assertEqual(edit["submission"], submission("third", "second", "first"))
+            worker.dispatch({"action": "edit_plugin_step", "step_id": step_id, "submission": submission("first", "third")})
+            worker.dispatch({"action": "run_all"})
+            self.assertEqual(worker.sources[appended_columns["source_id"]].rows[0], ("1", "10", "5", "50"))
+
+            with self.assertRaisesRegex(ValueError, "same column names"):
+                append("rows", "first", "short")
+            with self.assertRaisesRegex(ValueError, "Expected 2"):
+                append("columns", "first", "short")
+            plotted = worker.dispatch({
+                "action": "run_plugin", "plugin_id": "nigiro.line", "version": "1", "checksum": None,
+                "source_id": appended_columns["source_id"], "options": {"x": 0, "y": 3},
+            })["project"]["figure"]
+            recipe = json.loads(json.dumps(worker.dispatch({"action": "export_recipe"})["project"]["script_recipe"],
+                                           sort_keys=True))
+            replay_figure = runpy.run_path(str(Path(__file__).resolve().parents[1] / "frontend/replay.py"), init_globals={
+                "BUILTINS": BUILTINS, "PluginStep": PluginStep, "Project": Project, "output_tables": output_tables,
+                "REFERENCE_FORMULA_PLUGINS": set(),
+            })["replay_figure"]
+            exported = replay_figure(worker.project, {"traces": [{}], "layout": {}}, recipe)
+            self.assertEqual(exported["traces"], plotted["traces"])
+
     def test_filter_potential_segments_keeps_columns_and_enables_peak_integration(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
