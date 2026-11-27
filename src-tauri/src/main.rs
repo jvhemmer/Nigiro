@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use tauri::{Manager, WebviewWindow};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt, FileDialogBuilder, MessageDialogButtons, MessageDialogKind};
 
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -275,7 +275,9 @@ async fn save_rendered_figure(
             RenderedFormat::Png => ("Export figure", "PNG", "png"),
             RenderedFormat::Pdf => ("Export figure", "PDF", "pdf"),
         };
-        if let Some(request) = save_file(&window, "export", title, filter, &name, extension)? {
+        if let Some(request) =
+            save_file(&window, "export_rendered", title, filter, &name, extension)?
+        {
             let path = request["path"].as_str().ok_or("Invalid export path.")?;
             request_engine(
                 &window,
@@ -358,11 +360,7 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             json!({ "action": "save_workflow", "path": file["path"], "name": name, "steps": steps, "inputs": inputs, "outputs": outputs })
         }
         Action::ImportWorkflow => {
-            let dialog = window
-                .dialog()
-                .file()
-                .set_parent(window)
-                .set_title("Import Workflows")
+            let dialog = file_dialog(window, "import_workflow", "Import Workflows")?
                 .add_filter("Nigiro Workflow", &["nigiro-workflow"]);
             return picked_files("import_workflow", dialog.blocking_pick_files());
         }
@@ -426,14 +424,7 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             json!({ "action": "edit_plugin_step", "step_id": step_id, "submission": submission })
         }
         Action::ReplaceImport { step_id, slot } => {
-            let mut dialog = window
-                .dialog()
-                .file()
-                .set_parent(window)
-                .set_title("Replace imported data");
-            if let Some(directory) = dialog_directory(window)? {
-                dialog = dialog.set_directory(directory);
-            }
+            let dialog = file_dialog(window, "replace_import", "Replace imported data")?;
             return dialog.blocking_pick_file().map(|file| {
                 let path = file.into_path().map_err(|err| err.to_string())?;
                 Ok(json!({ "action": "replace_import", "path": path, "step_id": step_id, "slot": slot,
@@ -555,14 +546,7 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
         }
         Action::Save { notes } => json!({ "action": "save", "notes": notes }),
         Action::ImportData => {
-            let mut dialog = window
-                .dialog()
-                .file()
-                .set_parent(window)
-                .set_title("Import data");
-            if let Some(directory) = dialog_directory(window)? {
-                dialog = dialog.set_directory(directory);
-            }
+            let dialog = file_dialog(window, "import_data", "Import data")?;
             return Ok(
                 picked_files("import_data", dialog.blocking_pick_files())?.map(|mut request| {
                     request["interactive"] = json!(true);
@@ -650,18 +634,9 @@ fn pick_file(
     filter: &str,
     extension: &str,
 ) -> Result<Option<Value>, String> {
-    let mut dialog = window
-        .dialog()
-        .file()
-        .set_parent(window)
-        .set_title(title)
-        .add_filter(filter, &[extension]);
-    if action == "open" {
-        if let Some(directory) = dialog_directory(window)? {
-            dialog = dialog.set_directory(directory);
-        }
-    }
-    let path = dialog.blocking_pick_file();
+    let path = file_dialog(window, action, title)?
+        .add_filter(filter, &[extension])
+        .blocking_pick_file();
     path.map(|path| {
         let path = path.into_path().map_err(|err| err.to_string())?;
         file_request(action, path)
@@ -684,9 +659,24 @@ fn picked_files(
         .transpose()
 }
 
-fn dialog_directory(window: &WebviewWindow) -> Result<Option<PathBuf>, String> {
-    let state = request_engine(window, &json!({ "action": "dialog_directory" }))?;
-    Ok(state["directory"].as_str().map(PathBuf::from))
+fn file_dialog(
+    window: &WebviewWindow,
+    purpose: &str,
+    title: &str,
+) -> Result<FileDialogBuilder<tauri::Wry>, String> {
+    let state = request_engine(
+        window,
+        &json!({ "action": "dialog_directory", "purpose": purpose }),
+    )?;
+    let directory = state["directory"]
+        .as_str()
+        .map(PathBuf::from)
+        .or_else(|| window.path().home_dir().ok());
+    let dialog = window.dialog().file().set_parent(window).set_title(title);
+    Ok(match directory {
+        Some(directory) => dialog.set_directory(directory),
+        None => dialog,
+    })
 }
 
 fn save_file(
@@ -697,11 +687,7 @@ fn save_file(
     name: &str,
     extension: &str,
 ) -> Result<Option<Value>, String> {
-    let path = window
-        .dialog()
-        .file()
-        .set_parent(window)
-        .set_title(title)
+    let path = file_dialog(window, action, title)?
         .add_filter(filter, &[extension])
         .set_file_name(format!("{name}.{extension}"))
         .blocking_save_file();

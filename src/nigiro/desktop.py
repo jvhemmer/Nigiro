@@ -99,17 +99,17 @@ class Workspace:
         self.path = path
         self.dirty = path is None and project.source is not None
 
-    def open_project(self, path: Path) -> None:
+    def open_project(self, path: Path, *, browsed: bool = False) -> None:
         project, workflow = load_project_session(path)
         self.set_project(project, path)
         self.workflow = workflow
         imported = project.last_import_path
-        self.remember_paths(
-            import_path=imported if imported and Path(imported).parent.is_dir() else None,
-            project_path=str(path),
-        )
+        if imported and not Path(imported).parent.is_dir():
+            imported = None
+        if imported or browsed:
+            self.remember_paths(import_path=imported, project_path=str(path) if browsed else None)
 
-    def open_workspace(self, path: Path) -> None:
+    def open_workspace(self, path: Path, *, browsed: bool = False) -> None:
         collection = ProjectCollection.open(path)
         candidates = tuple(dict.fromkeys(project for project in (collection.active, *collection.projects) if project is not None))
         for project in candidates:
@@ -122,7 +122,7 @@ class Workspace:
         else:
             self.set_project(Project(), None)
         self.collection = collection
-        self.remember_paths(workspace_path=str(path))
+        self.remember_paths(workspace_path=str(path), dialog_folder=("open_workspace", str(path.parent)) if browsed else None)
 
     def execute(self, project: Project, record: FigureRecord, sources: dict[str, SourceTable]) -> Execution:
         step = plugin_step(record.recipe)
@@ -1263,7 +1263,7 @@ class Workspace:
                     faces.add((family, int(weight), slant))
                 return {"fonts": [self.fonts.export(*face) for face in sorted(faces)]}
             case "dialog_directory":
-                return {"directory": self.dialog_directory()}
+                return {"directory": self.dialog_directory(request.get("purpose", "import_data"))}
             case "worksheet_page":
                 offset = request["offset"]
                 if type(offset) is not int or offset < 0:
@@ -1297,7 +1297,7 @@ class Workspace:
                 path = Path(request["path"]).resolve()
                 if request["action"] == "open_recent_workspace" and str(path) not in self.settings.recent_workspaces:
                     raise ValueError("Choose a recently opened workspace.")
-                self.open_workspace(path)
+                self.open_workspace(path, browsed=request["action"] == "open_workspace")
             case "save_workspace":
                 if self.collection is None:
                     raise ValueError("Create a workspace before saving it.")
@@ -1305,7 +1305,8 @@ class Workspace:
                 if path is None:
                     raise ValueError("Choose a file name for the workspace.")
                 self.collection = self.collection.save(path)
-                self.remember_paths(workspace_path=str(path))
+                self.remember_paths(workspace_path=str(path),
+                                    dialog_folder=("save_workspace", str(path.parent)) if "path" in request else None)
             case "switch_workspace_project":
                 path = Path(request["path"]).resolve()
                 if self.collection is None or path not in self.collection.projects:
@@ -1323,25 +1324,31 @@ class Workspace:
                     return result
                 if replacement:
                     self.edit_workflow({**request, "prepared_sources": result})
+                    self.remember_dialog("replace_import", paths[0])
                 else:
                     self.enqueue({"action": "import_data", "import_path": str(paths[-1])},
                                  "Import " + ", ".join(path.name for path in paths), result)
                     self.remember_paths(import_path=str(paths[-1]))
             case "open":
                 path = Path(request["path"]).resolve()
-                self.open_project(path)
+                self.open_project(path, browsed=True)
                 if self.collection is not None:
                     self.collection = self.collection.select(path)
             case "install_plugin":
-                self.plugins.install(Path(request["path"]))
+                path = Path(request["path"])
+                self.plugins.install(path)
+                self.remember_dialog("install_plugin", path)
                 if any(result.error for result in self.results.values()):
                     self.render(self.project, fallback=self.sources)
             case "save_workflow":
                 self.save_workflow_definition(request)
+                self.remember_dialog("save_workflow", Path(request["path"]))
             case "import_workflow":
                 paths = request["paths"] if "paths" in request else [request["path"]]
                 for definition in [read_workflow(Path(path)) for path in paths]:
                     self.add_saved_workflow(definition)
+                if paths:
+                    self.remember_dialog("import_workflow", Path(paths[-1]))
             case "edit_workflow_ports":
                 self.edit_workflow_ports(request)
             case "edit_workflow_run":
@@ -1362,12 +1369,14 @@ class Workspace:
                 self.require_exportable_workflow()
                 write_script(Path(request["path"]), request["template"], request["payload"],
                              tuple(self.project.raw_sources.values()), request["copy_raw_data"])
+                self.remember_dialog("export_script", Path(request["path"]))
                 return {}
             case "export_rendered":
                 from nigiro.figure_export import write_figure
 
                 fonts = Path(__file__).with_name("fonts")
                 write_figure(Path(request["path"]), request["svg"], request["scale"], fonts)
+                self.remember_dialog("export_rendered", Path(request["path"]))
                 return {}
             case "apply_formula":
                 references = self.formula_references(request["expression"])
@@ -1473,16 +1482,18 @@ class Workspace:
             },
         }}
 
-    def dialog_directory(self) -> str | None:
-        for value in (
-            self.project.last_import_path, self.settings.last_import_path,
-            str(self.path) if self.path else None, self.settings.last_project_path,
-        ):
-            if value:
-                directory = Path(value).parent
-                if directory.is_dir():
-                    return str(directory)
-        return None
+    def dialog_directory(self, purpose: str = "import_data") -> str | None:
+        if purpose == "import_data":
+            candidates = [Path(path).parent for path in (self.project.last_import_path, self.settings.last_import_path) if path]
+        elif purpose == "open":
+            candidates = [Path(self.settings.last_project_path).parent] if self.settings.last_project_path else []
+        else:
+            folder = self.settings.dialog_folders.get(purpose)
+            candidates = [Path(folder)] if folder else []
+        return next((str(directory) for directory in candidates if directory.is_dir()), None)
+
+    def remember_dialog(self, purpose: str, path: Path) -> None:
+        self.remember_paths(dialog_folder=(purpose, str(path.absolute().parent)))
 
     def remember_paths(self, **paths) -> None:
         try:
@@ -1742,6 +1753,8 @@ class Workspace:
                 if self.collection is not None:
                     self.collection = self.collection.select(path)
                 self.dirty = False
+                if "path" in request:
+                    self.remember_dialog("save", path)
             case "export":
                 self.export(Path(request["path"]))
             case _:

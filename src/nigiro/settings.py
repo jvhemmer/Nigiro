@@ -37,6 +37,7 @@ class Settings:
         self.run_automatically = True
         self.last_import_path: str | None = None
         self.last_project_path: str | None = None
+        self.dialog_folders: dict[str, str] = {}
         self.recent_workspaces: list[str] = []
         if path.exists():
             record = json.loads(path.read_text(encoding="utf-8"))
@@ -49,6 +50,9 @@ class Settings:
                     if value is not None and not isinstance(value, str):
                         raise ValueError("Invalid saved file path.")
                     setattr(self, key, value)
+                folders = record.get("dialog_folders", {})
+                if isinstance(folders, dict):
+                    self.dialog_folders = {key: value for key, value in folders.items() if isinstance(value, str)}
                 recent = record.get("recent_workspaces", [])
                 if isinstance(recent, list):
                     self.recent_workspaces = list(dict.fromkeys(path for path in recent if isinstance(path, str)))[:10]
@@ -69,13 +73,16 @@ class Settings:
             self.run_automatically = run_automatically
 
     def remember(self, *, import_path: str | None = None, project_path: str | None = None,
-                 workspace_path: str | None = None) -> None:
+                 workspace_path: str | None = None, dialog_folder: tuple[str, str] | None = None) -> None:
         if import_path is not None:
             self.last_import_path = import_path
         if project_path is not None:
             self.last_project_path = project_path
         if workspace_path is not None:
             self.recent_workspaces = [workspace_path, *(path for path in self.recent_workspaces if path != workspace_path)][:10]
+        if dialog_folder is not None:
+            action, directory = dialog_folder
+            self.dialog_folders[action] = directory
         self.write(self.figure_style)
 
     def write(self, style: FigureStyle, appearance: Appearance | None = None, run_automatically: bool | None = None) -> None:
@@ -89,6 +96,7 @@ class Settings:
                     "run_automatically": self.run_automatically if run_automatically is None else run_automatically,
                     "last_import_path": self.last_import_path,
                     "last_project_path": self.last_project_path,
+                    "dialog_folders": self.dialog_folders,
                     "recent_workspaces": self.recent_workspaces,
                 }, file, indent=2, allow_nan=False)
             except BaseException:

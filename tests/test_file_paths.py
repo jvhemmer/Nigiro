@@ -15,6 +15,66 @@ from nigiro.storage import load_project, save_project
 
 
 class FilePathsTest(unittest.TestCase):
+    def test_dialogs_keep_independent_folders_across_sessions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {
+                "import_data": "data.csv", "replace_import": "replacement.csv",
+                "save": "saved.nigiro", "open": "opened.nigiro",
+                "save_workspace": "saved.nigiro-workspace", "open_workspace": "opened.nigiro-workspace",
+                "save_workflow": "saved.nigiro-workflow", "import_workflow": "opened.nigiro-workflow",
+                "export_rendered": "figure.png", "export_script": "figure.py", "install_plugin": "plugin.py",
+            }
+            paths = {purpose: root / purpose / name for purpose, name in paths.items()}
+            for path in paths.values():
+                path.parent.mkdir()
+
+            with patch.dict(os.environ, {"NIGIRO_SETTINGS_PATH": str(root / "settings.json")}):
+                worker = Workspace()
+                worker.settings.run_automatically = True
+
+                def run(purpose, **options):
+                    return worker.dispatch({"action": purpose, "path": str(paths[purpose]), **options})
+
+                for key in ("import_data", "replace_import"):
+                    paths[key].write_text("X,Y\n0,1\n1,2\n")
+                worker.dispatch({"action": "import_data", "paths": [str(paths["import_data"])]})
+                self.assertIsNone(worker.dialog_directory("open"))
+                run("save")
+                paths["open"].write_bytes(paths["save"].read_bytes())
+                run("open")
+                worker.dispatch({"action": "new_workspace"})
+                run("save")
+                run("save_workspace")
+                collection = json.loads(paths["save_workspace"].read_text())
+                collection.update(projects=[str(paths["save"])], active=str(paths["save"]))
+                paths["open_workspace"].write_text(json.dumps(collection))
+                run("open_workspace")
+                self.assertEqual(worker.path, paths["save"])
+                self.assertEqual(worker.dialog_directory("open"), str(paths["open"].parent))
+
+                run("save_workflow", name="Table", steps=[1], inputs={"1/source/0": "Input data"},
+                    outputs=[{"kind": "source", "id": None, "name": "Table"}])
+                paths["import_workflow"].write_bytes(paths["save_workflow"].read_bytes())
+                run("import_workflow")
+                run("replace_import", step_id=1, slot=0)
+                self.assertEqual(worker.dialog_directory("import_data"), str(paths["import_data"].parent))
+
+                with (patch("nigiro.figure_export.write_figure"),
+                      patch("nigiro.script_export.write_script"),
+                      patch.object(worker, "require_exportable_workflow"),
+                      patch.object(worker.plugins, "install")):
+                    run("export_rendered", svg="<svg/>", scale=1)
+                    run("export_script", template="", payload={}, copy_raw_data=False)
+                    run("install_plugin")
+
+                reopened = Workspace()
+                for purpose, path in paths.items():
+                    self.assertEqual(reopened.dispatch({"action": "dialog_directory", "purpose": purpose}),
+                                     {"directory": str(path.parent)})
+                paths["install_plugin"].parent.rmdir()
+                self.assertIsNone(reopened.dialog_directory("install_plugin"))
+
     def test_workspace_round_trip_switching_and_recent_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
