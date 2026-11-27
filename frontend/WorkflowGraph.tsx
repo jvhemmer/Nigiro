@@ -166,6 +166,7 @@ export function WorkflowGraph({ steps, statusLabels, busy, hiddenFilters, onTogg
               const { step, x, y, index, inputs, outputs } = node;
               const Icon = stepIcon(step);
               return <section key={step.id} className="workflow-node" data-selected={step.id === selected || undefined}
+                data-failed={step.status === "failed" || undefined}
                 style={{ left: x, top: y, width: nodeWidth, height: node.height }}>
                 <button type="button" className="workflow-node-title" aria-pressed={step.id === selected}
                   title={step.label} onClick={() => select(step)}

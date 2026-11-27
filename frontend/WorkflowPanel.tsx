@@ -83,6 +83,7 @@ export function WorkflowPanel({ workflow, busy, run, onInspect, onEdit, selected
         const Icon = stepIcon(step);
         return <li key={step.id} {...drag(index)}>
           <button className="workflow-step" type="button" disabled={busy} data-workflow-id={step.id}
+            data-failed={step.status === "failed" || undefined}
             aria-haspopup="menu" aria-current={step.id === selected} title={step.label}
             onClick={() => { onInspect(step.id); reveal("analysis"); }}>
             <span className="workflow-step-number" style={{ width: numberWidth }} aria-hidden="true">{index + 1}.</span>

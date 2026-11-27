@@ -823,6 +823,7 @@ td input {
 .workflow-step-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .workflow-step small { flex: none; color: var(--muted); }
 .workflow-step[aria-current="true"] { color: var(--accent-ink); background: var(--accent-soft); }
+.workflow-step[data-failed], .workflow-step[data-failed]:hover:not(:disabled) { background: var(--error-bg); }
 .workflow-step small[data-status="stale"], .workflow-step small[data-status="failed"], .workflow-error { color: var(--error); }
 .workflow-error, .workflow-base { margin: 6px 8px; }
 
@@ -1163,6 +1164,7 @@ button.workflow-node-title {
   border: 0; border-bottom: 1px solid var(--line); border-radius: 5px 5px 0 0; background: var(--surface-hover);
 }
 .workflow-node-title:active { cursor: grabbing; }
+.workflow-node[data-failed] .workflow-node-title { background: var(--error-bg); }
 .workflow-node-title svg, .workflow-node-title small { flex: none; }
 .workflow-node-title span { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; }
 .workflow-node-title small { color: var(--muted); }
