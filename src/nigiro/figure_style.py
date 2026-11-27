@@ -178,6 +178,7 @@ class FigureStyle:
     legend_frame: bool = False
     legend_border_color: str = "#444444"
     legend_border_width: float = 1
+    legend_group_spacing: float = 10
     legend_background: str | None = None
     color_cycle: tuple[str, ...] = ()
     marker_color: str | None = None
@@ -211,7 +212,8 @@ class FigureStyle:
         )) for face in faces):
             raise ValueError("Choose a valid font style.")
         sizes = tuple(f"{role}_size" for role in roles)
-        normalize_units(self, ("axes_width", "axes_height", "label_size", "tick_size", "line_width", "marker_size", "legend_border_width", *sizes))
+        normalize_units(self, ("axes_width", "axes_height", "label_size", "tick_size", "line_width", "marker_size",
+                               "legend_border_width", "legend_group_spacing", *sizes))
         for role in roles:
             family = getattr(self, f"{role}_family")
             size = getattr(self, f"{role}_size")
@@ -249,6 +251,8 @@ class FigureStyle:
             raise ValueError("Choose a legend position.")
         if type(self.legend_frame) is not bool or not _finite(self.legend_border_width) or not 0 <= self.legend_border_width <= 12:
             raise ValueError("Check the legend frame width.")
+        if not _finite(self.legend_group_spacing) or self.legend_group_spacing < 0:
+            raise ValueError("Enter a group spacing of 0 px or more.")
         if self.line_dash not in ("solid", "dash", "dot", "dashdot"):
             raise ValueError("Choose a line style.")
         if type(self.show_markers) is not bool or type(self.show_lines) is not bool:

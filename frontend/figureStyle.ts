@@ -70,6 +70,7 @@ export interface FigureStyle extends Typography {
   legend_frame: boolean;
   legend_border_color: string;
   legend_border_width: number;
+  legend_group_spacing: number;
   legend_background: string | null;
   color_cycle: string[];
   marker_color: string | null;
@@ -205,6 +206,7 @@ function legendLayout(style: FigureStyle, fit: boolean): Partial<Layout> {
       bgcolor: plotlyColor(style.legend_background ?? style.background),
       bordercolor: plotlyColor(style.legend_border_color),
       borderwidth: style.legend_frame ? style.legend_border_width : 0,
+      tracegroupgap: style.legend_group_spacing,
       itemdoubleclick: false,
       ...(position === "above"
         ? { orientation: "h", x: 0, y: 1.02, xanchor: "left", yanchor: "bottom" }

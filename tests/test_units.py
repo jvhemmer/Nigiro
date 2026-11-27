@@ -36,7 +36,10 @@ class MeasurementTest(unittest.TestCase):
         self.assertNotIn("residual", asdict(legacy))
 
     def test_settings_and_recorded_styles_keep_units(self):
-        style = FigureStyle(axes_width="8 cm", label_size="9 pt", global_axis={"tick_length": "1 mm"})
+        style = FigureStyle(axes_width="8 cm", label_size="9 pt", legend_group_spacing="0 pt",
+                            global_axis={"tick_length": "1 mm"})
+        self.assertEqual(style.legend_group_spacing, 0)
+        self.assertEqual(style.units["legend_group_spacing"], "pt")
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"
             Settings(path).save(style)
@@ -51,3 +54,5 @@ class MeasurementTest(unittest.TestCase):
                 FigureStyle(axes_width=value)
         with self.assertRaises(ValueError):
             AxisStyle(units={"angle": "cm"})
+        with self.assertRaisesRegex(ValueError, "group spacing"):
+            FigureStyle(legend_group_spacing="-1 px")

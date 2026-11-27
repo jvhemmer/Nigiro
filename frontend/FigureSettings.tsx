@@ -23,7 +23,7 @@ const figureTabFields: Record<FigureTab, (keyof FigureStyle)[]> = {
   figure: ["title", "title_renderer", "axes_width", "axes_height", "background", "plot_background", "text_color",
     "font_family", "font_face", "font_bold", "font_italic", "title_family", "title_face", "title_size", "title_bold", "title_italic"],
   traces: ["color_cycle", "bar_width", "show_markers", "marker_size", "marker_symbol", "show_lines", "line_width", "line_dash", "marker_color", "line_color"],
-  legend: ["legend", "legend_renderer", "legend_frame", "legend_border_color", "legend_border_width", "legend_background",
+  legend: ["legend", "legend_renderer", "legend_frame", "legend_border_color", "legend_border_width", "legend_background", "legend_group_spacing",
     "legend_family", "legend_face", "legend_size", "legend_bold", "legend_italic"],
   text: ["math_alphabet", "math_preamble"],
 };
@@ -38,6 +38,7 @@ const fieldKeys: Record<string, string> = {
   "Text color": "text_color", "Figure background": "background", "Figure background color": "background",
   "Plot area background": "plot_background", "Plot area background color": "plot_background", "Position": "legend",
   "Show frame": "legend_frame", "Frame color": "legend_border_color", "Frame width (px)": "legend_border_width",
+  "Group spacing (px)": "legend_group_spacing",
   "Color cycle": "color_cycle", "Legend background": "legend_background", "Marker color": "marker_color", "Line color": "line_color",
   "Bar width (fraction)": "bar_width", "Marker size (px)": "marker_size", "Marker shape": "marker_symbol",
   "Trace line width (px)": "line_width", "Trace line style": "line_dash",
@@ -498,6 +499,8 @@ function FigureFields({ tab, style, bar, markers, line, onChange }: {
         ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"],
       ]} />
     <TextOverrides role="legend" style={style} onChange={onChange} />
+    <NumberField label="Group spacing (px)" value={style.legend_group_spacing}
+      onChange={(value) => set("legend_group_spacing", value)} />
     <Choice label="Legend text renderer" value={style.legend_renderer} onChange={(value) => set("legend_renderer", value)}
       options={textRenderers} />
     <OptionalColor label="Legend background" value={style.legend_background} fallback={style.background === "transparent" ? "#ffffff" : style.background}
@@ -549,6 +552,9 @@ function figureError(style: FigureStyle) {
   if (!/^[\p{L}\p{N}_ .'-]+$/u.test(style.font_family.trim())) return { tab: "figure" as const, message: "Enter one font family name." };
   if (![style.label_size, style.tick_size].every((size) => size >= 6 && size <= 48)) return { tab: "figure" as const, message: "Enter font sizes from 6 to 48 px." };
   if (!(style.legend_border_width >= 0 && style.legend_border_width <= 12)) return { tab: "legend" as const, message: "Enter a frame width from 0 to 12 px." };
+  if (!Number.isFinite(style.legend_group_spacing) || style.legend_group_spacing < 0) {
+    return { tab: "legend" as const, message: "Enter a group spacing of 0 px or more." };
+  }
   if (!(style.line_width >= 0.1 && style.line_width <= 12)) return { tab: "traces" as const, message: "Enter a trace line width from 0.1 to 12 px." };
   if (!(style.marker_size >= 1 && style.marker_size <= 30)) return { tab: "traces" as const, message: "Enter a marker size from 1 to 30 px." };
   if (!(style.bar_width >= 0.05 && style.bar_width <= 1)) return { tab: "traces" as const, message: "Enter a bar width from 0.05 to 1." };
