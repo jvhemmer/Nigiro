@@ -95,6 +95,8 @@ enum Action {
         source_id: Option<String>,
         column: usize,
         expression: String,
+        #[serde(default)]
+        column_name: String,
     },
     AddScalar {
         name: String,
@@ -462,8 +464,9 @@ fn prepare_request(window: &WebviewWindow, action: Action) -> Result<Option<Valu
             source_id,
             column,
             expression,
+            column_name,
         } => {
-            json!({ "action": "apply_formula", "source_id": source_id, "column": column, "expression": expression })
+            json!({ "action": "apply_formula", "source_id": source_id, "column": column, "expression": expression, "column_name": column_name })
         }
         Action::AddScalar {
             name,

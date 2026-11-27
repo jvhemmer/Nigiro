@@ -28,9 +28,10 @@ class ColumnFormulaTest(unittest.TestCase):
         path.write_text(content)
         self.worker.dispatch({"action": "import_data", "paths": [str(path)]})
 
-    def formula(self, column, expression, source_id=None):
+    def formula(self, column, expression, source_id=None, **options):
         return self.worker.dispatch({
             "action": "apply_formula", "source_id": source_id, "column": column, "expression": expression,
+            **options,
         })["project"]
 
     def test_row_wise_formula_creates_new_worksheet(self):
@@ -39,6 +40,28 @@ class ColumnFormulaTest(unittest.TestCase):
         self.assertEqual(result["original_rows"][0][1], "2")
         self.assertEqual(result["figures"], [])
         self.assertEqual(result["workflow"]["steps"][-1]["label"], "Analysis: Column Formula")
+
+    def test_output_column_name_survives_edit_save_and_replay(self):
+        project = self.formula(1, "value * 2", column_name="Current (mA)")
+        step_id = project["workflow"]["steps"][-1]["id"]
+        self.assertEqual(project["source_table"]["columns"], ("Voltage", "Current (mA)", "Time"))
+        original = next(source for source in project["sources"] if source["name"] == "Data1.csv")
+        self.assertEqual(original["columns"], ("Voltage", "Current", "Time"))
+
+        submission = self.worker.dispatch({"action": "plugin_step_inputs", "step_id": step_id})["submission"]
+        options = submission["runs"][0]["options"]
+        self.assertEqual(options["column_name"], "Current (mA)")
+        options["column_name"] = "Scaled Current"
+        self.worker.dispatch({"action": "edit_plugin_step", "step_id": step_id, "submission": submission})
+        self.worker.dispatch({"action": "run_all"})
+        path = self.root / "renamed.nigiro"
+        self.worker.dispatch({"action": "save", "path": str(path)})
+
+        reopened = Workspace()
+        reopened.dispatch({"action": "open", "path": str(path)})
+        project = reopened.dispatch({"action": "run_all"})["project"]
+        self.assertEqual(project["source_table"]["columns"], ("Voltage", "Scaled Current", "Time"))
+        self.assertEqual(tuple(row[1] for row in project["source_table"]["rows"]), ("4.0", "6.0"))
 
     def test_scalar_updates_and_bindings_survive_rename_and_reopen(self):
         scalar = self.worker.dispatch({"action": "add_scalar", "name": "SolResistance", "value": 2})["project"]
@@ -59,7 +82,7 @@ class ColumnFormulaTest(unittest.TestCase):
 
     def test_export_references_the_csv_and_keeps_the_scalar_as_a_parameter(self):
         self.worker.dispatch({"action": "add_scalar", "name": "SolResistance", "value": 2})
-        self.formula(0, "$Data1:Voltage - $Data1:Current * $SolResistance")
+        self.formula(0, "$Data1:Voltage - $Data1:Current * $SolResistance", column_name="Corrected voltage")
         self.worker.dispatch({
             "action": "run_plugin", "plugin_id": "nigiro.scatter", "version": "1", "checksum": None,
             "options": {"x": 2, "y": 0},
@@ -76,6 +99,7 @@ class ColumnFormulaTest(unittest.TestCase):
         self.assertEqual(result["sources"][2], {"name": "SolResistance", "scalar_value": 2})
         formula = next(step for step in result["plugins"].values() if step["plugin_id"] == "nigiro.column_formula")
         self.assertEqual(formula["references"]["$SolResistance"], {"source_id": "raw:1", "column": 0})
+        self.assertEqual(formula["options"]["column_name"], "Corrected voltage")
 
     def test_quoted_and_numbered_references_with_functions(self):
         self.load("Reference data.csv", "Odd label (A),Repeated,Repeated\n9,4,2\n16,9,3\n")

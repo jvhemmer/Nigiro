@@ -684,7 +684,8 @@ class Workspace:
             runs = [{**command, "target_id": None}]
         elif command["action"] == "apply_formula":
             runs = [{"source_id": command["source_id"], "target_id": None,
-                     "options": {"column": command["column"], "expression": command["expression"]}}]
+                     "options": {"column": command["column"], "expression": command["expression"],
+                                 "column_name": command.get("column_name", "")}}]
         else:
             runs = command["runs"]
         initial = {"output": command.get("output", "overlay"), "target_id": command.get("target_id"),
@@ -724,6 +725,7 @@ class Workspace:
                     continue
             new = {**command, "source_id": local.workflow.reference("source", source_id),
                    "column": worksheet.column_selection(options["column"]), "expression": options["expression"],
+                   "column_name": options.get("column_name", ""),
                    "references": local.formula_references(options["expression"], previous, stable=True)}
         elif command["action"] == "run_plugin" and command.get("figure_id") is not None:
             if len(runs) != 1:
@@ -774,6 +776,9 @@ class Workspace:
                     editors = {field["key"]: field["editor"] for field in plugin.manifest["fields"] if field.get("editor")}
             elif action == "apply_formula":
                 options, labels = [{"expression": step.request["expression"]}], {"expression": "Formula"}
+                if "column_name" in step.request:
+                    options[0]["column_name"] = step.request["column_name"]
+                    labels["column_name"] = "Output column name"
             elif action in ("add_array", "add_scalar"):
                 literal = "value" if action == "add_scalar" else "values"
                 key = "expression" if "expression" in step.request else literal
@@ -1594,7 +1599,8 @@ class Workspace:
                 recipe = PluginStep(
                     ARRAY_FORMULA_PLUGIN if array else COLUMN_FORMULA_PLUGIN, "1", None,
                     {("name" if array else "column"): request["name" if array else "column"],
-                     "expression": request["expression"]},
+                     "expression": request["expression"],
+                     **({} if array else {"column_name": request.get("column_name", "")})},
                     source_id=source_id, references=request["references"], comment=request.get("comment"),
                 )
                 result_id = len(project.operations)

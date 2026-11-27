@@ -250,6 +250,8 @@ value or a reference such as `$Source:Column` for data from another column. The 
     "fields": [
         {"key": "column", "label": "Column to calculate", "type": "column", "default": 0},
         {"key": "expression", "label": "Formula", "type": "text", "default": "value"},
+        {"key": "column_name", "label": "Output column name", "type": "text", "default": "", "optional": True,
+         "help": "Leave blank to keep the original column name."},
     ],
 }, run_column_formula)
 

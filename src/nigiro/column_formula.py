@@ -103,10 +103,16 @@ def run_column_formula(columns, rows, options, inputs):
     column = options["column"]
     if column >= len(columns):
         raise ValueError("Choose an available output column.")
+    name = options.get("column_name", "").strip()
+    output_columns = columns
+    if name and name != columns[column]:
+        if name in columns:
+            raise ValueError(f"A different column already uses the name {name!r}.")
+        output_columns = (*columns[:column], name, *columns[column + 1:])
     values = formula_values(rows, column, columns[column]) if "value" in expression.co_names else None
     output = evaluate_formula(expression, references, inputs, len(rows), values)
     return {"traces": [], "sources": {
-        "calculated": {"name": columns[column] or f"Column {column + 1}", "columns": columns,
+        "calculated": {"name": columns[column] or f"Column {column + 1}", "columns": output_columns,
                        "rows": [(*row[:column], value, *row[column + 1:]) for row, value in zip(rows, output)]},
     }}
 

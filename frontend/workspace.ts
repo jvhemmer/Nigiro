@@ -308,7 +308,7 @@ export type Request =
   | { action: "delete_step"; step_id: number }
   | { action: "move_source"; source_id: ProjectSource["id"]; destination: number; placement?: { group_id: string | null } }
   | { action: "source_group"; mode: "create" | "rename" | "toggle" | "delete"; group_id?: string; name?: string }
-  | { action: "apply_formula"; source_id: ProjectSource["id"]; column: number; expression: string }
+  | { action: "apply_formula"; source_id: ProjectSource["id"]; column: number; expression: string; column_name: string }
   | ({ action: "add_scalar"; name: string; comment?: string } & ({ value: number } | { expression: string }))
   | ({ action: "add_array"; name: string; comment?: string } & ({ values: string } | { expression: string }))
   | { action: "worksheet_page"; offset: number }

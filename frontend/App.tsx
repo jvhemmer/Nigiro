@@ -1015,7 +1015,8 @@ export function App() {
               success = await run({ action: "edit_plugin_step", step_id: pluginEdit.stepId, submission });
             } else if (inputDialog.plugin.id === columnFormulaId) {
               const { source_id, options } = submission.runs[0];
-              success = await run({ action: "apply_formula", source_id, column: Number(options.column), expression: String(options.expression) });
+              success = await run({ action: "apply_formula", source_id, column: Number(options.column),
+                expression: String(options.expression), column_name: String(options.column_name ?? "") });
             } else {
               const { id: plugin_id, version, checksum } = inputDialog.plugin;
               success = configuring ? await run({
