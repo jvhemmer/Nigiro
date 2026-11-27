@@ -5,6 +5,7 @@ import type { WorkflowStep } from "./workspace";
 
 const stepFilters = {
   rename: "Renames",
+  variables: "Variables/Arrays",
   appearance: "Figure and trace settings",
   analysis: "Analyses",
   plot: "Plots",
@@ -16,6 +17,9 @@ function stepFilter({ action, parameters, plugin }: WorkflowStep): StepFilter | 
   switch (action) {
     case "edit_item":
       return typeof parameters?.name === "string" ? "rename" : undefined;
+    case "add_scalar":
+    case "add_array":
+      return "variables";
     case "figure_style":
     case "trace_style":
     case "inspect_style":
