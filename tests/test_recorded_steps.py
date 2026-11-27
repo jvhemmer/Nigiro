@@ -599,6 +599,24 @@ class WorkflowTest(unittest.TestCase):
             self.assertFalse(replayed["sources"])
             self.assertFalse(replayed["workflow"]["needs_replay"])
 
+    def test_delete_import_removes_its_renames_and_allows_a_fresh_import(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "replacement.csv"
+            path.write_text("X,Y\n1,2\n")
+            worker = Workspace()
+            initial = worker.dispatch({"action": "sample"})["project"]
+            producer = initial["workflow"]["steps"][0]["id"]
+            for name in ("First name", "Second name"):
+                worker.dispatch({"action": "edit_item", "item": {"kind": "source", "id": None}, "name": name})
+            deleted = worker.dispatch({"action": "delete_step", "step_id": producer})["project"]
+            self.assertEqual(deleted["workflow"]["steps"], [])
+            replayed = worker.dispatch({"action": "run_all"})["project"]
+            self.assertIsNone(replayed["workflow"]["error"])
+            self.assertEqual(replayed["sources"], [])
+            imported = worker.dispatch({"action": "import_data", "paths": [str(path)]})["project"]
+            self.assertEqual(imported["workflow"]["steps"][0]["status"], "done")
+            self.assertEqual(imported["sources"][0]["name"], path.name)
+
     def test_deleted_producer_does_not_rebind_to_a_new_step(self):
         worker = Workspace()
         worker.dispatch({"action": "sample"})

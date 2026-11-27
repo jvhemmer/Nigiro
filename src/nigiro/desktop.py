@@ -1289,10 +1289,22 @@ class Workspace:
             raise ValueError("Choose a recorded step.")
         step = plan.steps[index]
         if request["action"] == "delete_step":
-            plan.next_step_id = max(plan.next_step_id, step.id + 1)
-            plan.steps.pop(index)
+            removed = {step.id}
+            if step.request["action"] == "import_data":
+                for position, candidate in enumerate(plan.steps):
+                    command = candidate.request
+                    if command["action"] != "edit_item" or command["name"] is None:
+                        continue
+                    item = command["item"]
+                    reference = item["id"]
+                    if (item["kind"] == "source" and isinstance(reference, dict)
+                        and reference["output"].startswith(f"{step.id}/source/")):
+                        removed.add(candidate.id)
+                        index = min(index, position)
+            plan.next_step_id = max(plan.next_step_id, max(removed) + 1)
+            plan.steps[:] = [candidate for candidate in plan.steps if candidate.id not in removed]
             plan.invalidate(index)
-            plan.executed.discard(step.id)
+            plan.executed.difference_update(removed)
         elif request["action"] == "move_step":
             destination = index + request["direction"]
             if not 0 <= destination < len(plan.steps):

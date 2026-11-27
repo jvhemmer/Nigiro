@@ -550,12 +550,18 @@ export function App() {
         "Nigiro will deprecate standalone workflow files soon. Save reusable workflows as Nigiro projects. To choose inputs and outputs, use File → Configure Project Workflow.",
         { title: "Import Workflow File", kind: "warning", okLabel: "Choose files", cancelLabel: "Cancel" },
       )) return false;
-      if (request.action === "delete_step" && !await confirm("Delete this recorded step? Later steps that use its outputs may fail when rerun.", {
-        title: "Delete recorded step",
-        kind: "warning",
-        okLabel: "Delete",
-        cancelLabel: "Cancel",
-      })) return false;
+      if (request.action === "delete_step") {
+        const step = projectRef.current?.workflow.steps.find(({ id }) => id === request.step_id);
+        const message = step?.action === "import_data"
+          ? "Delete this import and its source rename steps? Other steps that use this import may fail when you run them again."
+          : "Delete this recorded step? Later steps that use its outputs may fail when you run them again.";
+        if (!await confirm(message, {
+          title: "Delete recorded step",
+          kind: "warning",
+          okLabel: "Delete",
+          cancelLabel: "Cancel",
+        })) return false;
+      }
       const saving = request.action === "save" || request.action === "save_as";
       const response = await workspace(saving && draft !== null ? { ...request, notes: draft } : request);
       if (response && "import_review" in response) {

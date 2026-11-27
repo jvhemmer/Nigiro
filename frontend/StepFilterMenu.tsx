@@ -40,7 +40,7 @@ function stepFilter({ action, parameters, plugin }: WorkflowStep): StepFilter | 
 export function visibleWorkflowSteps(steps: WorkflowStep[], hidden: ReadonlySet<StepFilter>) {
   return steps.flatMap((step, index) => {
     const filter = stepFilter(step);
-    return filter && hidden.has(filter) ? [] : [{ step, index }];
+    return step.status !== "failed" && filter && hidden.has(filter) ? [] : [{ step, index }];
   });
 }
 
