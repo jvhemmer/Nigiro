@@ -1,102 +1,16 @@
 import { stepIcon } from "./actionIcons";
 import { CircuitField } from "./CircuitDesigner";
 import { FormulaEditor } from "./FormulaEditor";
-import { ListFilter, Network } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Network } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { WorkflowGraph, type WorkflowNodePositions } from "./WorkflowGraph";
+import { StepFilterMenu, visibleWorkflowSteps, type StepFilter } from "./StepFilterMenu";
 import { useListDrag } from "./useListDrag";
 import { useRevealDockPanel } from "./DockWorkspace";
 import type { PluginOptions, ProjectSource, Request, Workflow, WorkflowStep } from "./workspace";
 
 export const statusLabels = { done: "Done", stale: "Stale", pending: "Queued", failed: "Failed" };
-
-const stepFilters = {
-  appearance: "Figure and trace settings",
-  analysis: "Analyses",
-  plot: "Plots",
-  workflow: "Workflows",
-} as const;
-type StepFilter = keyof typeof stepFilters;
-
-function stepFilter({ action, plugin }: WorkflowStep): StepFilter | undefined {
-  switch (action) {
-    case "figure_style":
-    case "trace_style":
-    case "inspect_style":
-    case "color":
-      return "appearance";
-    case "plot":
-    case "overlay_figures":
-      return "plot";
-    case "fit":
-    case "apply_formula":
-    case "scale_column":
-    case "run_batch":
-      return "analysis";
-    case "execute_plugin":
-    case "run_plugin":
-      return plugin?.menu ?? "analysis";
-    case "invoke_workflow":
-      return "workflow";
-  }
-}
-
-function StepFilterMenu({ hidden, onToggle }: {
-  hidden: ReadonlySet<StepFilter>;
-  onToggle: (filter: StepFilter, shown: boolean) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const button = useRef<HTMLButtonElement>(null);
-  const popup = useRef<HTMLFieldSetElement>(null);
-  const id = useId();
-
-  useLayoutEffect(() => {
-    if (!open || !button.current || !popup.current) return;
-    const anchor = button.current.getBoundingClientRect();
-    const menu = popup.current;
-    menu.style.left = `${Math.max(0, Math.min(anchor.left, window.innerWidth - menu.offsetWidth))}px`;
-    menu.style.top = `${anchor.bottom + menu.offsetHeight <= window.innerHeight
-      ? anchor.bottom : Math.max(0, anchor.top - menu.offsetHeight)}px`;
-    menu.querySelector("input")?.focus({ preventScroll: true });
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    function dismiss(event: PointerEvent) {
-      if (event.target instanceof Node && !popup.current?.contains(event.target) && !button.current?.contains(event.target)) close();
-    }
-    document.addEventListener("pointerdown", dismiss);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("pointerdown", dismiss);
-      window.removeEventListener("resize", close);
-    };
-  }, [open]);
-
-  return <>
-    <button ref={button} type="button" className="step-filter" data-active={hidden.size > 0 || undefined}
-      aria-label="Filter recorded steps" title="Filter recorded steps" aria-expanded={open} aria-controls={open ? id : undefined}
-      onClick={() => setOpen(!open)}><ListFilter size={15} /></button>
-    {open && createPortal(
-      <fieldset ref={popup} id={id} className="step-filter-options" onKeyDown={(event) => {
-        if (event.key !== "Escape") return;
-        event.preventDefault();
-        event.stopPropagation();
-        setOpen(false);
-        button.current?.focus();
-      }}>
-        <legend>Show steps</legend>
-        {(Object.keys(stepFilters) as StepFilter[]).map((filter) => <label key={filter}>
-          <input type="checkbox" checked={!hidden.has(filter)} onChange={(event) => onToggle(filter, event.target.checked)} />
-          <span>{stepFilters[filter]}</span>
-        </label>)}
-      </fieldset>,
-      document.body,
-    )}
-  </>;
-}
 
 export function WorkflowPanel({ workflow, busy, run, onInspect, onEdit, selected }: {
   workflow: Workflow;
@@ -111,11 +25,18 @@ export function WorkflowPanel({ workflow, busy, run, onInspect, onEdit, selected
   const graphPositions = useRef<WorkflowNodePositions>({});
   const [graphOpen, setGraphOpen] = useState(false);
   const [action, setAction] = useState<"run_all" | "run_next">("run_all");
-  const [hiddenFilters, setHiddenFilters] = useState<ReadonlySet<StepFilter>>(() => new Set(["appearance"]));
-  const visibleSteps = workflow.steps.flatMap((step, index) => {
-    const filter = stepFilter(step);
-    return filter && hiddenFilters.has(filter) ? [] : [{ step, index }];
-  });
+  const [hiddenFilters, setHiddenFilters] = useState<ReadonlySet<StepFilter>>(() => new Set(["appearance", "rename"]));
+  const visibleSteps = visibleWorkflowSteps(workflow.steps, hiddenFilters);
+
+  function toggleFilter(filter: StepFilter, shown: boolean) {
+    setHiddenFilters((previous) => {
+      const next = new Set(previous);
+      if (shown) next.delete(filter);
+      else next.add(filter);
+      return next;
+    });
+  }
+
   const disabled = busy || (!workflow.needs_replay
     && (!workflow.steps.length || (action === "run_next" && workflow.completed === workflow.steps.length)));
   const numberWidth = `${String(workflow.steps.length).length + 1}ch`;
@@ -148,14 +69,7 @@ export function WorkflowPanel({ workflow, busy, run, onInspect, onEdit, selected
           </div>
         </details>
       </div>
-      <StepFilterMenu hidden={hiddenFilters} onToggle={(filter, shown) => {
-        setHiddenFilters((previous) => {
-          const next = new Set(previous);
-          if (shown) next.delete(filter);
-          else next.add(filter);
-          return next;
-        });
-      }} />
+      <StepFilterMenu hidden={hiddenFilters} onToggle={toggleFilter} />
       <button type="button" className="step-filter" aria-label="View as flowchart" title="View as flowchart"
         onClick={() => setGraphOpen(true)}><Network size={15} /></button>
     </div>
@@ -180,7 +94,7 @@ export function WorkflowPanel({ workflow, busy, run, onInspect, onEdit, selected
       })}
     </ol>
     {graphOpen && createPortal(<WorkflowGraph steps={workflow.steps} statusLabels={statusLabels} busy={busy}
-      initialPositions={graphPositions.current} onClose={(positions) => {
+      hiddenFilters={hiddenFilters} onToggleFilter={toggleFilter} initialPositions={graphPositions.current} onClose={(positions) => {
         graphPositions.current = positions;
         setGraphOpen(false);
       }} onEdit={onEdit} onSelect={(step) => onInspect(step.id)} />, document.body)}

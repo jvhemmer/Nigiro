@@ -1,6 +1,7 @@
 import { Maximize, Minus, Plus, RotateCcw, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { stepIcon } from "./actionIcons";
+import { StepFilterMenu, visibleWorkflowSteps, type StepFilter } from "./StepFilterMenu";
 import type { WorkflowPort, WorkflowStep } from "./workspace";
 
 const nodeWidth = 240;
@@ -24,10 +25,10 @@ type Node = Point & {
 type Drag = Point & { start: Point; stepId?: number };
 const clampZoom = (zoom: number) => Math.max(minZoom, Math.min(maxZoom, zoom));
 
-function arrange(steps: WorkflowStep[]) {
+function arrange(steps: { step: WorkflowStep; index: number }[]) {
   const byStep = new Map<number, Node>();
   const nextRow = new Map<number, number>();
-  for (const [index, step] of steps.entries()) {
+  for (const { index, step } of steps) {
     const inputs = step.ports?.inputs ?? [];
     const outputs = step.ports?.outputs ?? [];
     const sources = inputs.flatMap(({ producer }) => {
@@ -54,10 +55,12 @@ function editable(step: WorkflowStep | undefined) {
   return !!(step?.parameters || step?.files?.length);
 }
 
-export function WorkflowGraph({ steps, statusLabels, busy, initialPositions, onClose, onEdit, onSelect }: {
+export function WorkflowGraph({ steps, statusLabels, busy, hiddenFilters, onToggleFilter, initialPositions, onClose, onEdit, onSelect }: {
   steps: WorkflowStep[];
   statusLabels: Record<WorkflowStep["status"], string>;
   busy: boolean;
+  hiddenFilters: ReadonlySet<StepFilter>;
+  onToggleFilter: (filter: StepFilter, shown: boolean) => void;
   initialPositions: WorkflowNodePositions;
   onClose: (positions: WorkflowNodePositions) => void;
   onEdit: (step: WorkflowStep) => void;
@@ -69,7 +72,8 @@ export function WorkflowGraph({ steps, statusLabels, busy, initialPositions, onC
   const [selected, setSelected] = useState<number>();
   const [zoom, setZoom] = useState(1);
   const [positions, setPositions] = useState(initialPositions);
-  const layout = useMemo(() => arrange(steps), [steps]);
+  const layout = useMemo(() => arrange(visibleWorkflowSteps(steps, hiddenFilters)), [steps, hiddenFilters]);
+  const stepOrder = useMemo(() => new Map(steps.map(({ id }, index) => [id, index])), [steps]);
   const nodes = layout.map((node) => ({ ...node, ...positions[node.step.id] }));
   const byStep = new Map(nodes.map((node) => [node.step.id, node]));
   const width = nodes.reduce((right, node) => Math.max(right, node.x + nodeWidth + margin), 2 * margin);
@@ -125,12 +129,13 @@ export function WorkflowGraph({ steps, statusLabels, busy, initialPositions, onC
     <header className="workflow-graph-header">
       <h2>Recorded steps flowchart</h2>
       <div className="workflow-graph-tools">
+        <StepFilterMenu hidden={hiddenFilters} onToggle={onToggleFilter} portalContainer={dialog} />
         <button type="button" aria-label="Zoom out" title="Zoom out" disabled={zoom <= minZoom}
           onClick={() => setZoom((value) => clampZoom(value / 1.25))}><Minus size={15} /></button>
         <output aria-label="Zoom level">{Math.round(zoom * 100)}%</output>
         <button type="button" aria-label="Zoom in" title="Zoom in" disabled={zoom >= maxZoom}
           onClick={() => setZoom((value) => clampZoom(value * 1.25))}><Plus size={15} /></button>
-        <button type="button" aria-label="Fit flowchart" title="Fit flowchart" disabled={!steps.length}
+        <button type="button" aria-label="Fit flowchart" title="Fit flowchart" disabled={!nodes.length}
           onClick={fit}><Maximize size={15} /></button>
         <button type="button" aria-label="Reset node positions" title="Reset node positions" disabled={!Object.keys(positions).length}
           onClick={() => setPositions({})}><RotateCcw size={15} /></button>
@@ -142,7 +147,7 @@ export function WorkflowGraph({ steps, statusLabels, busy, initialPositions, onC
         if (!(event.target instanceof Element) || event.target.closest(".workflow-node")) return;
         start(event);
       }} onPointerMove={move} onLostPointerCapture={stop}>
-      {!nodes.length ? <p className="dock-empty">Record a step to see it here.</p> :
+      {!nodes.length ? <p className="dock-empty">{steps.length ? "No steps match the filters." : "Record a step to see it here."}</p> :
         <div className="workflow-graph-size" style={{ width: width * zoom, height: height * zoom }}>
           <div className="workflow-graph-canvas" style={{ width, height, transform: `scale(${zoom})` }}>
             <svg className="workflow-graph-connections" width={width} height={height} aria-hidden="true">
@@ -172,10 +177,10 @@ export function WorkflowGraph({ steps, statusLabels, busy, initialPositions, onC
                 </button>
                 <div className="workflow-node-ports">
                   <ul role="list" aria-label="Inputs">{inputs.map((port) => {
-                    const source = port.producer === undefined ? undefined : byStep.get(port.producer);
-                    const invalid = port.producer !== undefined && (!source || source.index >= index);
+                    const producerOrder = port.producer === undefined ? undefined : stepOrder.get(port.producer);
+                    const invalid = port.producer !== undefined && (producerOrder === undefined || producerOrder >= index);
                     return <li key={port.id} data-invalid={invalid || undefined}
-                      title={invalid ? `${port.label} · ${source ? "Producer runs later" : "Producer was removed"}` : port.label}>
+                      title={invalid ? `${port.label} · ${producerOrder === undefined ? "Producer was removed" : "Producer runs later"}` : port.label}>
                       {port.label}
                     </li>;
                   })}</ul>
